@@ -61,6 +61,8 @@ js/trade-share.js                        → Phase 4 canvas compositor + Web Sha
 supabase/migrations/20260825120000_trade_zone.sql → Trade Zone schema, storage buckets, RLS, and RPC functions — run in Supabase SQL editor
 js/show-mode.js                   → Show Mode v2 (flag show_mode_v2): routing, outbox, captures, identification, all Show Mode screens — loaded by app.html before its main script (bump its ?v= on change)
 js/show-mode-scan.js              → Show Mode case scan (screens A–D): per-photo queue, review, commit — loaded right after js/show-mode.js
+js/cost-tracking.js               → Stock codes + private cost/profit (owner-only) — loaded after js/show-mode-scan.js; see "Cost Tracking & Stock Codes"
+supabase/migrations/20261114120000_cost_tracking.sql → inventory.stock_code (+ key, unique per seller), stock_code_counters, assign_stock_codes()/set_stock_code(), inventory_costs, transaction_costs (owner-only RLS)
 netlify/functions/cardsight-identify.js → Serverless: POST {image_base64, media_type} → CardSight catalog identification (Show Mode; runs beside scan-card.js)
 netlify/functions/card-image.js   → Serverless: GET ?id=<CardSight catalog id> → stock card image, CDN-cached 30 days (Show Mode Phase 4)
 supabase/migrations/20261030120000_show_mode_images.sql → inventory.catalog_card_id, sellers.share_handle, backfill of existing photos — see "Phase 4"
@@ -314,6 +316,10 @@ Required for GTCR registration (Phase 4, see "Trust Check via GTCR" below):
 `supabase/migrations/20260930120000_gtcr_registration_lifecycle.sql` — adds `owner_email`, GTCR's
 registration ids, `seller_linked`, and a `failed` status to `gtcr_registrations`. Run it after the
 Trust Check migration below.
+
+Required for Cost Tracking & Stock Codes (see that section below):
+`supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
+before; costs stay in memory for the session and no stock codes are given out.
 
 Required for Trust Check via GTCR (see that section below):
 `supabase/migrations/20260925120000_gtcr_trust_check.sql`. It adds `inventory.trust_flag` and three
@@ -2531,6 +2537,11 @@ migration, no new external library.
 - **Seller self-join (session 2026-10-27)** — sellers add themselves to a show with
   "+ Join a show"; organizers see a "joined themselves" tag and can switch it off per show;
   Show Mode requires joining first. See "Seller Self-Join".
+
+- **Cost Tracking & Stock Codes, Phase 1 (session 2026-11-14)** — private cost per card, stock
+  codes (S/R/B/L or custom) with code search and "Assign codes", profit on Sell Drawer / Manual Sale /
+  Show Mode sales, "Add cost" after a sale. See "Cost Tracking & Stock Codes". **Requires
+  `20261114120000_cost_tracking.sql`.** Phases 2 (quick-sale bar, import, lot split) and 3 (P&L) not built.
 
 ### Tier 1 — Ship before beta show
 - **Tighten RLS policies** (urgent, high complexity) — replace `using (true)` with `auth.uid() = seller_id`
@@ -5843,6 +5854,74 @@ nothing, reviewer writes and self-insert refused). **Not run live yet.**
 **Spec items that don't fit this schema:** `social_posts.show_id` / `transaction_id` (show and sale
 are tracked per slab in `social_extractions`, and `shows.id` is text); the spec's per-item "price
 type" field (v2 only records sold sales and has sold/asking price sources instead).
+
+## Cost Tracking & Stock Codes (session 2026-11-14)
+
+From dealer feedback ("I gave each card a code name — slab 1, 2, 3… singles 1, 2, 3 — so when I sell I
+can log it fast"). Build Spec v1; **Phase 1 is built.** Phase 2 (quick-sale bar, bulk import, lot cost
+split) and Phase 3 (show P&L, CSV export) are not.
+
+### Decisions (Stephen, 2026-11-14)
+- **`transaction_costs` is keyed by `client_sale_id`**, not `show_floor_transactions.id`. Every sale now
+  gets a phone-generated id: the Sell Drawer (`sdConfirm()`) and Log a Manual Sale set
+  `card._clientSaleId`, and the ledger row carries it (unique index from the Show Mode migration).
+  So a queued cost write is an idempotent upsert, an offline sale needs no server id, and an off-show
+  sale (no ledger row) still has a cost copy. Both ledger inserts retry without `client_sale_id` if
+  that column is missing.
+- **Phase 2's quick-sale bar will go through `record_sale()` / `void_sale()`** (Show Mode's path), for
+  its 10-minute undo and dedupe. Not built yet.
+- **Prefixes:** `S` graded (numeric grade — the app's own graded test), `R` everything else,
+  `B` sealed, `L` lots. Quick-sale words: slab→S, single/raw→R, box/sealed→B, lot/bundle→L.
+
+### Database (`20261114120000_cost_tracking.sql`, re-runnable)
+- `inventory.stock_code` + generated `stock_code_key` (`upper`, letters/digits only), unique per
+  `seller_id`. Not secret (inventory is publicly readable); never rendered on buyer pages.
+- `stock_code_counters` (owner-only) + `next_stock_code(prefix)`.
+- `assign_stock_codes(ids[])` codes the caller's uncoded cards in the order given, skipping numbers a
+  dealer typed by hand. `set_stock_code(id, code)` returns `{ok}` / `{error:'duplicate', card_title}`.
+  Both SECURITY INVOKER and check `seller_id = auth.uid()`.
+- `inventory_costs` (PK `inventory_id`, cascade on delete) and `transaction_costs` (PK
+  `client_sale_id`; `inventory_id` set null on delete; `show_id`, `sale_price`, `cost_at_sale`,
+  `sold_at`). Owner-only RLS (`owner_id = auth.uid()`, default `auth.uid()`), anon revoked.
+- Cost is **never** on `inventory`, `show_inventory` or `show_floor_transactions`.
+
+### App (`js/cost-tracking.js`)
+- In memory: `card.StockCode` (from `dbRowToCard`), `card.CostBasis` / `CostAcquiredAt` /
+  `CostAcquiredFrom` / `CostNotes` (from `costHydrate()` on login). `cardToDbRow()` writes neither,
+  so `updateCardInDB()` can't fail on a duplicate code or leak a cost.
+- **Writes after the insert:** `insertCardToDB()` calls `costAfterInsert(card, id)` (covers Add Card,
+  POS, bulk scan, Manual Sale); CSV import and Show Mode `add_item` call it too. It writes a waiting
+  `card._pendingCost`, sets a typed code (`_pendingStockCode`, falls back to an automatic one on a
+  duplicate) or queues auto-assignment (batched, 400ms, one RPC). Sold-on-creation cards get no code.
+- **Offline:** every write tries once, and on a network error goes into Show Mode's IndexedDB outbox
+  (new op types `cost_upsert`, `sale_cost`, `sale_cost_delete`, `stock_codes`, `stock_code_set`, run
+  by `costRunOp()`). `smDrain()` now drains again if an op was queued mid-drain. Missing tables /
+  functions set a flag and drop the write (pre-migration). A card added offline in the classic view
+  is still not saved to the DB at all (existing behavior), so its cost isn't either.
+- **UI:** stock code field + collapsed "🔒 Cost (private)" (paid, date, from, notes on Edit; unrealized
+  profit hint) in Add Card and Edit Card; inline duplicate error blocks Save. Cost field in the POS
+  review, the bulk-scan card blocks and the Manual Sale drawer. Code chip in the inventory table;
+  search matches codes ("s12", "S-12", "slab 12"). "🏷 Assign codes" toolbar button (unsold cards
+  shown in the table, in table order). Feature guide entries.
+- **Sales:** `costRecordSale(card, clientSaleId, {showId, price})` copies the cost; the toast adds
+  "Profit +$35" / "Loss −$20". With no cost, sellers who have entered any cost see an "Add cost" pill
+  (`#costAddBar`, bottom — top is taken by first-use tips) → small dialog that saves both the card
+  cost and the sale copy. Show Mode: cost copy queued right after the `sale` op; the sold screen shows
+  profit or "Add cost"; undo deletes the copy (or cancels it if still queued).
+- Share card renderer and caption carry `// NEVER render cost/profit/payment method`.
+
+### Tests
+`tests/show-mode/cost-tracking.test.sql` (19 checks: prefixes, order, skipping hand-typed numbers,
+duplicates, RLS for owner / other dealer / organizer / anon, cost copy unchanged by later edits),
+`cost-tracking.e2e.mjs` (41 checks, iPhone 13 + Pixel 7), `cost-tracking-legacy.e2e.mjs` (migration
+not run). The mock now honors a single-column `onConflict` and implements the two stock-code RPCs.
+
+### Open
+- Edit Card cost on a card sold in an earlier session doesn't update that sale's copy (no sale id in
+  memory after a reload). Phase 3's P&L will list uncosted sales with a quick-add link.
+- Show Mode "Log a sale" / "Add & sell" have no cost input yet (the classic Manual Sale does).
+- Organizer RLS on `show_floor_transactions` is assumed readable by everyone (not tracked in
+  migrations); the cost tables don't depend on that answer.
 
 ## Show Configuration (Demo Data)
 - **MLP Card Show** — Oct 17-18, 2026 · Grand Hyatt Tampa Bay, FL · Code: MLPTPA (primary demo, shown to buyers without code)

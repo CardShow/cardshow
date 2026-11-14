@@ -2578,6 +2578,81 @@
     from { transform: translateY(100%); }
     to   { transform: translateY(0); }
   }
+
+  /* ── Cost Tracking & Stock Codes (js/cost-tracking.js) — dealer-only UI ── */
+  .stock-chip {
+    display: inline-block; font-family: 'DM Mono', monospace; font-size: 0.62rem;
+    letter-spacing: 0.04em; font-weight: 600; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 4px; padding: 0.05rem 0.3rem;
+    margin-right: 0.4rem; vertical-align: 1px; white-space: nowrap;
+  }
+  .cost-opt { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 0.74rem; }
+  .cost-field-err { color: var(--danger); font-size: 0.74rem; margin-top: 0.25rem; min-height: 0; }
+  .cost-field-err:empty { display: none; }
+  .show-input.cost-input-bad { border-color: var(--danger); }
+  details.cost-private { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+  details.cost-private > summary {
+    cursor: pointer; list-style: none; padding: 0.6rem 0.75rem; font-size: 0.82rem;
+    font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 0.4rem;
+  }
+  details.cost-private > summary::-webkit-details-marker { display: none; }
+  details.cost-private > summary::after { content: '▾'; margin-left: auto; color: var(--muted); }
+  details.cost-private[open] > summary::after { content: '▴'; }
+  .cost-summary-val { font-family: 'DM Mono', monospace; color: var(--accent); font-size: 0.78rem; }
+  .cost-private-body { display: flex; flex-direction: column; gap: 0.55rem; padding: 0 0.75rem 0.75rem; }
+  .cost-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; }
+  .cost-input-wrap {
+    display: flex; align-items: center; gap: 0.3rem; background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px; padding: 0 0.6rem;
+  }
+  .cost-input-wrap span { color: var(--muted); font-family: 'DM Mono', monospace; }
+  .cost-input-wrap input {
+    flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: var(--text);
+    padding: 0.55rem 0; font-size: 0.95rem; font-family: 'DM Sans', sans-serif;
+  }
+  .cost-hint { font-size: 0.78rem; color: var(--muted); }
+  .cost-hint:empty { display: none; }
+  .cost-hint b { color: var(--accent); font-family: 'DM Mono', monospace; }
+  .cost-hint b.neg { color: var(--danger); }
+  .cost-private-note { font-size: 0.72rem; color: var(--muted); }
+  /* Bottom-left on desktop (the toast is bottom-right); on phones it sits above
+     the toast and The Drop's bar. Not at the top: first-use tips live there. */
+  #costAddBar {
+    position: fixed; left: 2rem; bottom: 2rem; z-index: 975;
+    display: none; align-items: center; gap: 0.6rem; max-width: calc(100vw - 32px);
+    background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+    padding: 0.4rem 0.5rem 0.4rem 0.9rem; font-size: 0.85rem; color: var(--text);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  }
+  #costAddBar.show { display: flex; }
+  @media (max-width: 767px) {
+    #costAddBar { left: 50%; transform: translateX(-50%); bottom: calc(9.5rem + env(safe-area-inset-bottom, 0px)); }
+  }
+  #costAddBar .cost-bar-btn {
+    background: var(--accent); color: var(--black); border: 0; border-radius: 999px;
+    padding: 0.35rem 0.8rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; min-height: 32px;
+  }
+  #costAddBar .cost-bar-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 0.9rem; padding: 0.3rem; }
+  .cost-quick-overlay {
+    position: fixed; inset: 0; z-index: 1300; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  .cost-quick-overlay.open { display: flex; }
+  .cost-quick {
+    width: 100%; max-width: 340px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 1.1rem; display: flex; flex-direction: column; gap: 0.6rem;
+  }
+  .cost-quick-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.35rem; letter-spacing: 0.04em; }
+  .cost-quick-sub { font-size: 0.8rem; color: var(--muted); }
+  .cost-quick-actions { display: flex; gap: 0.5rem; align-items: center; }
+  .cost-quick-actions .btn-primary { flex: 1; }
+  .sm-sold-profit { font-weight: 800; font-size: 16px; margin-top: 10px; }
+  .sm-sold-profit span { font-weight: 600; opacity: 0.75; }
+  .sm-sold-profit.neg { color: #8a1c1c; }
+  .sm-sold-addcost {
+    margin-top: 10px; background: transparent; border: 2px solid var(--sm-ink); color: var(--sm-ink);
+    border-radius: 999px; padding: 6px 14px; font-weight: 800; font-size: 14px; cursor: pointer; min-height: 40px;
+  }
   .drop-prompt-text {
     flex: 1; font-size: 0.85rem; color: var(--text);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -5721,6 +5796,7 @@
           <input type="text" class="search-input" id="sellerSearchInput" placeholder="Search cards…" oninput="applyInventoryFilters()">
           <button class="btn btn-ghost" id="selectAllBtn" onclick="selectAll()" style="display:none">Select All</button>
           <button class="btn btn-ghost" id="compCheckBtn" onclick="runCompCheck(getCompCheckCards())" style="display:none;font-size:0.8rem" title="Look up market prices for selected cards (or all available if none selected)">💲 Check Comps</button>
+          <button class="btn btn-ghost" id="assignCodesBtn" onclick="assignStockCodesBulk()" style="display:none;font-size:0.8rem" title="Give a stock code (S-1, R-1, B-1, L-1) to every unsold card that doesn't have one">🏷 Assign codes</button>
           <button class="btn btn-ghost" id="sportValidateBtn" onclick="runSportValidation(getSportValidationCards())" style="display:none;font-size:0.8rem" title="Look up sport via PriceCharting for selected cards with no sport badge (or all such cards if none selected)">🏷️ Validate Sport</button>
           <div style="position:relative;display:none" id="exportInventoryWrap">
             <button class="btn btn-ghost" id="exportInventoryBtn" style="font-size:0.8rem" onclick="toggleExportInventoryMenu(event)" title="Export your inventory for Shopify, TCGplayer, Ludex, Flipwise, and other platforms">⬇ Export Inventory</button>
@@ -6154,8 +6230,37 @@
         </div>
         <div>
           <div class="section-label" style="margin-bottom:0.3rem">Asking Price ($)</div>
-            <input class="show-input" id="ac_price" placeholder="e.g. 250" style="margin:0">
+            <input class="show-input" id="ac_price" placeholder="e.g. 250" style="margin:0" oninput="costFormHint('ac')">
           </div>
+
+        <!-- Stock code + private cost (js/cost-tracking.js). Cost is owner-only. -->
+        <div>
+          <div class="section-label" style="margin-bottom:0.3rem">Stock Code <span class="cost-opt">optional</span></div>
+          <input class="show-input" id="ac_code" maxlength="24" autocomplete="off" placeholder="Auto" style="margin:0;font-family:'DM Mono',monospace" oninput="costCodeInput('ac')" onfocus="acRefreshCodePlaceholder()">
+          <div class="cost-field-err" id="ac_code_err"></div>
+        </div>
+        <details class="cost-private" id="ac_cost_details">
+          <summary>🔒 Cost (private) <span class="cost-summary-val" id="ac_cost_summary"></span></summary>
+          <div class="cost-private-body">
+            <div class="cost-grid">
+              <div>
+                <div class="section-label" style="margin-bottom:0.3rem">What you paid</div>
+                <div class="cost-input-wrap"><span>$</span><input id="ac_cost" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" oninput="costFormHint('ac')"></div>
+              </div>
+              <div>
+                <div class="section-label" style="margin-bottom:0.3rem">Acquired</div>
+                <input class="show-input" id="ac_cost_date" type="date" style="margin:0">
+              </div>
+            </div>
+            <div>
+              <div class="section-label" style="margin-bottom:0.3rem">From <span class="cost-opt">optional</span></div>
+              <input class="show-input" id="ac_cost_from" placeholder="e.g. eBay, show buy, trade" style="margin:0">
+            </div>
+            
+            <div class="cost-hint" id="ac_cost_hint"></div>
+            <div class="cost-private-note">Only you can see this. Buyers, organizers and share cards never show it.</div>
+          </div>
+        </details>
 
         <!-- Inline market value comp — populated by _acFetchComp() after scan/grade entry -->
         <div id="ac_comp_row" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:0.55rem 0.75rem;align-items:center;justify-content:space-between;gap:0.5rem">
@@ -6446,8 +6551,40 @@
         </div>
         <div>
           <div class="section-label" style="margin-bottom:0.3rem">Asking Price ($)</div>
-          <input class="show-input" id="cem_price" placeholder="e.g. 250" style="margin:0">
+          <input class="show-input" id="cem_price" placeholder="e.g. 250" style="margin:0" oninput="costFormHint('cem')">
         </div>
+
+        <!-- Stock code + private cost (js/cost-tracking.js). Cost is owner-only. -->
+        <div>
+          <div class="section-label" style="margin-bottom:0.3rem">Stock Code <span class="cost-opt">optional</span></div>
+          <input class="show-input" id="cem_code" maxlength="24" autocomplete="off" placeholder="Auto" style="margin:0;font-family:'DM Mono',monospace" oninput="costCodeInput('cem')">
+          <div class="cost-field-err" id="cem_code_err"></div>
+        </div>
+        <details class="cost-private" id="cem_cost_details">
+          <summary>🔒 Cost (private) <span class="cost-summary-val" id="cem_cost_summary"></span></summary>
+          <div class="cost-private-body">
+            <div class="cost-grid">
+              <div>
+                <div class="section-label" style="margin-bottom:0.3rem">What you paid</div>
+                <div class="cost-input-wrap"><span>$</span><input id="cem_cost" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00" oninput="costFormHint('cem')"></div>
+              </div>
+              <div>
+                <div class="section-label" style="margin-bottom:0.3rem">Acquired</div>
+                <input class="show-input" id="cem_cost_date" type="date" style="margin:0">
+              </div>
+            </div>
+            <div>
+              <div class="section-label" style="margin-bottom:0.3rem">From <span class="cost-opt">optional</span></div>
+              <input class="show-input" id="cem_cost_from" placeholder="e.g. eBay, show buy, trade" style="margin:0">
+            </div>
+            <div>
+              <div class="section-label" style="margin-bottom:0.3rem">Notes <span class="cost-opt">optional</span></div>
+              <input class="show-input" id="cem_cost_notes" style="margin:0">
+            </div>
+            <div class="cost-hint" id="cem_cost_hint"></div>
+            <div class="cost-private-note">Only you can see this. Buyers, organizers and share cards never show it.</div>
+          </div>
+        </details>
 
         <div>
           <div class="section-label" style="margin-bottom:0.3rem">Status</div>
@@ -6772,6 +6909,18 @@
               <input id="posRPrice" class="pos-inp pos-price-inp"
                 type="number" inputmode="decimal" step="0.01"
                 placeholder="0.00">
+            </div>
+          </div>
+
+          <div class="pos-field pos-field-full">
+            <label class="pos-lbl" for="posRCost">
+              🔒 Your Cost <span class="pos-opt">optional · only you see this</span>
+            </label>
+            <div class="pos-price-wrap">
+              <span class="pos-price-sym">$</span>
+              <input id="posRCost" class="pos-inp pos-price-inp"
+                type="number" inputmode="decimal" step="0.01" min="0"
+                placeholder="What you paid">
             </div>
           </div>
         </div>
@@ -7532,8 +7681,9 @@
 </div>
 
 <!-- Show Mode v2 (flag show_mode_v2). Bump ?v= when it changes: the service worker caches by URL. -->
-<script src="/js/show-mode.js?v=20261104a"></script>
+<script src="/js/show-mode.js?v=20261114a"></script>
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
+<script src="/js/cost-tracking.js?v=20261114a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -9390,6 +9540,10 @@ function bulkScanCardBlockHTML(c, idx) {
           <div class="section-label" style="margin-bottom:0.3rem">Price ($)</div>
           <input class="show-input" data-field="price" placeholder="e.g. 25" style="margin:0">
         </div>
+        <div>
+          <div class="section-label" style="margin-bottom:0.3rem">🔒 Cost ($) <span class="cost-opt">private</span></div>
+          <input class="show-input" data-field="cost" type="number" inputmode="decimal" step="0.01" min="0" placeholder="What you paid" style="margin:0">
+        </div>
       </div>
       ${notesHtml}
     </div>
@@ -9563,12 +9717,16 @@ async function confirmBulkScanReview() {
       Location:           null,
       Seller:             currentSeller,
       item_type:          'card',
+      _cost:              costParse(val('cost')),
     };
   });
 
   const normalized = rawCards.map(r => {
+    const cost = r._cost; delete r._cost;
     const c = validateAndNormalizeCard(r);
     c._shows = new Set();
+    // Private cost waits on the card until insertCardToDB() has its id.
+    if (cost != null) costSave(c, { cost_basis: cost, acquired_at: _todayISO() });
     return c;
   });
   normalized.forEach(c => inventory.push(c));
@@ -10861,7 +11019,7 @@ function renderSellerTable(rows) {
     <tr id="inv-row-${realIdx}">
       <td class="checkbox-cell"><input type="checkbox" class="card-check" data-idx="${realIdx}" ${status !== 'Sold' ? 'checked' : ''} onchange="updateBulkDeleteVisibility()"></td>
       <td>
-        <div class="card-title" style="${status === 'Sold' ? 'opacity:0.4;text-decoration:line-through' : ''}">${r['Card Title'] || '—'}</div>
+        <div class="card-title" style="${status === 'Sold' ? 'opacity:0.4;text-decoration:line-through' : ''}">${stockCodeChipHTML(r)}${r['Card Title'] || '—'}</div>
         <div class="card-sub" style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--muted);margin-top:0.15rem">
           ${r.item_type === 'sealed' ? `<span style="background:#1e3a5f;color:#60a5fa;font-size:0.58rem;padding:0.1rem 0.35rem;border-radius:4px;margin-right:0.3rem;font-family:'DM Mono',monospace">📦 SEALED</span>` : r.item_type === 'lot' ? `<span style="background:#2d1b5e;color:#a78bfa;font-size:0.58rem;padding:0.1rem 0.35rem;border-radius:4px;margin-right:0.3rem;font-family:'DM Mono',monospace">📋 LOT</span>` : ''}${[r.Player, r.Year, getSet(r)].filter(Boolean).join(' · ')}
         </div>
@@ -10919,9 +11077,12 @@ function setCondition(realIdx, value) {
 function applyInventoryFilters() {
   const scoped = getSellerInventory();
   const q = (document.getElementById('sellerSearchInput')?.value || '').toLowerCase();
+  // "s12", "S-12" or "slab 12" finds stock code S-12 (exact, or codes starting with it).
+  const qKey = stockCodeQueryKey(q);
 
   let filtered = scoped.filter(r =>
     !q ||
+    (qKey && r.StockCode && stockCodeKey(r.StockCode).startsWith(qKey)) ||
     (r.Player || '').toLowerCase().includes(q) ||
     (r['Card Title'] || '').toLowerCase().includes(q) ||
     (getSet(r) || '').toLowerCase().includes(q) ||
@@ -12012,6 +12173,9 @@ function sdConfirm() {
   card.SaleNotes     = document.getElementById('sdNotes').value || null;
   card.SoldTime      = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   card.SoldDate      = _todayISO(); // a Sell Drawer sale is always "now" — no backdating
+  // One id per sale: the ledger row carries it (exactly-once), and the private
+  // cost copy (transaction_costs) is keyed by it — js/cost-tracking.js.
+  card._clientSaleId = costUuid();
 
   closeSellDrawer();
   updateCardInDB(card); // also schedules a GTCR reconcile, which removes this card's registration
@@ -12023,11 +12187,13 @@ function sdConfirm() {
     _autoPublishCardToShow(card, card._dbId, saleShowId);
   }
   recordShowTransaction(card, saleShowId);   // ← fire-and-forget, no await
+  costRecordSale(card, card._clientSaleId, { showId: saleShowId, price });   // fire-and-forget, owner-only
   syncBuyerView();
   updateStats();
   updateReport();
   renderSellerTable(getSellerInventory());
-  showToast(`✓ ${card.Player || 'Card'} · $${price.toLocaleString()} · ${card.PaymentMethod}`); // closeSellDrawer() already cleared sdSelectedPayment
+  showToast(`✓ ${card.Player || 'Card'} · $${price.toLocaleString()} · ${card.PaymentMethod}${costProfitSuffix(card, price)}`); // closeSellDrawer() already cleared sdSelectedPayment
+  costMaybePromptAdd(card);
   showTipOnce('firstSale');
 
   // "The Drop" — post-sale share prompt. Gated by the opt-in preference;
@@ -12107,6 +12273,7 @@ function _dropVenueLabel(showId) {
 // Rendered fresh on every open/style change — no DB write, purely local.
 // Async because a required card photo (see the photo-capture step below)
 // has to load before it can be drawn into the canvas.
+// NEVER render cost/profit/payment method — the image is meant to be posted publicly.
 async function renderShareCard(canvas, card, style, venueLabel) {
   style = style || 'dark';
   const ctx = canvas.getContext('2d');
@@ -12333,6 +12500,7 @@ async function _dropRenderReady() {
 // (CardShow handle + core hashtags) appended after it, not merged into
 // it — so the tracked-on line and hashtags persist even if the seller
 // edits their own caption text.
+// NEVER include cost/profit/payment method in a caption.
 function generateCaptionBody(card, venueLabel) {
   // Autograph status already folds into 'Parallel/Variant' text elsewhere
   // in this app (e.g. "Gold Refractor Auto"), so no separate Auto tag here.
@@ -12682,7 +12850,7 @@ function _posReset() {
   _posShowPhotoOptions();
 
   ['posRPlayer','posRYear','posRSet','posRCardNum','posRParallel',
-   'posRGrade','posRCert','posRPrice','posRGraderOther'].forEach(id => {
+   'posRGrade','posRCert','posRPrice','posRCost','posRGraderOther'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.value = ''; el.classList.remove('pos-filled'); }
   });
@@ -12954,6 +13122,7 @@ async function posInsertAndOpenDrawer() {
   const grader   = _resolveGraderValue('posRGrader', 'posRGraderOther');
   const cert     = document.getElementById('posRCert').value.trim();
   const price    = parseFloat(document.getElementById('posRPrice').value) || 0;
+  const cost     = costParse(document.getElementById('posRCost')?.value);
 
   // Field names match cardToDbRow()'s expectations exactly — 'Parallel/Variant'
   // and 'Cert #', not the shorter 'Parallel'/'Cert' — and validateAndNormalizeCard()
@@ -12977,6 +13146,9 @@ async function posInsertAndOpenDrawer() {
 
   const card = validateAndNormalizeCard(rawCard);
   card._shows = new Set();
+  // Private cost: waits on the card until insertCardToDB() has its id, then
+  // sdConfirm() copies it into transaction_costs with the sale.
+  if (cost != null) costSave(card, { cost_basis: cost, acquired_at: _todayISO() });
 
   // Flags this card as POS-originated so sdConfirm() (below, shared with
   // every other Sell Drawer confirm) treats its post-sale Drop prompt the
@@ -13598,6 +13770,8 @@ function loginAsSeller(handle, opts) {
   if (compBtn) compBtn.style.display = '';
   const sportValidateBtn = document.getElementById('sportValidateBtn');
   if (sportValidateBtn) sportValidateBtn.style.display = '';
+  const assignCodesBtn = document.getElementById('assignCodesBtn');
+  if (assignCodesBtn) assignCodesBtn.style.display = '';
   const exportInvWrap = document.getElementById('exportInventoryWrap');
   if (exportInvWrap) exportInvWrap.style.display = '';
   const sidebarToggleBtn = document.getElementById('sidebarToggle');
@@ -13674,6 +13848,7 @@ function loginAsSeller(handle, opts) {
       if (_smShowId) smRefresh(); // "In case" depends on the card._shows just loaded
       gtcrHydrateLatestChecks(); // badges + "Registry clear" markers survive a reload
       gtcrHydrateRegistrations(); // "Registered with GTCR" markers
+      costHydrate().then(_costRerender); // private costs (owner-only table)
       _gsDataReady = true; // the checklist waits for real data, so returning sellers never see a false "0 done"
       gsRender();
     }
@@ -13782,6 +13957,8 @@ function loginAsAdmin(opts = {}) {
   if (compBtnAdm) compBtnAdm.style.display = 'none';
   const sportValidateBtnAdm = document.getElementById('sportValidateBtn');
   if (sportValidateBtnAdm) sportValidateBtnAdm.style.display = 'none';
+  const assignCodesBtnAdm = document.getElementById('assignCodesBtn');
+  if (assignCodesBtnAdm) assignCodesBtnAdm.style.display = 'none';
   const exportInvWrapAdm = document.getElementById('exportInventoryWrap');
   if (exportInvWrapAdm) { exportInvWrapAdm.style.display = 'none'; closeExportInventoryMenu(); }
   const sidebarToggleBtnAdm = document.getElementById('sidebarToggle');
@@ -13927,6 +14104,8 @@ async function signOut() {
   if (compBtnSO) compBtnSO.style.display = 'none';
   const sportValidateBtnSO = document.getElementById('sportValidateBtn');
   if (sportValidateBtnSO) sportValidateBtnSO.style.display = 'none';
+  const assignCodesBtnSO = document.getElementById('assignCodesBtn');
+  if (assignCodesBtnSO) assignCodesBtnSO.style.display = 'none';
   const exportInvWrapSO = document.getElementById('exportInventoryWrap');
   if (exportInvWrapSO) { exportInvWrapSO.style.display = 'none'; closeExportInventoryMenu(); }
   const sidebarToggleBtnSO = document.getElementById('sidebarToggle');
@@ -13965,6 +14144,7 @@ async function signOut() {
 
   // Clear scan history
   _scanHistory = [];
+  costReset(); // cost-tracking prompts + pending code batch
   _renderScanHistory();
 }
 
@@ -16610,6 +16790,7 @@ function openAddCard() {
   tcClearPickerState();
   _acHideComp();
   acSetType('card');
+  costFormFill('ac', null);
   document.getElementById('addCardOverlay').classList.add('open');
 }
 
@@ -17616,6 +17797,8 @@ function saveAddCard() {
   const title = document.getElementById('ac_title').value.trim();
   const labelMap = { card: 'Card Title', sealed: 'Product Name', lot: 'Lot Title' };
   if (!title) { showToast(`${labelMap[_acItemType] || 'Title'} is required`, 'var(--danger)'); return; }
+  const costForm = costFormRead('ac', null);
+  if (!costForm) return;   // duplicate stock code — inline error shown
 
   // Category/Subcategory Taxonomy — applies to all item types (a sealed
   // box or lot can be classified the same way a single card can).
@@ -17683,6 +17866,7 @@ function saveAddCard() {
 
   const card = validateAndNormalizeCard(rawCard);
   card._shows = new Set();
+  costFormApply(card, costForm);   // waits on the card until insertCardToDB() has an id
   inventory.push(card);
 
   // Persist to Supabase and store the returned UUID on the card
@@ -18048,6 +18232,7 @@ function switchSellerTab(tab) {
     if (selectAllBtn) selectAllBtn.style.display = 'none';
     if (compCheckBtn) compCheckBtn.style.display = 'none';
     if (sportValidateBtn) sportValidateBtn.style.display = 'none';
+    const acb = document.getElementById('assignCodesBtn'); if (acb) acb.style.display = 'none';
     if (exportInvWrap) { exportInvWrap.style.display = 'none'; closeExportInventoryMenu(); }
     populateReportShowSelector();
     updateReport();
@@ -18061,6 +18246,7 @@ function switchSellerTab(tab) {
     if (selectAllBtn) selectAllBtn.style.display = '';
     if (compCheckBtn) compCheckBtn.style.display = '';
     if (sportValidateBtn) sportValidateBtn.style.display = '';
+    const acb = document.getElementById('assignCodesBtn'); if (acb) acb.style.display = '';
     if (exportInvWrap) exportInvWrap.style.display = '';
   }
   gsRender();
@@ -21208,6 +21394,8 @@ const FEATURE_GUIDE = [
   { group: 'Price and manage', items: [
     { icon: '💲', name: 'Check comps', desc: 'Look up recent market prices for the cards you select (or all unsold cards) and update your prices.', action: () => _helpPoint('compCheckBtn') },
     { icon: '🏷️', name: 'Validate sport', desc: 'Fills in the sport for cards that show no sport badge.', action: () => _helpPoint('sportValidateBtn') },
+    { icon: '🏷', name: 'Stock codes', desc: 'Short codes like S-12 (slabs), R-40 (raw), B-3 (sealed), L-1 (lots). New cards get one automatically; "Assign codes" numbers the rest. Search "slab 12" to find a card fast.', action: () => _helpPoint('assignCodesBtn') },
+    { icon: '🔒', name: 'Cost & profit', desc: 'Add what you paid under "Cost (private)" when adding or editing a card. Sales then show your profit. Only you can see it.', action: () => openAddCard() },
     { icon: '⬇', name: 'Export inventory', desc: 'Download your unsold cards as CSV or Excel to list them on other platforms.', action: () => _helpPoint('exportInventoryBtn') },
   ]},
   { group: 'Protect your cards (GTCR)', items: [
@@ -21770,6 +21958,7 @@ function openCEM(idx) {
   document.getElementById('cem_price').value     = card.Price != null ? card.Price : '';
   document.getElementById('cem_status').value    = card.Status              || 'Available';
   document.getElementById('cem_location').value  = card.Location            || '';
+  costFormFill('cem', card);
 
   cemToggle();
   document.getElementById('cardEditOverlay').classList.add('open');
@@ -21981,6 +22170,8 @@ function saveCEM() {
   if (!card) return;
   const title = document.getElementById('cem_title').value.trim();
   if (!title) { showToast('Card Title is required', 'var(--danger)'); return; }
+  const costForm = costFormRead('cem', card);
+  if (!costForm) return;   // duplicate stock code — inline error shown
 
   const grader = _resolveGraderValue('cem_grader', 'cem_grader_other');
   const category = document.getElementById('cem_category').value || null;
@@ -22003,6 +22194,7 @@ function saveCEM() {
   card.Price               = parseFloat(document.getElementById('cem_price').value) || 0;
   card.Status              = document.getElementById('cem_status').value || 'Available';
   card.Location            = document.getElementById('cem_location').value.trim() || null;
+  costFormApply(card, costForm);   // its own owner-only writes; never part of updateCardInDB()
 
   closeCEM();
   renderSellerTable(getSellerInventory());
@@ -22184,6 +22376,7 @@ function dbRowToCard(row) {
     _primaryCaptureId:  row.primary_capture_id   || null,   // seller photo (card_captures)
     _imageSource:       row.image_source         || null,
     TrustClearAt:       row.trust_clear_at       || null,
+    StockCode:          row.stock_code           || '',     // dealer's code (S-12) — written only by set/assign_stock_code RPCs
     _shows:          new Set(),
   };
   if (row.sold_price     != null) card.SoldPrice     = row.sold_price;
@@ -22323,6 +22516,8 @@ function openManualSaleModal() {
 
   const priceEl = document.getElementById('mslPrice');
   if (priceEl)  priceEl.value = '';
+  const costEl = document.getElementById('mslCost');
+  if (costEl)   costEl.value = '';
 
   _mslPayment = '';
   const pmEl = document.getElementById('mslPayment');
@@ -22585,6 +22780,7 @@ async function confirmManualSale() {
   const notes    = (document.getElementById('mslNotes')?.value    || '').trim();
   const showId   = document.getElementById('mslShow')?.value      || null;
   const saleDate = document.getElementById('mslSaleDate')?.value  || _todayISO();
+  const cost     = costParse(document.getElementById('mslCost')?.value);
 
   // ── Disable button ────────────────────────────────────
   const btn = document.getElementById('mslConfirmBtn');
@@ -22641,6 +22837,10 @@ async function confirmManualSale() {
     parallel_serial: null, player_name: player || null,
   });
   card.DetectedConfidence = _mslScanConfidence; // audit trail of the scan, if one was used
+  // Private cost waits on the card until insertCardToDB() has its id; the sale
+  // id keys both the ledger row and the private cost copy (js/cost-tracking.js).
+  if (cost != null) costSave(card, { cost_basis: cost, acquired_at: saleDate });
+  card._clientSaleId = costUuid();
 
   // ── Step 1: Push to inventory[] ───────────────────────
   // Before any network await — Report tab updates feel instant.
@@ -22680,6 +22880,8 @@ async function confirmManualSale() {
   // function reads activeShowId as a global and would use the wrong
   // show when the seller is logging a past-show sale.
   recordManualSaleTransaction(card, targetShowId);  // fire-and-forget
+  // Extra last step: private cost copy. Never changes the steps above.
+  costRecordSale(card, card._clientSaleId, { showId: targetShowId, price });
 
   // ── Step 6: Refresh UI ────────────────────────────────
   closeManualSaleModal();
@@ -22689,8 +22891,9 @@ async function confirmManualSale() {
   syncBuyerView();
 
   showToast(
-    `✓ ${player.slice(0, 28)} · $${price.toLocaleString()} · ${payment} · logged`
+    `✓ ${player.slice(0, 28)} · $${price.toLocaleString()} · ${payment} · logged${costProfitSuffix(card, price)}`
   );
+  costMaybePromptAdd(card);
   showTipOnce('firstSale');
 
   // "The Drop" — post-sale share prompt. 'manual_only' opts in specifically
@@ -22782,6 +22985,8 @@ async function recordManualSaleTransaction(card, showId) {
       api_eligible:   true,
       data_version:   1,
     };
+    // Same id as the private cost copy (transaction_costs) — exactly-once ledger row.
+    if (card._clientSaleId) row.client_sale_id = card._clientSaleId;
 
     let { error } = await db
       .from('show_floor_transactions')
@@ -22795,6 +23000,11 @@ async function recordManualSaleTransaction(card, showId) {
     if (error && _isMissingScanColumnError(error)) {
       delete row.category;
       delete row.subcategory;
+      ({ error } = await db.from('show_floor_transactions').insert(row));
+    }
+
+    if (error && row.client_sale_id && /client_sale_id/.test(error.message || '')) {
+      delete row.client_sale_id;   // before the Show Mode migration
       ({ error } = await db.from('show_floor_transactions').insert(row));
     }
 
@@ -23411,6 +23621,10 @@ async function insertCardToDB(card, sellerIdOverride) {
     // awaits this same in-flight check instead of starting a second one.
     gtcrCheckCard(card, data.id, 'insert');
     gtcrScheduleReconcile(); // registers it with GTCR, if the seller opted in
+    // Private cost + stock code, written after the insert so neither can delay
+    // or block it (js/cost-tracking.js). Covers Add Card, POS, bulk scan and
+    // Log a Manual Sale, which all insert through here.
+    costAfterInsert(card, data.id);
     return data.id; // return the UUID so we can store it on the card
   } catch(e) {
     console.warn('insertCardToDB error:', e.message);
@@ -23625,6 +23839,12 @@ async function _insertShowTransaction(card, showId) {
       delete row.subcategory;
       ({ error } = await db.from('show_floor_transactions').insert(row));
     }
+    // Before the Show Mode migration there's no client_sale_id column; the sale
+    // still goes in, just without the exactly-once guard.
+    if (error && row.client_sale_id && /client_sale_id/.test(error.message || '')) {
+      delete row.client_sale_id;
+      ({ error } = await db.from('show_floor_transactions').insert(row));
+    }
 
     if (error) {
       // Non-fatal — log but never surface to seller during a sale
@@ -23736,6 +23956,8 @@ async function upsertCardsToDB(cards) {
     if (insertedIds.length === toInsertCards.length) {
       toInsertCards.forEach((card, i) => { if (insertedIds[i] && !card._dbId) card._dbId = insertedIds[i]; });
       _gtcrQueueChecks(toInsertCards);
+      // Stock codes for the new cards (one batched RPC, in file order).
+      toInsertCards.forEach((card, i) => { if (insertedIds[i]) costAfterInsert(card, insertedIds[i]); });
       gtcrScheduleReconcile(5000);
     }
 
@@ -24264,6 +24486,20 @@ async function submitPasswordReset() {
           <input class="sold-price-input" id="mslPrice"
             type="number" inputmode="decimal"
             step="0.01" min="0" placeholder="0.00">
+        </div>
+      </div>
+
+      <!-- Private cost — optional, owner-only (js/cost-tracking.js) -->
+      <div>
+        <div class="drawer-field-label">
+          🔒 Your Cost
+          <span style="color:var(--muted);font-size:10px;margin-left:3px">optional · only you see this</span>
+        </div>
+        <div class="sold-price-wrap">
+          <span class="sold-price-sym">$</span>
+          <input class="sold-price-input" id="mslCost"
+            type="number" inputmode="decimal"
+            step="0.01" min="0" placeholder="What you paid">
         </div>
       </div>
 

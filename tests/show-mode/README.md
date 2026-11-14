@@ -19,6 +19,8 @@ node show-status.e2e.mjs "iPhone 13"         # Show status follows the dates (Up
 node images.e2e.mjs "iPhone 13"              # Phase 4: card images, catalog ids, share-card photo + handle opt-in
 node double-sale-offline.e2e.mjs "iPhone 13" # double-sale dialog + offline inventory (cards and shows saved on the device)
 node auth-signout.e2e.mjs "iPhone 13"        # sign out → the sign-in button works again (was stuck on "Loading…")
+node cost-tracking.e2e.mjs "iPhone 13"      # stock codes, private cost, profit on sales, offline replay
+node cost-tracking-legacy.e2e.mjs "iPhone 13" # same, before the cost migration has run
 node card-image.test.mjs                     # netlify/functions/card-image.js with CardSight stubbed (no browser)
 ```
 Set `CHROMIUM_PATH` to use a specific Chromium (the cloud container has `/opt/pw-browsers/chromium`).
@@ -39,4 +41,5 @@ psql -d cs_test -f show-status.test.sql      # runs 20261029120000_show_auto_sta
 psql -d cs_test -f show-mode-images.test.sql # runs 20261030120000_show_mode_images.sql itself (twice)
 psql -d cs_test -f delete-show.test.sql      # runs 20261031120000_delete_show.sql itself (twice)
 psql -d cs_test -f show-directory-social.test.sql # runs 20261105120000_show_directory_social_sales.sql itself (twice)
+psql -d cs_cost -f cost-tracking.test.sql    # fresh db + supabase-stub.sql; runs 20261114120000_cost_tracking.sql itself (twice)
 ```
