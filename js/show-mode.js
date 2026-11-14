@@ -143,10 +143,12 @@ const smStore = {
 // Outbox: every server write Show Mode makes goes through here, in order, so a
 // sale made with no signal replays exactly once (record_sale is idempotent on
 // client_sale_id). Ops: capture_row, capture_update, sale, void, add_item,
-// attach_capture.
+// attach_capture, plus the cost/stock-code writes from js/cost-tracking.js
+// (cost_upsert, sale_cost, sale_cost_delete, stock_codes, stock_code_set).
 // Photo uploads run separately (_smUploadCaptures) since they're large.
 // ════════════════════════════════════════════════════════════════════════════
 let _smDraining = false;
+let _smDrainAgain = false;        // an op was queued during a drain → drain again after
 let _smDrainTimer = null;
 let _smDrainDelay = 5000;
 let _smRpcMissing = false;        // record_sale/void_sale not installed → classic writes
@@ -157,6 +159,7 @@ async function smEnqueue(op) {
   op.queuedAt = Date.now();
   try { await smStore.put('outbox', op); }
   catch (e) { console.warn('[show-mode] outbox unavailable, running op directly', e); return _smRunOp(op); }
+  if (_smDraining) _smDrainAgain = true;
   smDrain();
 }
 
@@ -202,6 +205,7 @@ async function smDrain() {
   } else {
     _smDrainDelay = 5000;
     _smUploadCaptures();
+    if (_smDrainAgain) { _smDrainAgain = false; setTimeout(smDrain, 0); }
   }
   smRefresh();
 }
@@ -217,6 +221,11 @@ async function _smRunOp(op) {
       case 'void':           return await _smOpVoid(op);
       case 'add_item':       return await _smOpAddItem(op);
       case 'attach_capture': return await _smOpAttachCapture(op);
+      case 'cost_upsert':
+      case 'sale_cost':
+      case 'sale_cost_delete':
+      case 'stock_codes':
+      case 'stock_code_set': return typeof costRunOp === 'function' ? await costRunOp(op) : 'done';
       default:               return 'done';
     }
   } catch (e) {
@@ -367,8 +376,9 @@ async function _smOpVoid(op) {
   if (res.data && res.data.error === 'undo_window_expired') {
     showToast('Too late to undo — it\'s been more than 10 minutes', 'var(--danger)');
     if (card) _smRefetchCard(card);
-  } else if (typeof gtcrScheduleReconcile === 'function') {
-    gtcrScheduleReconcile(); // the card is back in the case: re-register it if the seller opted in
+  } else {
+    if (typeof gtcrScheduleReconcile === 'function') gtcrScheduleReconcile(); // the card is back in the case: re-register it if the seller opted in
+    if (typeof costDeleteSale === 'function') costDeleteSale(op.clientSaleId);  // the sale is gone, so is its cost copy
   }
   return 'done';
 }
@@ -393,6 +403,7 @@ async function _smOpAddItem(op) {
   }
   if (card && card !== op.cardSnapshot) card._smPending = false;
   if (op.showId && card) _autoPublishCardToShow(card, op.inventoryId, op.showId);
+  if (card && typeof costAfterInsert === 'function') costAfterInsert(card, op.inventoryId);   // stock code
   if (card && typeof gtcrCheckCard === 'function') gtcrCheckCard(card, op.inventoryId, 'insert');
   // Added by upsert, not insertCardToDB(), so schedule the GTCR reconcile here.
   if (typeof gtcrScheduleReconcile === 'function') gtcrScheduleReconcile();
@@ -2310,6 +2321,8 @@ async function smMarkSold() {
       buyerHandle: d.buyerHandle || '', soldDate, soldTime, captureId: d.captureId || null, source,
     },
   });
+  // Private cost copied at the moment of sale; queued after the sale op so it replays in order.
+  if (typeof costRecordSale === 'function') costRecordSale(card, clientSaleId, { showId: _smShowId, price, queue: true });
   if (d.captureId) {
     smUpdateCapture(d.captureId, { attachedTo: card._dbId });
     _smLogEvent('capture_attached', { entryPoint: source === 'manual_sale' ? 'manual_sale' : 'sell_card', attachType: source === 'manual_sale' ? 'manual_sale' : (isNew ? 'new_item' : 'existing_item') });
@@ -2352,6 +2365,10 @@ async function smUndoSale(clientSaleId, opts) {
     // Never reached the server: cancel it. A card created by Add & sell or a
     // manual sale still goes into the case (with its photo), as Available.
     await smStore.del('outbox', pending.seq);
+    try {   // and its private sale cost, if that's still waiting too
+      const costOp = (await smStore.all('outbox')).find(o => o.type === 'sale_cost' && o.clientSaleId === clientSaleId);
+      if (costOp) await smStore.del('outbox', costOp.seq);
+    } catch (_) {}
     if (pending.payload.newItem) {
       card._smPending = true;
       await smEnqueue({ type: 'add_item', inventoryId: card._dbId, cardSnapshot: _smSnapshot(card), captureId: pending.payload.captureId, showId: pending.payload.showId, source: pending.payload.source });
@@ -2410,6 +2427,7 @@ function smRenderSold(clientSaleId) {
       <h1 class="sm-sold-title">Sold!</h1>
       <div class="sm-sold-detail">${smEsc(card.Player || card['Card Title'] || 'Card')} · ${_smMoney(card.SoldPrice)} · ${smEsc(card.PaymentMethod)}</div>
       <div class="sm-sold-sub">That's sale #${soldToday.length} today. ${_smMoney(total)} total.${card._smPending ? ' <span class="sm-sync sm-sync--dark">Syncing</span>' : ''}</div>
+      ${typeof costSoldLineHTML === 'function' ? costSoldLineHTML(card) : ''}
       <button class="sm-primary sm-primary--ink" onclick="smStartSell('sold_next')">Sell next card</button>
       <div class="sm-sold-actions">
         <button class="sm-sec-btn" onclick="smShareSale('${smEsc(card._clientSaleId || id)}')">${_smIcon('share')}Share sale</button>

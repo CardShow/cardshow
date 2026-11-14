@@ -49,7 +49,8 @@
             if (table === 'show_floor_transactions' && row.client_sale_id && T.some(r => r.client_sale_id === row.client_sale_id)) {
               out = { data:null, error:{ message:'duplicate key value violates unique constraint', code:'23505' }, status:409 }; continue;
             }
-            const existing = T.find(r => r.id === row.id);
+            const key = opts.onConflict && !opts.onConflict.includes(',') ? opts.onConflict : 'id';
+            const existing = T.find(r => r[key] != null && r[key] === row[key]);
             if (existing) { if (op === 'upsert' && !opts.ignoreDuplicates) Object.assign(existing, row); }
             else T.push(row);
           }
@@ -178,6 +179,28 @@
         S.shows = S.shows.filter(r => r.id !== a.p_show_id);
         data = { ok:true };
       }
+    } else if (name === 'assign_stock_codes') {
+      // Same rules as the SQL: S graded / R raw / B sealed / L lot, next free number, skips taken keys.
+      const key = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      S.stock_code_counters = S.stock_code_counters || {};
+      data = [];
+      for (const id of a.p_ids) {
+        const inv = S.inventory.find(r => r.id === id && r.seller_id === UID);
+        if (!inv || inv.stock_code) continue;
+        const pre = inv.item_type === 'sealed' ? 'B' : inv.item_type === 'lot' ? 'L' : /^[0-9]+(\.[0-9]+)?$/.test(String(inv.grade ?? '')) ? 'S' : 'R';
+        let code;
+        do { const n = S.stock_code_counters[pre] || 1; S.stock_code_counters[pre] = n + 1; code = pre + '-' + n; }
+        while (S.inventory.some(r => r.seller_id === UID && r.stock_code && key(r.stock_code) === key(code)));
+        inv.stock_code = code; data.push({ id, stock_code: code });
+      }
+    } else if (name === 'set_stock_code') {
+      const key = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const inv = S.inventory.find(r => r.id === a.p_id && r.seller_id === UID);
+      const code = String(a.p_code || '').trim() || null;
+      const dup = code && S.inventory.find(r => r.seller_id === UID && r.id !== a.p_id && r.stock_code && key(r.stock_code) === key(code));
+      if (!inv) data = { error: 'not_found' };
+      else if (dup) data = { error: 'duplicate', card_id: dup.id, card_title: dup.card_title };
+      else { inv.stock_code = code; data = { ok: true, stock_code: code }; }
     } else if (name === 'void_sale') {
       const s = S.sales.find(x => x.client_sale_id === a.p_client_sale_id);
       if (s.status === 'voided') data = { voided:false, status:'voided' };
