@@ -100,7 +100,8 @@ function _smIdb() {
     if (!('indexedDB' in window)) { reject(new Error('no_indexeddb')); return; }
     // v2 (Phase 3): scanBatches + scanPhotos for case scans (js/show-mode-scan.js).
     // v3: cache (inventory + shows for an offline reload) and conflicts (double sales).
-    const req = indexedDB.open('cardshow-showmode', 3);
+    // v4: snapSales (Snap & Sell captures with their photos, js/snap-sell.js).
+    const req = indexedDB.open('cardshow-showmode', 4);
     req.onupgradeneeded = () => {
       const d = req.result;
       if (!d.objectStoreNames.contains('captures')) d.createObjectStore('captures', { keyPath: 'id' });
@@ -109,6 +110,7 @@ function _smIdb() {
       if (!d.objectStoreNames.contains('scanPhotos')) d.createObjectStore('scanPhotos', { keyPath: 'id' });
       if (!d.objectStoreNames.contains('cache')) d.createObjectStore('cache', { keyPath: 'key' });
       if (!d.objectStoreNames.contains('conflicts')) d.createObjectStore('conflicts', { keyPath: 'clientSaleId' });
+      if (!d.objectStoreNames.contains('snapSales')) d.createObjectStore('snapSales', { keyPath: 'clientSaleId' });
     };
     req.onsuccess = () => {
       const d = req.result;
@@ -144,7 +146,8 @@ const smStore = {
 // sale made with no signal replays exactly once (record_sale is idempotent on
 // client_sale_id). Ops: capture_row, capture_update, sale, void, add_item,
 // attach_capture, plus the cost/stock-code writes from js/cost-tracking.js
-// (cost_upsert, sale_cost, sale_cost_delete, stock_codes, stock_code_set).
+// (cost_upsert, sale_cost, sale_cost_delete, stock_codes, stock_code_set) and
+// Snap & Sell's from js/snap-sell.js (snap_sale, snap_void, snap_resolve).
 // Photo uploads run separately (_smUploadCaptures) since they're large.
 // ════════════════════════════════════════════════════════════════════════════
 let _smDraining = false;
@@ -226,6 +229,9 @@ async function _smRunOp(op) {
       case 'sale_cost_delete':
       case 'stock_codes':
       case 'stock_code_set': return typeof costRunOp === 'function' ? await costRunOp(op) : 'done';
+      case 'snap_sale':
+      case 'snap_void':
+      case 'snap_resolve':   return typeof ssRunOp === 'function' ? await ssRunOp(op) : 'retry';
       default:               return 'done';
     }
   } catch (e) {
@@ -1403,6 +1409,7 @@ function smRefresh() {
   _smLoadRemoteThumbs().then(changed => { if (changed) smRefresh(); });
   if (_smScreen === 'home') smRenderHome();
   else if (_smScreen === 'inventory') smRenderInventoryList();
+  else if (_smScreen === 'needs' && !_smPath().split('/').filter(Boolean)[1] && typeof ssRenderNeedsList === 'function') ssRenderNeedsList();
   else if (_smScreen === 'sold') smRenderSold();
 }
 
@@ -1436,6 +1443,8 @@ function smRoute() {
     case 'sold':      return smRenderSold(parts[1]);
     case 'inventory': return smRenderInventory();
     case 'scans':     return smRenderScans();
+    case 'snap':      return ssRenderCapture();
+    case 'needs':     return parts[1] ? ssRenderEditor(decodeURIComponent(parts[1])) : ssRenderNeedsList();
     case 'add':       return scRoute(parts);
     default:          _smScreen = 'home'; return smRenderHome();
   }
@@ -1483,7 +1492,10 @@ function smRenderHome() {
   const today = _todayISO();
   const mine = getSellerInventory();
   const soldToday = mine.filter(r => r.Status === 'Sold' && r.SoldDate === today);
-  const salesTotal = soldToday.reduce((s, r) => s + (Number(r.SoldPrice) || 0), 0);
+  const snapToday = typeof ssTodayTotals === 'function' ? ssTodayTotals() : { count: 0, total: 0 };
+  const salesTotal = soldToday.reduce((s, r) => s + (Number(r.SoldPrice) || 0), 0) + snapToday.total;
+  const salesCount = soldToday.length + snapToday.count;
+  const needsCount = typeof ssNeedsDetails === 'function' ? ssNeedsDetails().length : 0;
   const available = mine.filter(r => r.Status !== 'Sold');
   const onShow = available.filter(r => r._shows instanceof Set && r._shows.has(show.id)).length;
 
@@ -1496,7 +1508,11 @@ function smRenderHome() {
   const recent = mine.filter(r => r.Status === 'Sold')
     .sort((a, b) => (_smSaleTime(b) || 0) - (_smSaleTime(a) || 0))
     .slice(0, 5);
-  const recentHTML = recent.length ? recent.map(r => {
+  const cardRows = recent.map(r => ({ t: (_smSaleTime(r) || 0).valueOf(), html: _smRecentRowHTML(r) }));
+  const snapRows = typeof ssHomeRows === 'function' ? ssHomeRows() : [];
+  const rows = cardRows.concat(snapRows).sort((a, b) => b.t - a.t).slice(0, 5);
+  const recentHTML = rows.length ? rows.map(x => x.html).join('') : '<div class="sm-empty">No sales yet. Your sales show up here.</div>';
+  function _smRecentRowHTML(r) {
     const name = r.Player || r['Card Title'] || 'Card';
     const meta = [_smMoney(r.SoldPrice), r.PaymentMethod, _smRelTime(_smSaleTime(r))].filter(Boolean).map(smEsc).join(' · ');
     const sync = r._smPending ? '<span class="sm-sync">Syncing</span>' : '';
@@ -1509,7 +1525,7 @@ function smRenderHome() {
         <div class="sm-row-meta">${meta} ${sync}</div>
       </div>${undo}
     </div>`;
-  }).join('') : '<div class="sm-empty">No sales yet. Your sales show up here.</div>';
+  }
 
   const offline = _smOfflineSince ? `
     <div class="sm-notice sm-notice--offline" role="status">
@@ -1532,7 +1548,7 @@ function smRenderHome() {
       <div class="sm-live-meta">${metaBits.join(' · ')}</div>
     </div>
     <div class="sm-stats" aria-live="polite">
-      <div class="sm-stat"><div class="sm-stat-num">${soldToday.length}</div><div class="sm-stat-label">Sold today</div></div>
+      <div class="sm-stat"><div class="sm-stat-num">${salesCount}</div><div class="sm-stat-label">Sold today</div></div>
       <div class="sm-stat"><div class="sm-stat-num">${_smMoney(salesTotal)}</div><div class="sm-stat-label">Sales</div></div>
       <div class="sm-stat"><div class="sm-stat-num">${available.length}</div><div class="sm-stat-label">In case</div></div>
     </div>
@@ -1546,6 +1562,8 @@ function smRenderHome() {
     </button>
     <div class="sm-secondary">
       ${typeof scHomeBannerHTML === 'function' ? scHomeBannerHTML() : ''}
+      ${typeof ssStart === 'function' ? `<button class="sm-sec-btn sm-sec-btn--snap" onclick="ssStart('home')">${_smIcon('image')}<span><strong>Snap &amp; Sell</strong><span class="sm-sec-sub">Photo + total now, card details later</span></span>${_smIcon('chev', 'sm-chev')}</button>` : ''}
+      ${needsCount ? `<button class="sm-sec-btn" onclick="smGo('/needs')">${_smIcon('pen')}Needs details<span class="sm-badge sm-badge--warn" style="margin-left:8px">${needsCount}</span>${_smIcon('chev', 'sm-chev')}</button>` : ''}
       <button class="sm-sec-btn" onclick="smOpenAddSheet()" aria-haspopup="dialog">${_smIcon('plus')}Add cards${_smIcon('chev', 'sm-chev')}</button>
       <button class="sm-sec-btn" onclick="smStartManualSale()">${_smIcon('pen')}Log a manual sale${_smIcon('chev', 'sm-chev')}</button>
       <button class="sm-sec-btn" onclick="smRefreshPrices()">${_smIcon('refresh')}Refresh prices${_smIcon('chev', 'sm-chev')}</button>
@@ -1557,6 +1575,7 @@ function smRenderHome() {
 function _smHeaderHTML() {
   return `<div class="sm-header">
     <div class="sm-wordmark">Card<span>Show</span></div>
+    ${typeof ssSyncPillHTML === 'function' ? ssSyncPillHTML() : ''}
     <button class="sm-icon-btn" onclick="openProfile()" aria-label="Your account">${_smIcon('user')}</button>
   </div>`;
 }

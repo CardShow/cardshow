@@ -28,7 +28,10 @@
       in(c,vs){ filters.push(r=>vs.map(String).includes(String(r[c]))); return b; },
       is(c,v){ filters.push(r=> v===null ? (r[c]==null) : r[c]===v); return b; },
       gte(c,v){ filters.push(r=> String(r[c]) >= String(v)); return b; },
-      not(c,o,v){ if (o==='is' && v===null) filters.push(r=>r[c]!=null); return b; }, lte(){ return b; }, ilike(){ return b; }, or(){ return b; }, filter(){ return b; },
+      not(c,o,v){
+        if (o==='is' && v===null) filters.push(r=>r[c]!=null);
+        if (o==='in') { const vs = String(v).replace(/^\(|\)$/g,'').split(',').filter(Boolean); filters.push(r=>!vs.includes(String(r[c]))); }
+        return b; }, lte(){ return b; }, ilike(){ return b; }, or(){ return b; }, filter(){ return b; },
       maybeSingle(){ single=true; return b; }, single(){ single=true; return b; },
       insert(p){ op='insert'; payload=p; return b; },
       upsert(p,o){ op='upsert'; payload=p; opts=o||{}; return b; },
@@ -201,6 +204,24 @@
       if (!inv) data = { error: 'not_found' };
       else if (dup) data = { error: 'duplicate', card_id: dup.id, card_title: dup.card_title };
       else { inv.stock_code = code; data = { ok: true, stock_code: code }; }
+    } else if (name === 'void_snap_sale') {
+      // Same rules as the SQL (20261115120000_snap_sell.sql).
+      const s = (S.snap_sales || []).find(x => x.client_sale_id === a.p_client_sale_id);
+      if (!s) data = { error: 'not_found' };
+      else if (s.voided_at) data = { voided: true, already: true };
+      else if ((s.capture_status || 'needs_review') !== 'needs_review') data = { error: 'resolved' };
+      else {
+        s.voided_at = new Date().toISOString();
+        S.transaction_items = (S.transaction_items || []).filter(i => i.sale_key !== s.client_sale_id);
+        const tx = S.show_floor_transactions.find(t => t.client_sale_id === s.client_sale_id);
+        if (tx) S.show_floor_transactions.push(Object.assign({}, tx, { id:'rev_'+tx.id, client_sale_id:null, sold_price:-tx.sold_price, voids_transaction_id:tx.id }));
+        data = { voided: true };
+      }
+    } else if (name === 'show_sale_item_counts') {
+      data = (S.snap_sales || []).filter(x => x.show_id === a.p_show_id && !x.voided_at).map(x => ({
+        client_sale_id: x.client_sale_id,
+        items: (S.transaction_items || []).filter(i => i.sale_key === x.client_sale_id).length || x.item_count_hint || 1,
+      }));
     } else if (name === 'void_sale') {
       const s = S.sales.find(x => x.client_sale_id === a.p_client_sale_id);
       if (s.status === 'voided') data = { voided:false, status:'voided' };

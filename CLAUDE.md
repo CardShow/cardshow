@@ -63,6 +63,8 @@ js/show-mode.js                   → Show Mode v2 (flag show_mode_v2): routing,
 js/show-mode-scan.js              → Show Mode case scan (screens A–D): per-photo queue, review, commit — loaded right after js/show-mode.js
 js/cost-tracking.js               → Stock codes + private cost/profit (owner-only) — loaded after js/show-mode-scan.js; see "Cost Tracking & Stock Codes"
 supabase/migrations/20261114120000_cost_tracking.sql → inventory.stock_code (+ key, unique per seller), stock_code_counters, assign_stock_codes()/set_stock_code(), inventory_costs, transaction_costs (owner-only RLS)
+js/snap-sell.js                   → Snap & Sell: photo + total now, card details later (Show Mode screens #/sm/<show>/snap and /needs) — loaded after js/cost-tracking.js; see "Snap & Sell"
+supabase/migrations/20261115120000_snap_sell.sql → snap_sales, transaction_items (+ backfill + ledger trigger), transaction_photos, private sale-photos bucket, void_snap_sale(), show_sale_item_counts(); ledger source 'snap'
 netlify/functions/cardsight-identify.js → Serverless: POST {image_base64, media_type} → CardSight catalog identification (Show Mode; runs beside scan-card.js)
 netlify/functions/card-image.js   → Serverless: GET ?id=<CardSight catalog id> → stock card image, CDN-cached 30 days (Show Mode Phase 4)
 supabase/migrations/20261030120000_show_mode_images.sql → inventory.catalog_card_id, sellers.share_handle, backfill of existing photos — see "Phase 4"
@@ -316,6 +318,11 @@ Required for GTCR registration (Phase 4, see "Trust Check via GTCR" below):
 `supabase/migrations/20260930120000_gtcr_registration_lifecycle.sql` — adds `owner_email`, GTCR's
 registration ids, `seller_linked`, and a `failed` status to `gtcr_registrations`. Run it after the
 Trust Check migration below.
+
+Required for Snap & Sell (see that section below), after the Show Mode sales migration:
+`supabase/migrations/20261115120000_snap_sell.sql`. Until it runs, a Snap & Sell sale still writes its
+ledger row (source falls back to `'manual'` if the source check refuses `'snap'`), but nothing else
+reaches the server: photos and Needs details stay on the phone, and undo after sync isn't possible.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -2542,6 +2549,11 @@ migration, no new external library.
   codes (S/R/B/L or custom) with code search and "Assign codes", profit on Sell Drawer / Manual Sale /
   Show Mode sales, "Add cost" after a sale. See "Cost Tracking & Stock Codes". **Requires
   `20261114120000_cost_tracking.sql`.** Phases 2 (quick-sale bar, import, lot split) and 3 (P&L) not built.
+- **Snap & Sell, Phase 1 (session 2026-11-15)** — photo of the items + photo of the payment + the
+  total, saved on the phone in well under a second and synced later; "Needs details" to add the
+  cards afterward. Organizer Analytics GMV now reads the ledger. See "Snap & Sell". **Requires
+  `20261115120000_snap_sell.sql`.** Phases 2 (background AI identification, buyer-search hold) and 3
+  (full inbox, item costs, payment-photo retention) not built.
 
 ### Tier 1 — Ship before beta show
 - **Tighten RLS policies** (urgent, high complexity) — replace `using (true)` with `auth.uid() = seller_id`
@@ -5922,6 +5934,109 @@ not run). The mock now honors a single-column `onConflict` and implements the tw
 - Show Mode "Log a sale" / "Add & sell" have no cost input yet (the classic Manual Sale does).
 - Organizer RLS on `show_floor_transactions` is assumed readable by everyone (not tracked in
   migrations); the cost tables don't depend on that answer.
+
+## Snap & Sell (session 2026-11-15)
+
+Dealer feedback (Nov 2026): "record the sale, and if the AI can't tell what the card is, let me fill
+in the blanks later." Built from "Snap & Sell (Capture Now, Resolve Later) — Build Spec v1".
+**Phase 1 is built.** Phases 2–3 are not.
+
+### Decisions (Stephen, 2026-11-14), from the Phase 0 discovery
+The ledger (`show_floor_transactions`) is one row per card and can't be updated (RLS). So:
+1. **Header + items, the light version.** The ledger is not rewritten: every existing row is already a
+   one-card checkout. A Snap & Sell sale adds **one** ledger row: `source 'snap'`, card columns empty,
+   `api_eligible = false` (so `v_comp_sales` never sees a lot total), `client_sale_id` = the phone's id.
+   - Its changing state lives in **`snap_sales`** (owner-only, mutable): needs_review → complete / unresolved_lot.
+   - Card detail per checkout goes in **`transaction_items`**, keyed by `sale_key`: the `client_sale_id`
+     when there is one, else the ledger row's own id. Existing ledger rows are backfilled one observed,
+     confirmed item each. An AFTER INSERT trigger (`sft_items_from_ledger`) adds the item for every new
+     non-snap row and deletes it when a reversing (undo) row arrives.
+   - The trigger reads the ledger through `to_jsonb()` (its columns were made in the dashboard, so a
+     missing column reads null), and swallows its own errors so it can never block a sale.
+   - The spec's `capture_status`/`is_lot`/`item_count_hint`/`client_capture_id`/`captured_at` columns on the
+     ledger became `snap_sales` columns. The ledger's existing `client_sale_id` is the capture id.
+2. **Organizer Analytics reads GMV from the ledger** (`_orgFetchSales()`), not `inventory.sold_price`.
+   Undone sales drop out with their reversal. A snap row counts as its items for "cards sold" and
+   sell-through: resolved items, else the dealer's "N cards", else 1, via the SECURITY DEFINER
+   `show_sale_item_counts(show_id)` (counts only, never prices). Top cards skip lot rows. If the ledger
+   can't be read it falls back to inventory. **Older shows may show slightly lower GMV than before**
+   where a past ledger write was dropped (the 2026-08-31 activeShowId bug).
+3. **AI hold on buyer search (Phase 2):** a `pending_transaction_id` column, not a new status. Not built.
+4. **Lives in Show Mode** (its IndexedDB outbox, undo, screens), plus a "Snap & Sell" entry in the classic
+   Sell / Add menu and the Feature guide (`ssOpenFromClassic()` opens Show Mode on today's show).
+
+### Capture (`#/sm/<show>/snap`, `ssRenderCapture()`)
+- Show Mode home → **Snap & Sell** (above Add cards). Two photo tiles (Items, Payment; plain file inputs
+  with `capture="environment"`), the total (required, numeric keypad, auto-focused), payment chips
+  Cash / Card / Venmo / Other (last used per seller, `ssLastPay:<handle>`), a "How many cards?" stepper
+  plus a Lot chip once there's an items photo, an optional note, **Save sale**.
+- Photos are resized to 1600px JPEG (`_ssCompress()`, re-encoding strips EXIF) as soon as they're picked.
+- Save writes the record to IndexedDB (`snapSales` store, Show Mode DB **v4**) with the photo blobs,
+  queues a `snap_sale` outbox op, and goes home with "Sale saved · $120 · details later" + Undo.
+  Measured 0.4s from opening the screen to the toast, offline, with two photos (headless Chromium).
+- No IndexedDB → the sale stays in memory and a "Not saved offline on this phone" banner shows.
+
+### Sync (outbox ops, `ssRunOp()` in js/snap-sell.js, dispatched from `_smRunOp()`)
+- **`snap_sale`**: upserts `snap_sales` (ignoreDuplicates) → inserts the ledger row (a 23505 on
+  `client_sale_id` means an earlier try got there; the id is read back) → links `snap_sales.transaction_id`
+  → uploads photos to `sale-photos/<uid>/<client_sale_id>/<photo>.jpg` and adds `transaction_photos` rows.
+  Each step is remembered on the record (`headerSaved`, `transactionId`, `txLinked`, `uploaded`), so a
+  retry repeats nothing. After upload the payment photo is deleted from the phone; the items photo is
+  kept for the inbox thumbnail.
+- The show is read from the DB (`_ssShowFor()`) when `shows{}` isn't loaded yet (offline reload).
+- **`snap_void`**: `void_snap_sale()` — 10 minutes from when the server got it, only while needs_review;
+  adds the reversing ledger row and deletes items. An undo before the sale left the phone just drops
+  the queued op.
+- **`snap_resolve`**: replaces the sale's items (delete the rest, upsert by id), sets `capture_status`,
+  and marks linked inventory cards Sold (`neq('status','Sold')`, so once). **No ledger row** for those
+  cards: the snap row already holds the total.
+- `ssLoad(handle)` (login, online and offline paths) merges this phone's records with `snap_sales`
+  (+ items, photos). The phone's copy wins until it has synced. `ssReset()` on sign-out.
+- Header pill "N sales syncing" while records are unsynced.
+
+### Needs details (`#/sm/<show>/needs`, `/needs/<id>`)
+- Home shows **Needs details (N)**; Recent sales lists snap sales (badge, Undo for 10 minutes); Sold
+  today / Sales include them.
+- List grouped by show, newest first: items photo, total, method, time ("Today 2:14 PM"), card count, note.
+- Editor: items photo (signed URL, or the copy on the phone), total/method/time/show, **payment photo
+  only after "Show payment photo"**. Add cards by search over unsold inventory (stock codes too: "S12",
+  "slab 12") or "Card not in my inventory" (free text). Per-card price: typed = `observed`, blank =
+  `allocated` estimate shown as the placeholder. Running total; a mismatch warns but still saves (the
+  entered total stays the truth). **Mark complete** or **Keep as lot** (no details needed).
+- `ssAllocate(total, items)`: typed prices kept; the rest split by asking price (a card with no price
+  weighs the average; even split if none have one), rounded down to the cent, leftover to the top card.
+
+### Report tab (classic)
+`ssReportRows(showId)` adds one row per snap sale for the part of its total **not** already shown by a
+linked inventory card (`ssRemainder()`), so revenue = what was entered, never double-counted. Rows count
+toward revenue, transactions, payments and the log (tagged NEEDS DETAILS / SNAP, no share button), not
+toward vs-ask, best/worst or top cards. The CSV export includes them.
+
+### Privacy
+- Photos and all three tables are owner-only (RLS + storage folder = `auth.uid()`); `void_snap_sale` and
+  `show_sale_item_counts` refuse anon.
+- No identification or vision function is called in Phase 1. Phase 2 must send only `kind = 'items'` photos.
+- Snap sales never reach the share card, captions, buyer pages or organizer views (counts only).
+
+### Tests
+`tests/show-mode/snap-sell.test.sql` (26 checks: backfill + GMV match, trigger, undo row, RLS for owner / other
+dealer / organizer / anon, storage folders, undo window, item counts, source check) and
+`snap-sell.e2e.mjs` (49 checks, iPhone 13 + Pixel 7: split math, offline capture timing, offline reload,
+10 offline sales sync with no duplicates, replayed op, undo before/after sync, Needs details resolve,
+Keep as lot, Report and analytics totals, no vision calls). The mock gained `void_snap_sale`,
+`show_sale_item_counts` and `.not('id','in',…)`.
+
+### Not built yet
+- Phase 2: background identification of the items photo (reuse bulk-scan + case-scan matching), lot price
+  suggestions from AI, the `pending_transaction_id` buyer-search hold.
+- Phase 3: inbox filters/search by time, `transaction_item_costs` and the header cost sum (Snap & Sell
+  sales have no cost/profit yet), payment-photo retention setting + cleanup job, comps guard tests on
+  `price_basis = 'observed'`.
+- `lot 120` in the quick-sale bar (the bar itself is Cost Tracking Phase 2, not built).
+- Off-show Snap & Sell from the classic view (it always opens on a show in Show Mode).
+- A resolved sale can't be reopened from the app yet.
+- Vendor questions still open before Phase 2: typical/biggest lot size, see AI suggestions right away or
+  only in the inbox, lots from published inventory or from boxes never entered.
 
 ## Show Configuration (Demo Data)
 - **MLP Card Show** — Oct 17-18, 2026 · Grand Hyatt Tampa Bay, FL · Code: MLPTPA (primary demo, shown to buyers without code)
