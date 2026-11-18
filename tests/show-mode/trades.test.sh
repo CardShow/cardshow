@@ -14,4 +14,5 @@ createdb "$DB"
 psql -q -d "$DB" -f supabase-stub.sql >/dev/null
 psql -q -d "$DB" -v fixture_private="$TMP/private.sql" -v fixture_cardshow="$TMP/cardshow.sql" -f trades.test.sql 2>&1 \
   | grep -E 'PASS|FAIL|ERROR' || true
+psql -q -d "$DB" -f show-home.test.sql 2>&1 | grep -E 'PASS|FAIL|ERROR' || true
 rm -rf "$TMP"

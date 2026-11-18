@@ -67,6 +67,9 @@ js/snap-sell.js                   → Snap & Sell: photo + total now, card detai
 supabase/migrations/20261115120000_snap_sell.sql → snap_sales, transaction_items (+ backfill + ledger trigger), transaction_photos, private sale-photos bucket, void_snap_sale(), show_sale_item_counts(); ledger source 'snap'
 supabase/migrations/20261118120000_trades_show_home.sql → dealer_shows, dealer_transactions (trades/buys, owner-only), transaction_items.direction, transaction_item_costs, inventory_snapshots, show_trade_count(), dealer_show_report() — see "Trades + Show Home"
 scripts/load_fixture_tito_nov7.js → TitoCollects' Nov 7 import package (CSVs from Drive, not in the repo) → SQL for one dealer; golden fixture for dealer_show_report()
+supabase/migrations/20261119120000_show_home.sql → dealer_show_report() + unbalanced/ungrouped lists, dealer_show_list(), take_inventory_snapshot(), close_ended_show_snapshots() (Show Home, Phase 2)
+js/show-home.js                   → Seller "Shows" tab: show list with P/L, Show Home report, snapshots, inventory baseline — loaded after js/snap-sell.js; see "Trades + Show Home"
+netlify/functions/close-show-snapshots.js → Scheduled (hourly): close_ended_show_snapshots() writes show_end snapshots once a show's last day is over
 netlify/functions/cardsight-identify.js → Serverless: POST {image_base64, media_type} → CardSight catalog identification (Show Mode; runs beside scan-card.js)
 netlify/functions/card-image.js   → Serverless: GET ?id=<CardSight catalog id> → stock card image, CDN-cached 30 days (Show Mode Phase 4)
 supabase/migrations/20261030120000_show_mode_images.sql → inventory.catalog_card_id, sellers.share_handle, backfill of existing photos — see "Phase 4"
@@ -331,6 +334,10 @@ Required for Trades + Show Home (see that section below), after the Snap & Sell 
 app needs it; the Organizer Analytics ledger read and Snap & Sell's `txn_type` both work without it.
 **Run it after `20261115120000_snap_sell.sql` and don't re-run snap_sell afterwards**: snap_sell
 defines the ledger trigger `sft_items_from_ledger`, and this migration replaces it.
+
+Required for Show Home (Trades + Show Home Phase 2), after the trades migration:
+`supabase/migrations/20261119120000_show_home.sql`. Until it runs, the Shows tab says it's being set up,
+and snapshots are written straight to `inventory_snapshots` from the phone's numbers.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -2567,6 +2574,11 @@ migration, no new external library.
   in an owner-only table, never on the shared ledger. No UI yet. See "Trades + Show Home". **Requires
   `20261118120000_trades_show_home.sql`.** Phases 2 (Show Home screen, snapshots), 3 (show-log import)
   and 4 (in-app trade/buy logging) not built.
+- **Trades + Show Home, Phase 2 (session 2026-11-19)** — seller "📈 Shows" tab: show list with P/L per
+  show and all-time, Show Home (KPIs, donuts, trades vs cash, what came in / on hand, inventory start vs
+  end, every card out, data-quality links, CSV), private shows, show_start / show_end / baseline
+  snapshots with an hourly closer. **Requires `20261119120000_show_home.sql`**
+  (not yet run in production). Phases 3–4 not built.
 
 ### Tier 1 — Ship before beta show
 - **Tighten RLS policies** (urgent, high complexity) — replace `using (true)` with `auth.uid() = seller_id`
@@ -6122,14 +6134,63 @@ Import package in Drive (`cardshow_inventory_import.csv`, `cardshow_transactions
   ledger, trade count 6 for organizers, RLS (other user / anon see nothing, can't edit), migration leaves
   ledger GMV unchanged, item-cost backfill, snapshot once-per-show + growth, editing a trade's cash.
 
+### Phase 2 — Show Home (session 2026-11-19)
+**Migration `20261119120000_show_home.sql`** (run after the trades one; re-runnable):
+- `dealer_show_report()` replaced with the same function plus `unbalanced` ([{txn_id, delta}]) and
+  `ungrouped_txn_ids`, so each data-quality warning links to its fix. 47 fields, under Postgres's
+  100-argument limit for `jsonb_build_object`; split it before adding many more.
+- `dealer_show_list()` (invoker): the caller's CardShow shows (in `show_sellers`, or with their sales on
+  the ledger or trades) and private `dealer_shows`, each with `cards_out`, `net_pl`, `missing_cost`.
+- `take_inventory_snapshot(kind, show_id, dealer_show_id, client_snapshot_id)` (definer, owner = caller):
+  Available cards; missing cost/price count as 0 and are counted. A second show_start/show_end for the
+  same show, or a retry with the same client id, returns the existing row (`already: true`).
+- `close_ended_show_snapshots()` (service_role only), run hourly by `close-show-snapshots.js`: writes the
+  show_end for every show_start without one once the show's last day is over in its time zone (Pacific
+  when none). So "automatic at 11:59 pm" lands within the first hour after midnight.
+
+**`js/show-home.js` (sh*), seller tab "📈 Shows" (`switchSellerTab('shows')`, `#showHomePanel`):**
+- **List:** each show with date, cards out, net P/L; all-time total; "+ Add a show you did outside
+  CardShow" (inserts `dealer_shows`).
+- **Show Home**, in the spec's order: KPI row (Net P/L, Margin on cost, Trade value gained, Cash sale
+  profit, Win rate + W/L/E); inline SVG donuts "What left" (traded / cash sale / lot, Cards↔Value toggle)
+  and "Results" (win / loss / even), legends always written out, empty ring when all zero; Trades and
+  Cash sales cards; What came in and Still on hand; Inventory start / end / change with "Take start
+  snapshot now" and "End show"; every card out, sortable, tap → transaction detail (both sides, cash,
+  balance); data-quality strip (unbalanced trades → detail, ungrouped → the bucket, needs details →
+  Show Mode `/needs`, missing cost → filters the table, "Add cost" upserts `transaction_item_costs`);
+  Export CSV (cards + summary, no payment method or photos). Empty show → "Log your first sale or trade".
+- Positive numbers `var(--accent)`, negative `var(--danger)`. The classic app is dark only (no light
+  theme exists outside Show Mode); everything uses the theme variables.
+- **Snapshots** go through Show Mode's outbox (op `inv_snapshot`, `shRunOp()`). **Deviation:** online,
+  the server computes the snapshot (`take_inventory_snapshot`), because the phone's costs may not have
+  loaded yet when a show starts; a snapshot taken offline keeps the phone's numbers from that moment
+  (`op.offline`) and is inserted directly when it syncs.
+- **show_start** (`shEnsureShowStart(showId)`, once per seller per show via `shStart:<handle>:<show>`,
+  only on a show day): opening Show Mode, and the first sale — Sell Drawer `sdConfirm()` (before the card
+  is marked sold), Show Mode `smMarkSold()`, Snap & Sell `ssSave()`.
+- **Baseline:** "📌 Set baseline" on My Inventory; `#baselineStrip` shows "Since baseline (date): ±N cards
+  · cost ±$ · asking ±$" against the cards on this phone (`shLoadBaseline()` after costs load on login).
+- Feature guide entry "Show results". `shReset()` on sign-out.
+
+**Tests:** `show-home.test.sql` (run by `trades.test.sh`, 14 checks on Tito's fixture: report unchanged +
+the two lists, show list for a private and a CardShow show, start snapshot = 152 / $10,451 / $13,379,
+once per show, retry by client id, other dealer's show refused, hourly closer writes once and only as
+service role, anon refused) — `trades.test.sh` now prints 68 PASS. `show-home.e2e.mjs` (iPhone 13 +
+Pixel 7, synthetic report with the spec's numbers and made-up card names): list + all-time total, every
+KPI and section value formatted, donuts and toggle, sorting, quality strip → trade detail, CSV, start
+snapshot once, Add cost, empty show, add a private show, baseline + strip, offline snapshot keeps its
+numbers, show_start once when Show Mode opens, no sideways scroll. The mock gained `dealer_show_list`,
+`dealer_show_report` (canned) and `take_inventory_snapshot`.
+
 ### App changes in Phase 1
 - Organizer Analytics `_orgFetchSales()` reads the ledger with `select('*')` and treats `txn_type =
   'lot_sale'` as a lot too.
 - Snap & Sell's ledger row sends `txn_type` (`lot_sale` for a lot), retrying without it before the migration.
 
 ### Not built yet
-- Phase 2: Show Home screen (KPIs, donuts, tables, data-quality strip, CSV), show_start/show_end/baseline
-  snapshot writes, dealer show list with P/L, "Add a show you did outside CardShow".
+- Phase 2 gaps: the 1.5s-on-4G target wasn't measured on a real phone (one RPC per screen); editing or
+  grouping trades from the detail view (Phase 4); a classic-view sale's `show_start` can race the sale's
+  own DB write and count the sold card (Show Mode and Snap & Sell queue the snapshot first).
 - Phase 3: import of Claude-generated show logs (review step, dedup on `import_key`).
 - Phase 4: quick-bar `T`/`B` syntax (needs the Cost spec Phase 2 parser, also not built), trade modal,
   chained trades from the app, edit/delete trades.

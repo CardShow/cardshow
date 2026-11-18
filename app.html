@@ -4765,6 +4765,92 @@
   .sm-badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-weight: 800; font-size: 13px; white-space: nowrap; }
   .sm-badge--ok { background: var(--sm-success-bg); color: var(--sm-success-fg); }
   .sm-badge--warn { background: var(--sm-warn-bg); color: var(--sm-warn-fg); }
+  /* ── Show Home (js/show-home.js): seller-only show results ── */
+  .sh-panel { padding: 0.25rem 0 1rem; }
+  .sh-h { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; letter-spacing: 0.5px; color: var(--text); }
+  .sh-muted { color: var(--muted); font-size: 0.8rem; }
+  .sh-loading, .sh-empty { color: var(--muted); padding: 1.5rem 0; text-align: center; }
+  .sh-pos { color: var(--accent); }
+  .sh-neg { color: var(--danger); }
+  .sh-back { font-size: 0.8rem; margin-bottom: 0.5rem; }
+  .sh-head { margin-bottom: 0.75rem; }
+  .sh-list-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 0.75rem; }
+  .sh-alltime { display: flex; flex-direction: column; align-items: flex-end; }
+  .sh-alltime strong { font-family: 'Bebas Neue', sans-serif; font-size: 1.8rem; line-height: 1; }
+  .sh-show-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .sh-show-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%; text-align: left;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 1rem; color: var(--text); cursor: pointer; font: inherit; }
+  .sh-show-row:hover, .sh-show-row:focus-visible { border-color: var(--accent); outline: none; }
+  .sh-show-main { display: flex; flex-direction: column; min-width: 0; }
+  .sh-show-name { font-weight: 600; }
+  .sh-show-meta { color: var(--muted); font-size: 0.8rem; }
+  .sh-show-pl { font-family: 'DM Mono', monospace; font-weight: 600; white-space: nowrap; }
+  .sh-tag { font-family: 'DM Mono', monospace; font-size: 0.65rem; border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; color: var(--muted); margin-left: 4px; }
+  .sh-add { margin-top: 1rem; }
+  .sh-add summary { cursor: pointer; color: var(--accent); font-size: 0.85rem; }
+  .sh-add-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.6rem; margin-top: 0.6rem; align-items: end; }
+  .sh-add-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--muted); }
+  .sh-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; margin-bottom: 0.75rem; }
+  .sh-kpi { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; }
+  .sh-kpi-label { font-family: 'DM Mono', monospace; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .sh-kpi-value { font-family: 'Bebas Neue', sans-serif; font-size: 1.9rem; line-height: 1.1; color: var(--text); }
+  .sh-kpi-value.sh-pos { color: var(--accent); } .sh-kpi-value.sh-neg { color: var(--danger); }
+  .sh-kpi-sub { color: var(--muted); font-size: 0.75rem; }
+  .sh-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.6rem; margin-bottom: 0.6rem; }
+  .sh-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem; margin-bottom: 0.6rem; min-width: 0; }
+  .sh-grid2 > .sh-card { margin-bottom: 0; }
+  .sh-card-title { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;
+    font-family: 'DM Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.6rem; }
+  .sh-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .sh-toggle button { background: none; border: 0; color: var(--muted); font: inherit; padding: 3px 9px; cursor: pointer; }
+  .sh-toggle button[aria-pressed="true"] { background: var(--accent); color: var(--black); }
+  .sh-donut { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .sh-donut svg { width: 128px; height: 128px; flex-shrink: 0; }
+  .sh-donut-num { font-family: 'Bebas Neue', sans-serif; font-size: 22px; fill: var(--text); }
+  .sh-donut-sub { font-family: 'DM Mono', monospace; font-size: 9px; fill: var(--muted); text-transform: uppercase; }
+  .sh-legend { list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; color: var(--text); }
+  .sh-legend strong { margin-left: 4px; }
+  .sh-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+  .sh-stat { display: flex; justify-content: space-between; gap: 0.5rem; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 0.88rem; color: var(--text); }
+  .sh-stat:last-child { border-bottom: 0; }
+  .sh-stat span { color: var(--muted); }
+  .sh-stat strong { font-family: 'DM Mono', monospace; font-weight: 500; }
+  .sh-mini { width: 100%; border-collapse: collapse; font-size: 0.85rem; color: var(--text); }
+  .sh-mini th, .sh-mini td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  .sh-mini th:first-child, .sh-mini td:first-child { text-align: left; color: var(--muted); }
+  .sh-mini th { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--muted); font-weight: 400; text-transform: uppercase; }
+  .sh-change td { font-weight: 600; }
+  .sh-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; justify-content: flex-end; }
+  .sh-table-wrap { overflow-x: auto; }
+  .sh-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; color: var(--text); min-width: 520px; }
+  .sh-table th, .sh-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: right; vertical-align: top; }
+  .sh-table th:nth-child(2), .sh-table td:nth-child(2), .sh-table th:first-child, .sh-table td:first-child { text-align: left; }
+  .sh-table tbody tr { cursor: pointer; }
+  .sh-table tbody tr:hover, .sh-table tbody tr:focus-visible { background: var(--surface); outline: none; }
+  .sh-sort { cursor: pointer; font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--muted); font-weight: 400; text-transform: uppercase; user-select: none; }
+  .sh-sort.on { color: var(--accent); }
+  .sh-code { font-family: 'DM Mono', monospace; color: var(--muted); white-space: nowrap; }
+  .sh-title { max-width: 320px; }
+  .sh-chip { font-family: 'DM Mono', monospace; font-size: 0.7rem; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--border); white-space: nowrap; }
+  .sh-chip--win { color: var(--accent); border-color: var(--accent); }
+  .sh-chip--loss { color: var(--danger); border-color: var(--danger); }
+  .sh-chip--even { color: var(--muted); }
+  .sh-addcost, .sh-link { background: none; border: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; padding: 0; }
+  .sh-quality { display: flex; flex-direction: column; gap: 6px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.35);
+    border-radius: 10px; padding: 0.75rem; margin-bottom: 0.6rem; color: var(--text); }
+  .sh-q { text-align: left; background: none; border: 0; color: var(--text); text-decoration: underline; cursor: pointer; font: inherit; padding: 2px 0; }
+  .sh-baseline { display: flex; flex-wrap: wrap; gap: 0.25rem 0.9rem; font-size: 0.82rem; color: var(--text); padding: 0.45rem 0.75rem; margin: 0 0 0.6rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+  .sh-modal { max-width: 560px; width: calc(100vw - 2rem); max-height: calc(100dvh - 2rem); overflow-y: auto; }
+  .sh-side { font-family: 'DM Mono', monospace; font-size: 0.7rem; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .sh-items { list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--text); margin-bottom: 0.6rem; }
+  .sh-items li { display: flex; justify-content: space-between; gap: 0.5rem; }
+  .sh-balance { margin: 0.5rem 0; padding: 0.5rem 0.65rem; border-radius: 8px; background: rgba(245,200,66,0.1); color: var(--accent); font-size: 0.85rem; }
+  @media (max-width: 599px) {
+    .sh-kpis { grid-template-columns: repeat(2, 1fr); }
+    .sh-kpi-value { font-size: 1.6rem; }
+    .sh-alltime { align-items: flex-start; }
+  }
   /* ── Snap & Sell (js/snap-sell.js) ── */
   .sm-sec-btn--snap { min-height: 64px; border: 2px solid var(--sm-ink); background: var(--sm-accent-soft); }
   .sm-sec-btn--snap strong { display: block; }
@@ -5808,6 +5894,7 @@
           <div style="display:flex;gap:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;width:fit-content">
             <button class="admin-tab active" id="sellerTabInventory" onclick="switchSellerTab('inventory')">📋 My Inventory</button>
             <button class="admin-tab" id="sellerTabReport" onclick="switchSellerTab('report')">📊 Report</button>
+            <button class="admin-tab" id="sellerTabShows" onclick="switchSellerTab('shows')">📈 Shows</button>
           </div>
         </div>
 
@@ -5830,6 +5917,7 @@
           <input type="text" class="search-input" id="sellerSearchInput" placeholder="Search cards…" oninput="applyInventoryFilters()">
           <button class="btn btn-ghost" id="selectAllBtn" onclick="selectAll()" style="display:none">Select All</button>
           <button class="btn btn-ghost" id="compCheckBtn" onclick="runCompCheck(getCompCheckCards())" style="display:none;font-size:0.8rem" title="Look up market prices for selected cards (or all available if none selected)">💲 Check Comps</button>
+          <button class="btn btn-ghost" id="baselineBtn" onclick="shSetBaseline()" style="display:none;font-size:0.8rem" title="Record your inventory now; the strip below then shows growth since this point">📌 Set baseline</button>
           <button class="btn btn-ghost" id="assignCodesBtn" onclick="assignStockCodesBulk()" style="display:none;font-size:0.8rem" title="Give a stock code (S-1, R-1, B-1, L-1) to every unsold card that doesn't have one">🏷 Assign codes</button>
           <button class="btn btn-ghost" id="sportValidateBtn" onclick="runSportValidation(getSportValidationCards())" style="display:none;font-size:0.8rem" title="Look up sport via PriceCharting for selected cards with no sport badge (or all such cards if none selected)">🏷️ Validate Sport</button>
           <div style="position:relative;display:none" id="exportInventoryWrap">
@@ -5843,6 +5931,9 @@
           <button class="btn btn-ghost" id="backToShowsBtn" style="display:none;font-size:0.8rem" onclick="switchAdminTab('shows')">← Shows</button>
         </div>
 
+      <div id="baselineStrip" class="sh-baseline" style="display:none" role="status"></div>
+      <!-- Show Home (js/show-home.js): the dealer's own show results. Never shown to organizers or buyers. -->
+      <div id="showHomePanel" class="sh-panel" style="display:none"></div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -7722,7 +7813,8 @@
 <script src="/js/show-mode.js?v=20261115a"></script>
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
 <script src="/js/cost-tracking.js?v=20261114a"></script>
-<script src="/js/snap-sell.js?v=20261118a"></script>
+<script src="/js/snap-sell.js?v=20261119a"></script>
+<script src="/js/show-home.js?v=20261119a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -12206,6 +12298,8 @@ function sdConfirm() {
   const saleShowId = document.getElementById('sdShowWrap')?.style.display === 'none'
     ? _resolveSaleShowId(card)
     : (document.getElementById('sdShow')?.value || null);
+  // First sale at a show today: inventory snapshot, before this sale changes it.
+  if (saleShowId && typeof shEnsureShowStart === 'function') shEnsureShowStart(saleShowId);
   card.Status        = 'Sold';
   card.SoldPrice     = price;
   card.PaymentMethod = sdSelectedPayment;
@@ -13818,6 +13912,8 @@ function loginAsSeller(handle, opts) {
   if (sportValidateBtn) sportValidateBtn.style.display = '';
   const assignCodesBtn = document.getElementById('assignCodesBtn');
   if (assignCodesBtn) assignCodesBtn.style.display = '';
+  const baselineBtn = document.getElementById('baselineBtn');
+  if (baselineBtn) baselineBtn.style.display = '';
   const exportInvWrap = document.getElementById('exportInventoryWrap');
   if (exportInvWrap) exportInvWrap.style.display = '';
   const sidebarToggleBtn = document.getElementById('sidebarToggle');
@@ -13896,7 +13992,7 @@ function loginAsSeller(handle, opts) {
       if (_smShowId) smRefresh(); // "In case" depends on the card._shows just loaded
       gtcrHydrateLatestChecks(); // badges + "Registry clear" markers survive a reload
       gtcrHydrateRegistrations(); // "Registered with GTCR" markers
-      costHydrate().then(_costRerender); // private costs (owner-only table)
+      costHydrate().then(() => { _costRerender(); shLoadBaseline(); }); // private costs (owner-only table); baseline needs them
       _gsDataReady = true; // the checklist waits for real data, so returning sellers never see a false "0 done"
       gsRender();
     }
@@ -14007,6 +14103,7 @@ function loginAsAdmin(opts = {}) {
   if (sportValidateBtnAdm) sportValidateBtnAdm.style.display = 'none';
   const assignCodesBtnAdm = document.getElementById('assignCodesBtn');
   if (assignCodesBtnAdm) assignCodesBtnAdm.style.display = 'none';
+  const baselineBtnAdm = document.getElementById('baselineBtn'); if (baselineBtnAdm) baselineBtnAdm.style.display = 'none';
   const exportInvWrapAdm = document.getElementById('exportInventoryWrap');
   if (exportInvWrapAdm) { exportInvWrapAdm.style.display = 'none'; closeExportInventoryMenu(); }
   const sidebarToggleBtnAdm = document.getElementById('sidebarToggle');
@@ -14154,6 +14251,7 @@ async function signOut() {
   if (sportValidateBtnSO) sportValidateBtnSO.style.display = 'none';
   const assignCodesBtnSO = document.getElementById('assignCodesBtn');
   if (assignCodesBtnSO) assignCodesBtnSO.style.display = 'none';
+  const baselineBtnSO = document.getElementById('baselineBtn'); if (baselineBtnSO) baselineBtnSO.style.display = 'none';
   const exportInvWrapSO = document.getElementById('exportInventoryWrap');
   if (exportInvWrapSO) { exportInvWrapSO.style.display = 'none'; closeExportInventoryMenu(); }
   const sidebarToggleBtnSO = document.getElementById('sidebarToggle');
@@ -14194,6 +14292,7 @@ async function signOut() {
   _scanHistory = [];
   costReset(); // cost-tracking prompts + pending code batch
   ssReset();   // Snap & Sell sales in memory
+  shReset();   // Show Home + baseline
   _renderScanHistory();
 }
 
@@ -18252,11 +18351,20 @@ function selectAll() {
 function switchSellerTab(tab) {
   const invBtn    = document.getElementById('sellerTabInventory');
   const rptBtn    = document.getElementById('sellerTabReport');
+  const shBtn     = document.getElementById('sellerTabShows');
+  const shPanel   = document.getElementById('showHomePanel');
+  const baseStrip = document.getElementById('baselineStrip');
+  const baseBtn   = document.getElementById('baselineBtn');
   const invPanel  = document.getElementById('adminInventoryPanel');
   const rptPanel  = document.getElementById('adminReportPanel');
   const tableWrap = invPanel ? invPanel.querySelector('.table-wrap') : null;
 
-  [invBtn, rptBtn].forEach(b => b && b.classList.remove('active'));
+  [invBtn, rptBtn, shBtn].forEach(b => b && b.classList.remove('active'));
+  if (shPanel) shPanel.style.display = tab === 'shows' ? '' : 'none';
+  if (baseStrip && tab !== 'inventory') baseStrip.style.display = 'none';
+  if (baseBtn) baseBtn.style.display = tab === 'inventory' ? '' : 'none';
+  // The inventory title + search do nothing on Show Home.
+  ['inventoryTitle', 'sellerSearchInput'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = tab === 'shows' ? 'none' : ''; });
 
   // The mobile Sell / Add button is for working the inventory list — on
   // the Report tab they just float over report cards/CTAs (Log a Manual
@@ -18273,20 +18381,23 @@ function switchSellerTab(tab) {
   const sportValidateBtn = document.getElementById('sportValidateBtn');
   const exportInvWrap = document.getElementById('exportInventoryWrap');
 
-  if (tab === 'report') {
-    rptBtn && rptBtn.classList.add('active');
+  if (tab === 'report' || tab === 'shows') {
+    (tab === 'shows' ? shBtn : rptBtn)?.classList.add('active');
     if (tableWrap) tableWrap.style.display = 'none';
-    if (rptPanel)  rptPanel.style.display  = 'block';
+    if (rptPanel)  rptPanel.style.display  = tab === 'report' ? 'block' : 'none';
     if (fabAdd)  fabAdd.style.display  = 'none';
     if (selectAllBtn) selectAllBtn.style.display = 'none';
     if (compCheckBtn) compCheckBtn.style.display = 'none';
     if (sportValidateBtn) sportValidateBtn.style.display = 'none';
     const acb = document.getElementById('assignCodesBtn'); if (acb) acb.style.display = 'none';
     if (exportInvWrap) { exportInvWrap.style.display = 'none'; closeExportInventoryMenu(); }
-    populateReportShowSelector();
-    updateReport();
-    gsMark('report');
-    showTipOnce('report');
+    if (tab === 'shows') { if (typeof shOpenTab === 'function') shOpenTab(); }
+    else {
+      populateReportShowSelector();
+      updateReport();
+      gsMark('report');
+      showTipOnce('report');
+    }
   } else {
     invBtn && invBtn.classList.add('active');
     if (tableWrap) tableWrap.style.display = '';
@@ -18297,6 +18408,7 @@ function switchSellerTab(tab) {
     if (sportValidateBtn) sportValidateBtn.style.display = '';
     const acb = document.getElementById('assignCodesBtn'); if (acb) acb.style.display = '';
     if (exportInvWrap) exportInvWrap.style.display = '';
+    if (typeof shRenderBaseline === 'function') shRenderBaseline();
   }
   gsRender();
 }
@@ -21470,6 +21582,7 @@ const FEATURE_GUIDE = [
   { group: 'Sell', items: [
     { icon: '✅', name: 'Sell a card from your inventory', desc: "Find the card and enter the price and how they paid. On a phone: Sell / Add → Sell a card. You can also tap a card's Available status.", action: () => openQuickActions('pick') },
     { icon: '📷', name: 'Sell a card you never added', desc: 'Take a photo of it, check the details, then record the sale.', action: () => posOpenPhotoSheet() },
+    { icon: '📈', name: 'Show results', desc: 'Profit on every card that left a show, sales and trades, plus what came in and your inventory at the start and end. Tab: Shows.', action: () => switchSellerTab('shows') },
     { icon: '⚡', name: 'Snap & Sell', desc: 'Busy table? Snap the cards and the payment, type the total, save. Add the card details later under Needs details.', action: () => ssOpenFromClassic() },
     { icon: '📝', name: 'Log a manual sale', desc: 'Record a sale after the fact, with the show and the date it happened.', action: () => openManualSaleModal() },
     { icon: '📤', name: 'Share a sale', desc: 'Turn any sale into an image and caption for Instagram or X. Use the 📤 button next to it in the Report tab.', action: () => switchSellerTab('report') },

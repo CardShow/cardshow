@@ -204,6 +204,26 @@
       if (!inv) data = { error: 'not_found' };
       else if (dup) data = { error: 'duplicate', card_id: dup.id, card_title: dup.card_title };
       else { inv.stock_code = code; data = { ok: true, stock_code: code }; }
+    } else if (name === 'dealer_show_list') {
+      data = S.__showList || [];
+    } else if (name === 'dealer_show_report') {
+      data = (S.__reports || {})[a.p_dealer_show_id || a.p_show_id] || { error: 'not_found' };
+    } else if (name === 'take_inventory_snapshot') {
+      // Same rules as the SQL: Available cards, once per show for show_start/show_end, retries by client id.
+      S.inventory_snapshots = S.inventory_snapshots || [];
+      const key = a.p_show_id || a.p_dealer_show_id;
+      const ex = S.inventory_snapshots.find(x => (a.p_client_snapshot_id && x.client_snapshot_id === a.p_client_snapshot_id)
+        || (['show_start', 'show_end'].includes(a.p_kind) && x.kind === a.p_kind && (x.show_id || x.dealer_show_id) === key));
+      if (ex) data = Object.assign({ already: true }, ex);
+      else {
+        const av = S.inventory.filter(r => r.seller_id === UID && r.status === 'Available');
+        const cost = id => ((S.inventory_costs || []).find(c => c.inventory_id === id) || {}).cost_basis;
+        data = { id: 'snap_' + Math.random().toString(36).slice(2), client_snapshot_id: a.p_client_snapshot_id, owner_id: UID,
+          show_id: a.p_show_id || null, dealer_show_id: a.p_dealer_show_id || null, kind: a.p_kind, taken_at: new Date().toISOString(),
+          card_count: av.length, cost_total: av.reduce((t, r) => t + (Number(cost(r.id)) || 0), 0), ask_total: av.reduce((t, r) => t + (Number(r.price) || 0), 0),
+          cards_missing_cost: av.filter(r => cost(r.id) == null).length, cards_missing_price: av.filter(r => !(Number(r.price) > 0)).length };
+        S.inventory_snapshots.push(data);
+      }
     } else if (name === 'void_snap_sale') {
       // Same rules as the SQL (20261115120000_snap_sell.sql).
       const s = (S.snap_sales || []).find(x => x.client_sale_id === a.p_client_sale_id);

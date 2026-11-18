@@ -232,6 +232,7 @@ async function _smRunOp(op) {
       case 'snap_sale':
       case 'snap_void':
       case 'snap_resolve':   return typeof ssRunOp === 'function' ? await ssRunOp(op) : 'retry';
+      case 'inv_snapshot':   return typeof shRunOp === 'function' ? await shRunOp(op) : 'retry';
       default:               return 'done';
     }
   } catch (e) {
@@ -1359,6 +1360,7 @@ function openShowMode(showId, path) {
     return;
   }
   _smShowId = showId;
+  if (typeof shEnsureShowStart === 'function') shEnsureShowStart(showId);   // show day: inventory snapshot, once per show
   try { localStorage.removeItem(_smExitKey()); } catch (_) {}
   history.replaceState(null, '', location.pathname + location.search + '#/sm/' + encodeURIComponent(showId) + (path || ''));
   document.getElementById('showModeRoot').classList.add('open');
@@ -2304,6 +2306,7 @@ async function smMarkSold() {
   if (card && !card._dbId) { showToast('This card hasn\'t synced yet — try again in a moment', 'gold'); return; }
   if (card && card.Status === 'Sold') { showToast('That card is already sold', 'gold'); return; }
 
+  if (typeof shEnsureShowStart === 'function') shEnsureShowStart(_smShowId);   // before this sale changes inventory
   const clientSaleId = _smUuid();
   const now = new Date();
   const soldTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

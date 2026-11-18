@@ -316,6 +316,7 @@ async function ssSave() {
   };
   Object.values(d.photos).forEach(p => { if (p.url && p.blob) _ssUrls.set(p.id, p.url); });
   await _ssPut(rec);
+  if (typeof shEnsureShowStart === 'function') shEnsureShowStart(rec.showId);   // before the sale changes inventory
   await smEnqueue({ type: 'snap_sale', clientSaleId: rec.clientSaleId });
   try { localStorage.setItem('ssLastPay:' + currentSeller, d.payment); } catch (_) {}
   _smLogEvent('snap_sale_saved', {
