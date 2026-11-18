@@ -390,6 +390,7 @@ function _ssLedgerRow(rec, uid, show) {
     inventory_id: null,
     card_title: rec.isLot ? `Lot${rec.count ? ' · ' + rec.count + ' cards' : ''} (Snap & Sell)` : 'Snap & Sell sale',
     item_type: rec.isLot ? 'lot' : 'card',
+    txn_type: rec.isLot ? 'lot_sale' : 'sale',   // column from 20261118120000_trades_show_home.sql
     seller_id: uid, seller_handle: rec.seller,
     show_id: rec.showId, show_name: show.name, show_date: _showDateISO(show),
     show_location: show.location || null, show_city: city, show_state: state,
@@ -420,6 +421,7 @@ async function _ssInsertLedger(rec, uid) {
   // Before the snap migration the source check doesn't allow 'snap'.
   if (res.error && res.error.code === '23514' && /source/i.test(res.error.message || '')) { row.source = 'manual'; res = await insert(); }
   if (res.error && /client_sale_id/.test(res.error.message || '') && res.error.code !== '23505') { delete row.client_sale_id; res = await insert(); }
+  if (res.error && /txn_type/.test(res.error.message || '')) { delete row.txn_type; res = await insert(); }
   if (res.error && res.error.code === '23505') {   // already written by an earlier try
     const again = await db.from('show_floor_transactions').select('id').eq('client_sale_id', rec.clientSaleId).maybeSingle();
     if (again.error) return _smIsNetworkError(again) ? 'retry' : null;

@@ -44,4 +44,5 @@ psql -d cs_test -f delete-show.test.sql      # runs 20261031120000_delete_show.s
 psql -d cs_test -f show-directory-social.test.sql # runs 20261105120000_show_directory_social_sales.sql itself (twice)
 psql -d cs_cost -f cost-tracking.test.sql    # fresh db + supabase-stub.sql; runs 20261114120000_cost_tracking.sql itself (twice)
 psql -d cs_snap -f snap-sell.test.sql        # fresh db + supabase-stub.sql; seeds ledger rows, runs 20261115120000_snap_sell.sql itself (twice)
+TITO_FIXTURE_DIR=/path/to/csvs ./trades.test.sh # Trades + Show Home: Tito's Nov 7 Show Report via dealer_show_report() (fresh db, runs the migrations itself)
 ```

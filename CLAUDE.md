@@ -65,6 +65,8 @@ js/cost-tracking.js               → Stock codes + private cost/profit (owner-o
 supabase/migrations/20261114120000_cost_tracking.sql → inventory.stock_code (+ key, unique per seller), stock_code_counters, assign_stock_codes()/set_stock_code(), inventory_costs, transaction_costs (owner-only RLS)
 js/snap-sell.js                   → Snap & Sell: photo + total now, card details later (Show Mode screens #/sm/<show>/snap and /needs) — loaded after js/cost-tracking.js; see "Snap & Sell"
 supabase/migrations/20261115120000_snap_sell.sql → snap_sales, transaction_items (+ backfill + ledger trigger), transaction_photos, private sale-photos bucket, void_snap_sale(), show_sale_item_counts(); ledger source 'snap'
+supabase/migrations/20261118120000_trades_show_home.sql → dealer_shows, dealer_transactions (trades/buys, owner-only), transaction_items.direction, transaction_item_costs, inventory_snapshots, show_trade_count(), dealer_show_report() — see "Trades + Show Home"
+scripts/load_fixture_tito_nov7.js → TitoCollects' Nov 7 import package (CSVs from Drive, not in the repo) → SQL for one dealer; golden fixture for dealer_show_report()
 netlify/functions/cardsight-identify.js → Serverless: POST {image_base64, media_type} → CardSight catalog identification (Show Mode; runs beside scan-card.js)
 netlify/functions/card-image.js   → Serverless: GET ?id=<CardSight catalog id> → stock card image, CDN-cached 30 days (Show Mode Phase 4)
 supabase/migrations/20261030120000_show_mode_images.sql → inventory.catalog_card_id, sellers.share_handle, backfill of existing photos — see "Phase 4"
@@ -323,6 +325,12 @@ Required for Snap & Sell (see that section below), after the Show Mode sales mig
 `supabase/migrations/20261115120000_snap_sell.sql`. Until it runs, a Snap & Sell sale still writes its
 ledger row (source falls back to `'manual'` if the source check refuses `'snap'`), but nothing else
 reaches the server: photos and Needs details stay on the phone, and undo after sync isn't possible.
+
+Required for Trades + Show Home (see that section below), after the Snap & Sell migration:
+`supabase/migrations/20261118120000_trades_show_home.sql`. Phase 1 has no app UI yet, so nothing in the
+app needs it; the Organizer Analytics ledger read and Snap & Sell's `txn_type` both work without it.
+**Run it after `20261115120000_snap_sell.sql` and don't re-run snap_sell afterwards**: snap_sell
+defines the ledger trigger `sft_items_from_ledger`, and this migration replaces it.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -2554,6 +2562,11 @@ migration, no new external library.
   cards afterward. Organizer Analytics GMV now reads the ledger. See "Snap & Sell". **Requires
   `20261115120000_snap_sell.sql`.** Phases 2 (background AI identification, buyer-search hold) and 3
   (full inbox, item costs, payment-photo retention) not built.
+- **Trades + Show Home, Phase 1 (session 2026-11-18)** — data model and the `dealer_show_report()`
+  metrics engine, checked against TitoCollects' Nov 7 Show Report (every number matches). Trades live
+  in an owner-only table, never on the shared ledger. No UI yet. See "Trades + Show Home". **Requires
+  `20261118120000_trades_show_home.sql`.** Phases 2 (Show Home screen, snapshots), 3 (show-log import)
+  and 4 (in-app trade/buy logging) not built.
 
 ### Tier 1 — Ship before beta show
 - **Tighten RLS policies** (urgent, high complexity) — replace `using (true)` with `auth.uid() = seller_id`
@@ -6037,6 +6050,93 @@ Keep as lot, Report and analytics totals, no vision calls). The mock gained `voi
 - A resolved sale can't be reopened from the app yet.
 - Vendor questions still open before Phase 2: typical/biggest lot size, see AI suggestions right away or
   only in the inbox, lots from published inventory or from boxes never entered.
+
+## Trades + Show Home (session 2026-11-18)
+
+Dealer TitoCollects (Nov 2026): 23 of the 29 cards that left his Nov 7 show were traded, not sold. He
+runs his business in a spreadsheet; its **Show Report** tab is the acceptance target. Built from
+"Trades + Show Home — Build Spec v1". **Phase 1 is built (data model + metrics engine + golden
+fixture).** Phases 2–4 are not.
+
+### Decisions (Stephen, 2026-11-18), from the Phase 0 discovery
+1. **Built on the Snap & Sell branch** (#86 must merge first).
+2. **Trades and buys live in `dealer_transactions` (owner-only, editable), not on the ledger.** The spec
+   put them on `show_floor_transactions`, but that table is readable by every signed-in user and can't
+   be updated, so trade cash/values would reach organizers and trades couldn't be edited or undone.
+   - The ledger still holds only cash sales at CardShow shows, so organizer GMV can't change.
+   - Sales at a dealer's private show (and imported sales there) also go in `dealer_transactions`.
+   - Organizers get a trade **count** only: `show_trade_count(show_id)` (SECURITY DEFINER).
+   - The ledger gained `txn_type` (`sale` / `lot_sale`, default `sale`; existing Snap & Sell lots set
+     to `lot_sale`) and the source `'import'`. No `cash_in`/`cash_out` on the ledger: its `sold_price`
+     already is the cash received.
+3. **`transaction_item_costs` built here** (was Snap & Sell Phase 3): the cost of each card at the
+   moment it left. A one-card sale's cost copies over from `transaction_costs` by trigger, whichever
+   arrives first (`_copy_sale_cost_to_item()`), and existing ones were backfilled. Lots and trades write
+   item costs directly.
+4. **Unbalanced trades in the fixture = 2, not 3.** By the spec's own formula NOV7-06 balances ($100 out
+   + $20 cash paid = $120 in), since the CSV records Tito paying the $20. Revisit when Tito answers.
+
+### Schema (`20261118120000_trades_show_home.sql`, re-runnable)
+- `dealer_shows` (owner-only): shows not run on CardShow ("Mall Show").
+- `dealer_transactions` (owner-only): `txn_type` sale/lot_sale/trade/buy, `show_id` **or**
+  `dealer_show_id`, `cash_in`/`cash_out`, `is_ungrouped` (import bucket), `client_capture_id` (unique,
+  offline retries), `source` app/import, `import_key` (unique per owner, Phase 3 dedup).
+- `transaction_items`: `direction` out/in, `dealer_txn_id`; `price_basis` now also
+  `agreed_trade_value` and `unknown`. A trade's items use `sale_key = dealer_transactions.id`.
+  For `in` items, `price` = agreed value (trade) or price paid (buy), `inventory_id` = the card.
+- `inventory_costs.acquired_txn_id` → the trade or buy that brought the card in.
+- `inventory_snapshots` (owner-only): show_start / show_end / baseline / manual, card count, cost and ask
+  totals, missing-cost/price counts. One show_start and one show_end per dealer per show (unique index);
+  `client_snapshot_id` for offline retries. Nothing writes them yet (Phase 2).
+- The ledger trigger `sft_items_from_ledger` (from snap_sell) now also skips `lot_sale` rows (their
+  cards are added per card), marks non-comp rows' items `allocated`, and copies an item cost that
+  arrived first.
+- `balance_delta` is **computed** in the report, not stored: (Σ out value + cash_out) − (Σ in value +
+  cash_in) per trade, ungrouped buckets excluded.
+
+### `dealer_show_report(p_show_id text, p_dealer_show_id uuid)` → jsonb
+SECURITY INVOKER (RLS keeps it to the caller's rows). Checkouts = the caller's live ledger sales at the
+show (undone sales and their reversals dropped) + their `dealer_transactions` at the show. Cards out =
+`direction = 'out'` items; cost = `transaction_item_costs` (missing = 0, counted in `cost_coverage`).
+Returns every field in the spec's table: show result, trades, cash sales, what came in / still on hand
+(in-card cost = `inventory_costs.cost_basis`, else agreed value; ask = current `inventory.price`),
+cash, data quality (`cost_coverage`, `cards_missing_cost`, `unbalanced_trades`, `ungrouped_cards`,
+`needs_review` from Snap & Sell), `mix` (traded / cash_sale / lot, cards + value), `rows[]` (code, title,
+cost, value, profit, Win/Loss/Even, type, txn/item ids, price basis), snapshots and growth. Full
+precision; round in display only.
+
+### Golden fixture — TitoCollects, Nov 7 2026
+Import package in Drive (`cardshow_inventory_import.csv`, `cardshow_transactions_nov7.csv`,
+`cardshow_transaction_items_nov7.csv`, plus `README_TitoCollects_Import.md` and
+`cardshow_import_issues.csv`). **Not committed**: it's a real dealer's inventory and costs.
+- `scripts/load_fixture_tito_nov7.js --dir <csvs> --owner <uuid> [--handle h] [--show <CardShow id>] > f.sql`
+  writes SQL (ids derived from owner + row, so loading twice changes nothing). Without `--show` it
+  makes a private "Mall Show"; with `--show` the cash and lot sales go on the ledger (`source 'import'`,
+  `is_test`, lot `api_eligible = false`) and trades still go in `dealer_transactions`.
+- Mapping: LOT_SALE→lot_sale, SALE→sale, TRADE→trade, TRADE_UNGROUPED→trade + `is_ungrouped`; blank cash
+  = 0; Single 78's blank cost = 0; other blank costs stay unknown.
+- `tests/show-mode/trades.test.sh` (`TITO_FIXTURE_DIR=… ./trades.test.sh`, as a Postgres user) → 54
+  checks: every value in the spec's table (29 out, +$240, 7.4%, +$145 / +$95, 51.7%, 15/3/11, +100/−90,
+  trades 23/2925/3070, cash 6/300/395, in 68/5956/7726, on hand 56/4256/5596), mix 23/4/2, chained trade
+  S-75 (cost 100, −10), same numbers at a CardShow show, organizer GMV $395 with no trade rows on the
+  ledger, trade count 6 for organizers, RLS (other user / anon see nothing, can't edit), migration leaves
+  ledger GMV unchanged, item-cost backfill, snapshot once-per-show + growth, editing a trade's cash.
+
+### App changes in Phase 1
+- Organizer Analytics `_orgFetchSales()` reads the ledger with `select('*')` and treats `txn_type =
+  'lot_sale'` as a lot too.
+- Snap & Sell's ledger row sends `txn_type` (`lot_sale` for a lot), retrying without it before the migration.
+
+### Not built yet
+- Phase 2: Show Home screen (KPIs, donuts, tables, data-quality strip, CSV), show_start/show_end/baseline
+  snapshot writes, dealer show list with P/L, "Add a show you did outside CardShow".
+- Phase 3: import of Claude-generated show logs (review step, dedup on `import_key`).
+- Phase 4: quick-bar `T`/`B` syntax (needs the Cost spec Phase 2 parser, also not built), trade modal,
+  chained trades from the app, edit/delete trades.
+- Organizer UI for the trade count.
+- Snap & Sell's `snap_resolve` still doesn't write `transaction_item_costs` for lot cards.
+- Questions for Tito from the import README (direction of the $20, Captain Pikachu $100, $25 on
+  NOV7-09, which Glaceon, Slab 50, the 12 ungrouped trades, missing costs/asks).
 
 ## Show Configuration (Demo Data)
 - **MLP Card Show** — Oct 17-18, 2026 · Grand Hyatt Tampa Bay, FL · Code: MLPTPA (primary demo, shown to buyers without code)

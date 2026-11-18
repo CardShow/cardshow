@@ -7722,7 +7722,7 @@
 <script src="/js/show-mode.js?v=20261115a"></script>
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
 <script src="/js/cost-tracking.js?v=20261114a"></script>
-<script src="/js/snap-sell.js?v=20261115a"></script>
+<script src="/js/snap-sell.js?v=20261118a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -20224,12 +20224,9 @@ async function _orgFetchAndRender(showId) {
 // which returns counts only. Returns null if the ledger can't be read, and
 // the caller falls back to inventory.sold_price.
 async function _orgFetchSales(showId) {
-  const cols = 'id, seller_id, sold_price, asking_price, payment_method, player, year, card_set, parallel, grade, grader, card_title, source, client_sale_id, voids_transaction_id';
-  let res = await dbSelectAllPages(() => db.from('show_floor_transactions').select(cols).eq('show_id', showId).order('id'));
-  if (res.error && /voids_transaction_id|client_sale_id/.test(res.error.message || '')) {
-    res = await dbSelectAllPages(() => db.from('show_floor_transactions')
-      .select(cols.replace(', client_sale_id, voids_transaction_id', '')).eq('show_id', showId).order('id'));
-  }
+  // select('*'): columns added by later migrations (client_sale_id, voids_transaction_id,
+  // txn_type) are simply absent on a project that hasn't run them.
+  const res = await dbSelectAllPages(() => db.from('show_floor_transactions').select('*').eq('show_id', showId).order('id'));
   if (res.error) { console.warn('[org-analytics] ledger fetch failed — using inventory', res.error.message); return null; }
   const rows = res.data || [];
   const voided = new Set(rows.filter(r => r.voids_transaction_id).map(r => r.voids_transaction_id));
@@ -20241,7 +20238,8 @@ async function _orgFetchSales(showId) {
   }
   return live.map(r => Object.assign({}, r, {
     price: r.asking_price,
-    _lot: r.source === 'snap',
+    // Trades never reach the ledger (they're in dealer_transactions), so every row here is a sale.
+    _lot: r.source === 'snap' || r.txn_type === 'lot_sale',
     _items: r.source === 'snap' ? (counts[r.client_sale_id] || 1) : 1,
   }));
 }
