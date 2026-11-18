@@ -7,6 +7,7 @@ alter table show_floor_transactions
   add column if not exists api_eligible boolean default true,
   add column if not exists card_title text,
   add column if not exists item_type text;
+alter table inventory add column if not exists location text;
 
 \i ../../supabase/migrations/20261023120000_show_mode_sales.sql
 \i ../../supabase/migrations/20261114120000_cost_tracking.sql
