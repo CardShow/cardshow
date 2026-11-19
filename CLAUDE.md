@@ -2588,7 +2588,7 @@ migration, no new external library.
 - **Trades + Show Home, Phase 3 (session 2026-11-20)** — "Import show log" on Show Home: CSV, Excel or a
   table pasted from Claude → review (errors in red, estimated values in amber, a balance line per trade)
   → one all-or-nothing import, deduped per row. Cards that came in are new "Needs details" cards, not
-  published until edited. **Requires `20261120120000_show_log_import.sql`** (not yet run in production).
+  published until edited. **Requires `20261120120000_show_log_import.sql`** (run in production 2026-11-19).
   Phase 4 not built.
 
 ### Tier 1 — Ship before beta show
