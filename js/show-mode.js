@@ -233,6 +233,8 @@ async function _smRunOp(op) {
       case 'snap_void':
       case 'snap_resolve':   return typeof ssRunOp === 'function' ? await ssRunOp(op) : 'retry';
       case 'inv_snapshot':   return typeof shRunOp === 'function' ? await shRunOp(op) : 'retry';
+      case 'trade_save':
+      case 'trade_delete':   return typeof tlRunOp === 'function' ? await tlRunOp(op) : 'retry';
       default:               return 'done';
     }
   } catch (e) {
@@ -460,6 +462,8 @@ async function smApplyPendingOps() {
     } else if (op.type === 'void') {
       const card = inventory.find(c => c._dbId === op.inventoryId);
       if (card) { _smClearSold(card); card._clientSaleId = null; }
+    } else if ((op.type === 'trade_save' || op.type === 'trade_delete') && typeof tlApplyPending === 'function') {
+      tlApplyPending(op);
     }
   });
   if (ops.length) { _smAfterInventoryChange(); smDrain(); }
@@ -1446,6 +1450,8 @@ function smRoute() {
     case 'inventory': return smRenderInventory();
     case 'scans':     return smRenderScans();
     case 'snap':      return ssRenderCapture();
+    case 'trade':     return tlRender('trade');
+    case 'buy':       return tlRender('buy');
     case 'needs':     return parts[1] ? ssRenderEditor(decodeURIComponent(parts[1])) : ssRenderNeedsList();
     case 'add':       return scRoute(parts);
     default:          _smScreen = 'home'; return smRenderHome();
@@ -1493,7 +1499,7 @@ function smRenderHome() {
   if (!el || !show) return;
   const today = _todayISO();
   const mine = getSellerInventory();
-  const soldToday = mine.filter(r => r.Status === 'Sold' && r.SoldDate === today);
+  const soldToday = mine.filter(r => isSoldForCash(r) && r.SoldDate === today);
   const snapToday = typeof ssTodayTotals === 'function' ? ssTodayTotals() : { count: 0, total: 0 };
   const salesTotal = soldToday.reduce((s, r) => s + (Number(r.SoldPrice) || 0), 0) + snapToday.total;
   const salesCount = soldToday.length + snapToday.count;
@@ -1508,12 +1514,13 @@ function smRenderHome() {
   if (table) metaBits.push('Table ' + smEsc(table));
   metaBits.push(day ? 'Day ' + day : smEsc(show.date || ''));
 
-  const recent = mine.filter(r => r.Status === 'Sold')
+  const recent = mine.filter(isSoldForCash)
     .sort((a, b) => (_smSaleTime(b) || 0) - (_smSaleTime(a) || 0))
     .slice(0, 5);
   const cardRows = recent.map(r => ({ t: (_smSaleTime(r) || 0).valueOf(), html: _smRecentRowHTML(r) }));
   const snapRows = typeof ssHomeRows === 'function' ? ssHomeRows() : [];
-  const rows = cardRows.concat(snapRows).sort((a, b) => b.t - a.t).slice(0, 5);
+  const tradeRows = typeof tlHomeRows === 'function' ? tlHomeRows() : [];
+  const rows = cardRows.concat(snapRows, tradeRows).sort((a, b) => b.t - a.t).slice(0, 5);
   const recentHTML = rows.length ? rows.map(x => x.html).join('') : '<div class="sm-empty">No sales yet. Your sales show up here.</div>';
   function _smRecentRowHTML(r) {
     const name = r.Player || r['Card Title'] || 'Card';
@@ -1568,6 +1575,7 @@ function smRenderHome() {
       ${typeof ssStart === 'function' ? `<button class="sm-sec-btn sm-sec-btn--snap" onclick="ssStart('home')">${_smIcon('image')}<span><strong>Snap &amp; Sell</strong><span class="sm-sec-sub">Photo + total now, card details later</span></span>${_smIcon('chev', 'sm-chev')}</button>` : ''}
       ${needsCount ? `<button class="sm-sec-btn" onclick="smGo('/needs')">${_smIcon('pen')}Needs details<span class="sm-badge sm-badge--warn" style="margin-left:8px">${needsCount}</span>${_smIcon('chev', 'sm-chev')}</button>` : ''}
       <button class="sm-sec-btn" onclick="smOpenAddSheet()" aria-haspopup="dialog">${_smIcon('plus')}Add cards${_smIcon('chev', 'sm-chev')}</button>
+      ${typeof tlStart === 'function' ? `<button class="sm-sec-btn" onclick="tlStart('trade')">${_smIcon('refresh')}<span><strong>Log a trade or buy</strong><span class="sm-sec-sub">Cards out, cards in, any cash</span></span>${_smIcon('chev', 'sm-chev')}</button>` : ''}
       <button class="sm-sec-btn" onclick="smStartManualSale()">${_smIcon('pen')}Log a manual sale${_smIcon('chev', 'sm-chev')}</button>
       <button class="sm-sec-btn" onclick="smRefreshPrices()">${_smIcon('refresh')}Refresh prices${_smIcon('chev', 'sm-chev')}</button>
     </div>
@@ -2440,7 +2448,7 @@ function smRenderSold(clientSaleId) {
   }
   if (!card || card.Status !== 'Sold') { smGo('', true); return; }
   const today = _todayISO();
-  const soldToday = getSellerInventory().filter(r => r.Status === 'Sold' && r.SoldDate === today);
+  const soldToday = getSellerInventory().filter(r => isSoldForCash(r) && r.SoldDate === today);
   const total = soldToday.reduce((s, r) => s + (Number(r.SoldPrice) || 0), 0);
   const fresh = !document.getElementById('smSoldScreen');
   _smView().innerHTML = `

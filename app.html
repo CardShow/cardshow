@@ -5008,6 +5008,18 @@
   .sm-hero-price { font-family: var(--sm-display); font-weight: 800; font-size: 64px; letter-spacing: -2px; line-height: 1; margin: 2px 0 12px; }
   .sm-chip-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .sm-chip-grid--3 { grid-template-columns: repeat(3, 1fr); }
+  .sm-chip-grid--2 { grid-template-columns: repeat(2, 1fr); }
+  /* ── Trade logging (js/trade-log.js) ── */
+  .tl-in { border: 1px solid var(--sm-line); border-radius: 14px; padding: 4px 10px 8px; margin-bottom: 10px; background: var(--sm-surface); }
+  .tl-in .sm-form-row { align-items: flex-end; }
+  .tl-in-x { flex-shrink: 0; }
+  #showModeRoot .tl-est, #showModeRoot input.tl-est::placeholder { color: var(--sm-warn-fg); }
+  #showModeRoot input.tl-est { background: var(--sm-warn-bg); }
+  .tl-est-note { color: var(--sm-warn-fg); margin-top: 0; }
+  .tl-bal { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--sm-warn-bg); color: var(--sm-warn-fg); font-weight: 700; font-size: 14px; }
+  .tl-bal .sm-link { color: var(--sm-ink) !important; }
+  .tl-bal .sm-row-meta { display: block; color: var(--sm-warn-fg); }
+  .tl-bal--even { background: var(--sm-accent-soft); color: var(--sm-ink); }
   .sm-chip-grid .sm-chip { padding: 0 6px; }
   .sm-field { display: flex; flex-direction: column; gap: 4px; font-weight: 700; font-size: 13px; color: var(--sm-muted); margin-top: 10px; flex: 1; min-width: 0; }
   .sm-field input, .sm-field select { min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--sm-line); background: var(--sm-surface); font: 600 16px var(--sm-body); color: var(--sm-ink); width: 100%; }
@@ -6897,6 +6909,10 @@
         <span class="qa-choice-icon" aria-hidden="true">⚡</span>
         <span class="qa-choice-text"><strong>Snap &amp; Sell</strong><span>Photo and total now, card details later. Good for lots.</span></span>
       </button>
+      <button class="qa-choice" onclick="qaGo('trade')">
+        <span class="qa-choice-icon" aria-hidden="true">🔁</span>
+        <span class="qa-choice-text"><strong>Trade or buy</strong><span>Cards out, cards in, any cash</span></span>
+      </button>
     </div>
 
     <div class="qa-screen" id="qaScreenAdd" style="display:none">
@@ -7862,12 +7878,13 @@
 </div>
 
 <!-- Show Mode v2 (flag show_mode_v2). Bump ?v= when it changes: the service worker caches by URL. -->
-<script src="/js/show-mode.js?v=20261115a"></script>
+<script src="/js/show-mode.js?v=20261121a"></script>
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
 <script src="/js/cost-tracking.js?v=20261114a"></script>
 <script src="/js/snap-sell.js?v=20261119a"></script>
-<script src="/js/show-home.js?v=20261120a"></script>
+<script src="/js/show-home.js?v=20261121a"></script>
 <script src="/js/show-log-import.js?v=20261120a"></script>
+<script src="/js/trade-log.js?v=20261121a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -11291,8 +11308,9 @@ function updateStats() {
     .reduce((sum, r) => sum + (Number(r.Price) || 0), 0);
   // Graded = slabs in full inventory
   const graded    = scoped.filter(r => r.Grade && !isNaN(Number(r.Grade))).length;
-  // Sold count + revenue — always computed, shown only when show is active
-  const soldCards = scoped.filter(r => r.Status === 'Sold');
+  // Sold count + revenue — always computed, shown only when show is active.
+  // Cards that left in a trade aren't sales (no revenue): see isSoldForCash().
+  const soldCards = scoped.filter(isSoldForCash);
   const soldCount = soldCards.length;
   const revenue   = soldCards.reduce((sum, r) => sum + (Number(r.SoldPrice) || 0), 0);
 
@@ -13469,6 +13487,11 @@ function _txSortKey(r) {
   return r.SoldDate + 'T' + time;
 }
 
+// A card sold for money. Cards that left in a trade (PaymentMethod 'Trade', from
+// trade logging or a show-log import) are Sold too, but they aren't sales: their
+// numbers are on Show Home.
+function isSoldForCash(r) { return r.Status === 'Sold' && r.PaymentMethod !== 'Trade'; }
+
 function updateReport() {
   populateReportShowSelector();
   const showId    = (document.getElementById('rptShowFilter') || {}).value || '';
@@ -13477,7 +13500,7 @@ function updateReport() {
   const scoped    = showId
     ? all.filter(r => r._shows instanceof Set && r._shows.has(showId))
     : all;
-  const soldCards = scoped.filter(r => r.Status === 'Sold');
+  const soldCards = scoped.filter(isSoldForCash);   // traded cards are on Show Home, not here
   // Snap & Sell sales (js/snap-sell.js): the part of each total not already
   // shown by a linked inventory card. They count toward revenue, payments and
   // the log, not toward vs-ask, best/worst or top cards (no asking price).
@@ -13652,8 +13675,8 @@ function exportReportCSV() {
   const showName = showId && shows[showId] ? shows[showId].name.replace(/[^a-z0-9]/gi, '-').toLowerCase() : 'all-time';
   const all      = getSellerInventory();
   const soldCards = showId
-    ? all.filter(r => r.Status === 'Sold' && r._shows instanceof Set && r._shows.has(showId))
-    : all.filter(r => r.Status === 'Sold');
+    ? all.filter(r => isSoldForCash(r) && r._shows instanceof Set && r._shows.has(showId))
+    : all.filter(isSoldForCash);
   const snapRows = typeof ssReportRows === 'function' ? ssReportRows(showId) : [];
   const header = ['Card Title','Player','Year','Set','Grade','Grader','Ask Price','Sold Price','Delta','Payment Method','Sale Date','Sale Time','Notes'];
   const rows   = soldCards.concat(snapRows).map(r => {
@@ -14348,6 +14371,7 @@ async function signOut() {
   _scanHistory = [];
   costReset(); // cost-tracking prompts + pending code batch
   ssReset();   // Snap & Sell sales in memory
+  if (typeof tlReset === 'function') tlReset();   // trade screen draft
   shReset();   // Show Home + baseline
   _renderScanHistory();
 }
@@ -21255,6 +21279,7 @@ function qaBack() {
 function qaGo(kind) {
   if (kind === 'scanSell') posOpenPhotoSheet();
   else if (kind === 'snap') ssOpenFromClassic();
+  else if (kind === 'trade') tlOpenFromClassic();
   else if (kind === 'scanOne') { openAddCard(); openCertScanner(); }
   else if (kind === 'bulk') document.getElementById('bulkScanInput')?.click();
   else if (kind === 'upload') document.querySelector('#uploadZone input[type="file"]')?.click();
@@ -21643,6 +21668,7 @@ const FEATURE_GUIDE = [
     { icon: '📷', name: 'Sell a card you never added', desc: 'Take a photo of it, check the details, then record the sale.', action: () => posOpenPhotoSheet() },
     { icon: '📈', name: 'Show results', desc: 'Profit on every card that left a show, sales and trades, plus what came in and your inventory at the start and end. Tab: Shows.', action: () => switchSellerTab('shows') },
     { icon: '⬆', name: 'Import a show log', desc: 'Logged a show in a spreadsheet or with Claude? Import it (Date, Time, Type, Cards Out, Cards In, Cash In, Cash Out) from that show\'s results. Cards you got come in marked "Needs details".', action: () => switchSellerTab('shows') },
+    { icon: '🔁', name: 'Log a trade or buy', desc: 'Pick the cards going out, type what came back and any cash. The balance shows if it\'s even. Cards that came in go in your case with Needs details.', action: () => tlOpenFromClassic() },
     { icon: '⚡', name: 'Snap & Sell', desc: 'Busy table? Snap the cards and the payment, type the total, save. Add the card details later under Needs details.', action: () => ssOpenFromClassic() },
     { icon: '📝', name: 'Log a manual sale', desc: 'Record a sale after the fact, with the show and the date it happened.', action: () => openManualSaleModal() },
     { icon: '📤', name: 'Share a sale', desc: 'Turn any sale into an image and caption for Instagram or X. Use the 📤 button next to it in the Report tab.', action: () => switchSellerTab('report') },

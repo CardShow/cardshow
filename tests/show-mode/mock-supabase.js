@@ -235,6 +235,69 @@
         imported++;
       }
       data = { imported, duplicates: dups, created };
+    } else if (name === 'record_trade') {
+      // Enough of 20261121120000_trade_logging.sql: idempotent on client id, refuses a sold card,
+      // new cards keep the phone's id and get a code, outs Sold as Trade and off the show.
+      S.dealer_transactions = S.dealer_transactions || []; S.transaction_items = S.transaction_items || [];
+      S.inventory_costs = S.inventory_costs || [];
+      const ex = S.dealer_transactions.find(d => d.client_capture_id === a.p_client_id);
+      const t = a.p_txn;
+      if (ex) data = { ok: true, already: true, id: ex.id, created: S.transaction_items.filter(i => i.dealer_txn_id === ex.id && i.direction === 'in')
+        .map(i => ({ id: i.inventory_id, stock_code: (S.inventory.find(r => r.id === i.inventory_id) || {}).stock_code })) };
+      else {
+        const sold = (t.out || []).map(o => S.inventory.find(r => r.id === o.inventory_id)).find(r => !r || r.status === 'Sold');
+        if (sold !== undefined) data = sold ? { error: 'already_sold', card: sold.id, title: sold.stock_code || sold.card_title } : { error: 'unknown_card' };
+        else {
+          const id = 'dtx_' + Math.random().toString(36).slice(2), created = [];
+          S.dealer_transactions.push({ id, client_capture_id: a.p_client_id, owner_id: UID, txn_type: t.txn_type, show_id: a.p_show_id,
+            cash_in: t.cash_in, cash_out: t.cash_out, note: t.note, source: 'app', occurred_at: t.occurred_at });
+          let n2 = 700 + S.inventory.length;
+          for (const n of t.in || []) {
+            const code = n.stock_code || ((n.grade ? 'S' : 'R') + '-' + (n2++));
+            S.inventory.push({ id: n.id, seller_id: UID, card_title: n.title, price: n.price || 0, status: 'Available', stock_code: code,
+              grader: n.grader, grade: n.grade ? Number(n.grade) : null, identification_status: 'unidentified' });
+            S.inventory_costs.push({ inventory_id: n.id, owner_id: UID, cost_basis: n.value, acquired_txn_id: id });
+            S.transaction_items.push({ id: 'ti_' + Math.random().toString(36).slice(2), dealer_txn_id: id, sale_key: id, direction: 'in', inventory_id: n.id, card_title: n.title, price: n.value, price_basis: t.txn_type === 'buy' ? 'observed' : 'agreed_trade_value' });
+            created.push({ id: n.id, stock_code: code });
+          }
+          for (const o of t.out || []) {
+            const inv = S.inventory.find(r => r.id === o.inventory_id);
+            Object.assign(inv, { status: 'Sold', sold_price: o.value, payment_method: 'Trade', sold_date: t.local_date, sold_time: t.local_time });
+            S.show_inventory = S.show_inventory.filter(r => r.card_id !== inv.id);
+            S.transaction_items.push({ id: 'ti_' + Math.random().toString(36).slice(2), dealer_txn_id: id, sale_key: id, direction: 'out', inventory_id: inv.id, card_title: inv.card_title, price: o.value, price_basis: 'agreed_trade_value' });
+          }
+          data = { ok: true, id, created };
+        }
+      }
+    } else if (name === 'delete_dealer_trade') {
+      const d = (S.dealer_transactions || []).find(x => x.id === a.p_txn_id);
+      if (!d) data = { error: 'not_found' };
+      else {
+        const items = S.transaction_items.filter(i => i.dealer_txn_id === d.id);
+        const moved = items.filter(i => i.direction === 'in').map(i => S.inventory.find(r => r.id === i.inventory_id)).find(r => r && r.status === 'Sold');
+        if (moved) data = { error: 'card_moved_on', title: moved.stock_code || moved.card_title };
+        else {
+          const ins = new Set(items.filter(i => i.direction === 'in').map(i => i.inventory_id));
+          S.inventory = S.inventory.filter(r => !ins.has(r.id));
+          items.filter(i => i.direction === 'out').forEach(i => {
+            const inv = S.inventory.find(r => r.id === i.inventory_id);
+            if (inv) Object.assign(inv, { status: 'Available', sold_price: null, payment_method: null, sold_date: null, sold_time: null });
+            if (d.show_id && !S.show_inventory.some(r => r.show_id === d.show_id && r.card_id === i.inventory_id)) S.show_inventory.push({ show_id: d.show_id, card_id: i.inventory_id });
+          });
+          S.transaction_items = S.transaction_items.filter(i => i.dealer_txn_id !== d.id);
+          S.dealer_transactions = S.dealer_transactions.filter(x => x !== d);
+          data = { ok: true };
+        }
+      }
+    } else if (name === 'update_dealer_trade') {
+      const d = (S.dealer_transactions || []).find(x => x.id === a.p_txn_id);
+      if (!d) data = { error: 'not_found' };
+      else {
+        if ('cash_in' in a.p_vals) d.cash_in = a.p_vals.cash_in;
+        if ('cash_out' in a.p_vals) d.cash_out = a.p_vals.cash_out;
+        (a.p_vals.items || []).forEach(v => { const i = S.transaction_items.find(x => x.id === v.id); if (i) i.price = v.value; });
+        data = { ok: true };
+      }
     } else if (name === 'take_inventory_snapshot') {
       // Same rules as the SQL: Available cards, once per show for show_start/show_end, retries by client id.
       S.inventory_snapshots = S.inventory_snapshots || [];

@@ -314,6 +314,7 @@ async function shOpenTxn(txnId, balanceHelp) {
   const delta = sum(out) + cashOut - sum(inn) - cashIn;
   const li = arr => arr.map(i => `<li><span>${_shEsc((i.card_ref && i.card_ref.stock_code) ? i.card_ref.stock_code + ' · ' : '')}${_shEsc(i.card_title || 'Card')}</span><strong>${shMoney(i.price)}</strong></li>`).join('') || '<li class="sh-muted">None</li>';
   const TYPE = { trade: 'Trade', sale: 'Sale', lot_sale: 'Lot sale', buy: 'Buy' };
+  const canEdit = !!(dtx.data && (head.txn_type === 'trade' || head.txn_type === 'buy'));
   const ov = document.createElement('div');
   ov.className = 'modal-overlay open sh-modal-ov';
   ov.onclick = e => { if (e.target === ov) ov.remove(); };
@@ -327,12 +328,64 @@ async function shOpenTxn(txnId, balanceHelp) {
     </div>
     ${_shStat('You received', shMoney(cashIn))}${_shStat('You paid', shMoney(cashOut))}
     ${head.txn_type === 'trade' && !head.is_ungrouped ? (Math.abs(delta) >= 0.01
-      ? `<div class="sh-balance">${shMoney(Math.abs(delta))} ${delta > 0 ? 'more went out than came back' : 'more came in than went out'} — check the cash on this trade.${balanceHelp ? ' Editing trades comes with trade logging.' : ''}</div>`
+      ? `<div class="sh-balance">${shMoney(Math.abs(delta))} ${delta > 0 ? 'more went out than came back' : 'more came in than went out'} — check the cash on this trade.${balanceHelp ? ' Use Edit values to fix it.' : ''}</div>`
       : '<div class="sh-muted">Balanced.</div>') : ''}
     ${head.review_note ? `<p class="sh-muted">${_shEsc(head.review_note)}</p>` : ''}
-    <div class="sh-actions"><button class="btn btn-primary" onclick="this.closest('.sh-modal-ov').remove()">Done</button></div>
+    <div class="sh-actions">
+      ${canEdit ? `<button class="btn btn-ghost" onclick="shDeleteTrade('${_shEsc(head.id)}', this)">Undo ${head.txn_type === 'buy' ? 'buy' : 'trade'}</button>
+      <button class="btn btn-ghost" onclick="shEditTrade('${_shEsc(head.id)}', this)">Edit values</button>` : ''}
+      <button class="btn btn-primary" onclick="this.closest('.sh-modal-ov').remove()">Done</button></div>
   </div>`;
+  ov._sh = { head, list };
   document.body.appendChild(ov);
+}
+
+// ── Edit / undo a trade or buy (update_dealer_trade / delete_dealer_trade) ──
+function shEditTrade(txnId, btn) {
+  const ov = btn.closest('.sh-modal-ov');
+  const { head, list } = ov._sh;
+  const row = (i, k) => `<li><span>${_shEsc((i.card_ref && i.card_ref.stock_code) ? i.card_ref.stock_code + ' · ' : '')}${_shEsc(i.card_title || 'Card')}</span>
+    <input class="filter-select sh-edit-val" data-item="${_shEsc(i.id)}" inputmode="decimal" value="${i.price == null ? '' : _shNum(i.price)}" aria-label="Value of ${_shEsc(i.card_title || 'card')}"></li>`;
+  const side = dir => list.filter(i => i.direction === dir).map(row).join('') || '<li class="sh-muted">None</li>';
+  ov.querySelector('.sh-modal').innerHTML = `
+    <div class="sh-card-title">Edit values</div>
+    <div class="sh-grid2">
+      <div><div class="sh-side">Out</div><ul class="sh-items">${side('out')}</ul></div>
+      <div><div class="sh-side">In</div><ul class="sh-items">${side('in')}</ul></div>
+    </div>
+    <label class="sh-stat"><span>You received</span><input id="shEditCashIn" class="filter-select" inputmode="decimal" value="${_shNum(head.cash_in)}"></label>
+    <label class="sh-stat"><span>You paid</span><input id="shEditCashOut" class="filter-select" inputmode="decimal" value="${_shNum(head.cash_out)}"></label>
+    <p class="sh-muted">A card's value in is also its cost. To change which cards were traded, undo it and log it again.</p>
+    <div class="sh-actions"><button class="btn btn-ghost" onclick="this.closest('.sh-modal-ov').remove()">Cancel</button>
+      <button class="btn btn-primary" id="shEditSave">Save</button></div>`;
+  ov.querySelector('#shEditSave').onclick = async () => {
+    const num = v => { const n = parseFloat(String(v).replace(/[^0-9.]/g, '')); return isFinite(n) ? n : null; };
+    const items = [...ov.querySelectorAll('.sh-edit-val')].map(i => ({ id: i.dataset.item, value: num(i.value) }));
+    const res = await db.rpc('update_dealer_trade', { p_txn_id: txnId, p_vals: {
+      cash_in: num(ov.querySelector('#shEditCashIn').value) || 0, cash_out: num(ov.querySelector('#shEditCashOut').value) || 0, items } });
+    if (res.error || (res.data && res.data.error)) { showToast('Couldn\'t save — ' + (res.error ? res.error.message : res.data.error), 'var(--danger)'); return; }
+    ov.remove();
+    showToast('✓ Trade updated');
+    if (typeof imReloadAfter === 'function') await imReloadAfter();
+    if (_shKey) shOpenShow(_shKey.showId, _shKey.dealerShowId);
+  };
+}
+
+async function shDeleteTrade(txnId, btn) {
+  const ov = btn.closest('.sh-modal-ov');
+  const kind = ov._sh.head.txn_type === 'buy' ? 'buy' : 'trade';
+  if (!confirm(`Undo this ${kind}? Cards that went out go back in your case, and cards that came in are removed.`)) return;
+  const res = await db.rpc('delete_dealer_trade', { p_txn_id: txnId });
+  if (res.error) { showToast('Couldn\'t undo — ' + res.error.message, 'var(--danger)'); return; }
+  if (res.data && res.data.error === 'card_moved_on') {
+    showToast(`Can't undo: ${res.data.title || 'a card from it'} has been sold or traded since. Undo that one first.`, 'var(--danger)');
+    return;
+  }
+  if (res.data && res.data.error) { showToast('Couldn\'t undo — ' + res.data.error, 'var(--danger)'); return; }
+  ov.remove();
+  showToast(kind === 'buy' ? 'Buy undone' : 'Trade undone');
+  if (typeof imReloadAfter === 'function') await imReloadAfter();
+  if (_shKey) shOpenShow(_shKey.showId, _shKey.dealerShowId);
 }
 
 // ── Add a missing cost on a card that left ──────────────────────────────────

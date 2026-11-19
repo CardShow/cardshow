@@ -71,6 +71,8 @@ supabase/migrations/20261119120000_show_home.sql → dealer_show_report() + unba
 js/show-home.js                   → Seller "Shows" tab: show list with P/L, Show Home report, snapshots, inventory baseline — loaded after js/snap-sell.js; see "Trades + Show Home"
 js/show-log-import.js             → Show Home → "Import show log": read a CSV/Excel/pasted log, review, import_show_log() — loaded after js/show-home.js; see "Phase 3" under "Trades + Show Home"
 supabase/migrations/20261120120000_show_log_import.sql → inventory.identification_status, import_show_log(), show_log_imported_keys() (Trades + Show Home Phase 3)
+js/trade-log.js                   → Show Mode "Log a trade or buy" (#/sm/<show>/trade, /buy): cards out, cards in, cash, balance; offline outbox ops trade_save / trade_delete — loaded after js/show-log-import.js; see "Phase 4" under "Trades + Show Home"
+supabase/migrations/20261121120000_trade_logging.sql → record_trade() (idempotent), update_dealer_trade(), delete_dealer_trade() (Trades + Show Home Phase 4)
 netlify/functions/close-show-snapshots.js → Scheduled (hourly): close_ended_show_snapshots() writes show_end snapshots once a show's last day is over
 netlify/functions/cardsight-identify.js → Serverless: POST {image_base64, media_type} → CardSight catalog identification (Show Mode; runs beside scan-card.js)
 netlify/functions/card-image.js   → Serverless: GET ?id=<CardSight catalog id> → stock card image, CDN-cached 30 days (Show Mode Phase 4)
@@ -340,6 +342,10 @@ defines the ledger trigger `sft_items_from_ledger`, and this migration replaces 
 Required for show-log import (Trades + Show Home Phase 3), after the Show Home migration:
 `supabase/migrations/20261120120000_show_log_import.sql`. Until it runs, "Import show log" reads and
 reviews the log but says importing is being set up.
+
+Required for trade logging (Trades + Show Home Phase 4), after the show-log import migration (it uses its
+helpers): `supabase/migrations/20261121120000_trade_logging.sql`. Until it runs, a trade saved in Show Mode
+is taken back off the phone when it tries to sync, with "Trade logging is still being set up".
 
 Required for Show Home (Trades + Show Home Phase 2), after the trades migration:
 `supabase/migrations/20261119120000_show_home.sql`. Until it runs, the Shows tab says it's being set up,
@@ -2589,7 +2595,11 @@ migration, no new external library.
   table pasted from Claude → review (errors in red, estimated values in amber, a balance line per trade)
   → one all-or-nothing import, deduped per row. Cards that came in are new "Needs details" cards, not
   published until edited. **Requires `20261120120000_show_log_import.sql`** (run in production 2026-11-19).
-  Phase 4 not built.
+- **Trades + Show Home, Phase 4 — trade screen (session 2026-11-21)** — Show Mode "Log a trade or buy": cards
+  out by stock code or name, cards in by title, cash either way, balance bar with a one-tap fix, saved
+  offline first. Undo from the toast or Recent, or from Show Home (plus Edit values). Classic Report and
+  "Sold today" no longer count traded cards as revenue. **Requires `20261121120000_trade_logging.sql`.**
+  Quick-bar `T`/`B` syntax not built.
 
 ### Tier 1 — Ship before beta show
 - **Tighten RLS policies** (urgent, high complexity) — replace `using (true)` with `auth.uid() = seller_id`
@@ -6245,19 +6255,79 @@ costs, refusals write nothing, CardShow show → ledger once, anon refused). `sh
 (iPhone 13 + Pixel 7): parsers, review errors and estimates, fixing a row, the payload, re-import all
 "already imported", CSV file, Needs details chip/search/Edit Card, Add My Cards skips them.
 
+### Phase 4 — trade screen (session 2026-11-21)
+Built first, at Stephen's request ("Start with the trade screen in Show Mode"); the quick-bar `T`/`B` syntax
+is still to come.
+
+**Migration `20261121120000_trade_logging.sql`** (after the import one; uses its `_import_insert` /
+`_import_update_inventory` helpers; re-runnable):
+- `record_trade(p_client_id, p_show_id, p_dealer_show_id, p_txn)` (invoker): one trade or buy into
+  `dealer_transactions` (`source 'app'`, `client_capture_id` = the phone's id).
+  - A retry with the same client id returns the first result and writes nothing.
+  - Every card out is checked first; an already-sold card, another dealer's card or an unknown id returns
+    `{error}` and writes nothing.
+  - Cards in keep the id the phone gave them (`inventory.id`), status Available at the asking price typed
+    (else 0), `identification_status 'unidentified'`, a code from the title ("S-88: …") if free, else
+    `assign_stock_codes()`. `inventory_costs` = agreed value / price paid, `acquired_txn_id` set; items
+    `agreed_trade_value` (trade) or `observed` (buy).
+  - Cards out: item + `transaction_item_costs`, marked Sold (`payment_method 'Trade'`, sold price = value),
+    and their `show_inventory` rows deleted so they leave the buyer pages and organizer counts.
+  - Never touches the ledger.
+- `update_dealer_trade(p_txn_id, p_vals)`: cash in/out, note, item values. An in-card's value also updates its
+  cost; an out-card's value its sold price. Which cards were traded can't change (undo and log again).
+- `delete_dealer_trade(p_txn_id)`: out cards back to Available (sold fields cleared, back on the trade's
+  show), in cards deleted, the trade row deleted (items and item costs cascade). Refused with
+  `card_moved_on` once a card that came in has been sold or traded on (undo the later one first).
+
+**`js/trade-log.js` (tl*)**, Show Mode home → **Log a trade or buy** (also in the classic Sell / Add menu and
+the Feature guide, `tlOpenFromClassic()`):
+- Trade / Buy toggle (`#/sm/<show>/trade`, `/buy`). Cards going out: search unsold cards by stock code
+  ("S12", "slab 12") or name; value prefilled with the asking price, editable. Cards coming in: a title
+  (grader and grade read from it, a leading code kept), the agreed value or price paid, and an optional
+  asking price. Cash: No cash / I got cash / I paid cash.
+- `tlTotals()`: balance = out value + cash paid − in value − cash received. One card in with no value is
+  worth the balance, shown in amber as an estimate; two or more blank values block saving (never split).
+  A buy with blank cash pays what the cards are worth. The balance bar says "You're giving $X more" with a
+  one-tap "I got $X cash" / "I paid $X cash"; an uneven trade still saves.
+- Save (`tlSave()`): applies the trade on the phone at once (`tlApply()`: outs Sold as Trade and off the
+  show, ins added with Needs details and their cost), queues `trade_save`, goes home with an Undo toast.
+  A trade record is kept in localStorage (`tlRecent:<handle>`, last 20) for Recent and undo.
+  `smApplyPendingOps()` re-applies queued trades after a reload.
+- Sync (`tlRunOp()`): the server's stock codes are written onto the new cards (`_tlCodes` keeps them across
+  an inventory reload); GTCR reconcile runs. A refused trade is taken off the phone with a toast
+  ("S-12 was already sold") and the card is re-read from the server.
+- Undo: within 10 minutes from the toast or the Recent row. Before it synced, the queued op is just
+  dropped. After, `trade_delete` (finds the trade by client id) runs `delete_dealer_trade()`; if the server
+  refuses (`card_moved_on`) the trade is put back on the phone.
+- Show Home's transaction detail gains **Edit values** (`shEditTrade()`) and **Undo trade / buy**
+  (`shDeleteTrade()`) for trades and buys, logged or imported; both reload inventory and Show Home.
+- **Revenue fix:** traded cards are Sold with `PaymentMethod 'Trade'` (from Phase 3 imports too), which the
+  classic stat strip, Report tab, Report CSV and Show Mode "Sold today" were counting as sales.
+  `isSoldForCash()` (app.html) now leaves them out; their numbers are on Show Home.
+
+**Tests:** `trade-logging.test.sh` (Postgres, synthetic, 15 checks: phone ids kept, outs Sold as Trade and off
+the show, retry writes nothing, buy with a taken code, Show Home report, nothing on the ledger, refusals,
+edit, delete puts cards back on the show, chained trade cost and delete order, other dealer, anon).
+`trade-log.e2e.mjs` (iPhone 13 + Pixel 7): balance math, offline trade under a second, offline reload,
+sync with codes, undo before and after sync, buy, two blank values blocked, already-sold refusal, Show Home
+edit and undo, revenue excludes trades, no sideways scroll. The mock gained `record_trade`,
+`update_dealer_trade`, `delete_dealer_trade`.
+
 ### App changes in Phase 1
 - Organizer Analytics `_orgFetchSales()` reads the ledger with `select('*')` and treats `txn_type =
   'lot_sale'` as a lot too.
 - Snap & Sell's ledger row sends `txn_type` (`lot_sale` for a lot), retrying without it before the migration.
 
 ### Not built yet
-- Phase 2 gaps: the 1.5s-on-4G target wasn't measured on a real phone (one RPC per screen); editing or
-  grouping trades from the detail view (Phase 4); a classic-view sale's `show_start` can race the sale's
+- Phase 2 gaps: the 1.5s-on-4G target wasn't measured on a real phone (one RPC per screen); grouping
+  ungrouped imported trades from the detail view; a classic-view sale's `show_start` can race the sale's
   own DB write and count the sold card (Show Mode and Snap & Sell queue the snapshot first).
 - Phase 3 gaps: undoing an import (delete its transactions and new cards) isn't built; the import isn't
   queued offline; Cards In split on commas, so a title with a comma becomes two cards until fixed in review.
-- Phase 4: quick-bar `T`/`B` syntax (needs the Cost spec Phase 2 parser, also not built), trade modal,
-  chained trades from the app, edit/delete trades.
+- Phase 4 rest: quick-bar `T`/`B` syntax (needs the Cost spec Phase 2 parser, also not built). Trade screen
+  gaps: no photos or camera identification of cards coming in; a trade at a private (non-CardShow) show
+  can't be logged from Show Mode; edit can't change which cards were traded; undo of a trade made on
+  another phone only from Show Home.
 - Organizer UI for the trade count.
 - Snap & Sell's `snap_resolve` still doesn't write `transaction_item_costs` for lot cards.
 - Questions for Tito from the import README (direction of the $20, Captain Pikachu $100, $25 on
