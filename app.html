@@ -4846,6 +4846,58 @@
   .sh-items { list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--text); margin-bottom: 0.6rem; }
   .sh-items li { display: flex; justify-content: space-between; gap: 0.5rem; }
   .sh-balance { margin: 0.5rem 0; padding: 0.5rem 0.65rem; border-radius: 8px; background: rgba(245,200,66,0.1); color: var(--accent); font-size: 0.85rem; }
+  .sh-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+  /* ── Show log import (js/show-log-import.js) ── */
+  .im-ov { z-index: 960; }
+  .im-modal { max-width: 920px; width: calc(100vw - 1.5rem); max-height: calc(100dvh - 1.5rem); overflow-y: auto; display: flex; flex-direction: column; gap: 0.6rem;
+    padding: 1rem 1rem 0; box-sizing: border-box; }
+  #imImportBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .im-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .im-head .sh-card-title { margin: 0; }
+  .im-x { background: none; border: 0; color: var(--muted); font-size: 1.1rem; cursor: pointer; min-width: 44px; min-height: 44px; }
+  .im-pick { display: flex; gap: 0.5rem; }
+  .im-paste-label { font-size: 0.8rem; color: var(--muted); }
+  .im-paste { width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem;
+    font-family: 'DM Mono', monospace; font-size: 0.8rem; resize: vertical; }
+  .im-msg { color: var(--danger); font-size: 0.85rem; min-height: 1em; }
+  .im-rows { display: flex; flex-direction: column; gap: 0.6rem; }
+  .im-row { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem; color: var(--text); min-width: 0; }
+  .im-row--off { opacity: 0.6; }
+  .im-row--dup { opacity: 0.55; }
+  .im-row-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 0.85rem; }
+  .im-row-head .im-type { width: auto; min-width: 110px; padding: 4px 8px; }
+  .im-inc { display: inline-flex; align-items: center; gap: 6px; font-family: 'DM Mono', monospace; font-size: 0.75rem; color: var(--muted); }
+  .im-inc input { width: 20px; height: 20px; }
+  .im-n { font-family: 'DM Mono', monospace; font-size: 0.75rem; color: var(--muted); }
+  .im-pill { margin-left: auto; font-family: 'DM Mono', monospace; font-size: 0.7rem; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--border); }
+  .im-pill--ok { color: var(--success); border-color: var(--success); }
+  .im-pill--warn { color: #f59e0b; border-color: #f59e0b; }
+  .im-pill--bad { color: var(--danger); border-color: var(--danger); }
+  .im-pill--off, .im-pill--dup { color: var(--muted); }
+  .im-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.6rem; }
+  .im-card { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 4px; min-width: 0; }
+  .im-card-title { flex: 1; min-width: 0; font-size: 0.8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .im-bad .im-card-title { color: var(--danger); }
+  .im-code { width: 84px; flex-shrink: 0; padding: 4px 6px; font-family: 'DM Mono', monospace; }
+  .im-in-title { flex: 1; min-width: 0; padding: 4px 6px; }
+  .im-val { width: 84px; flex-shrink: 0; padding: 4px 6px; text-align: right; }
+  .im-est { border-color: #f59e0b !important; background: rgba(245,158,11,0.1); }
+  .im-field-bad { border-color: var(--danger) !important; background: rgba(239,68,68,0.08); }
+  .im-cash { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-top: 0.5rem; font-size: 0.8rem; color: var(--muted); }
+  .im-cash label { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .im-balance { font-size: 0.8rem; margin-top: 0.4rem; color: var(--text); }
+  .im-msgs { list-style: none; font-size: 0.8rem; margin-top: 0.3rem; display: flex; flex-direction: column; gap: 2px; }
+  .im-note { font-size: 0.8rem; margin-top: 0.3rem; }
+  .im-text-bad { color: var(--danger); }
+  .im-text-warn { color: #f59e0b; }
+  .im-text-ok { color: var(--success); }
+  .im-foot { position: sticky; bottom: -1px; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end;
+    background: var(--surface); border-top: 1px solid var(--border); padding: 0.6rem 0; margin-top: 0.25rem; }
+  .im-summary { margin-right: auto; font-size: 0.8rem; color: var(--muted); }
+  .im-needs-chip { color: #f59e0b; border-color: #f59e0b; }
+  @media (max-width: 599px) {
+    .im-sides { grid-template-columns: 1fr; }
+  }
   @media (max-width: 599px) {
     .sh-kpis { grid-template-columns: repeat(2, 1fr); }
     .sh-kpi-value { font-size: 1.6rem; }
@@ -7814,7 +7866,8 @@
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
 <script src="/js/cost-tracking.js?v=20261114a"></script>
 <script src="/js/snap-sell.js?v=20261119a"></script>
-<script src="/js/show-home.js?v=20261119a"></script>
+<script src="/js/show-home.js?v=20261120a"></script>
+<script src="/js/show-log-import.js?v=20261120a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -11211,8 +11264,11 @@ function applyInventoryFilters() {
   // "s12", "S-12" or "slab 12" finds stock code S-12 (exact, or codes starting with it).
   const qKey = stockCodeQueryKey(q);
 
+  // "needs details" lists cards from a show-log import that still need their details.
+  const qNeeds = q.length >= 4 && 'needs details'.startsWith(q);
   let filtered = scoped.filter(r =>
     !q ||
+    (qNeeds && r.IdentificationStatus === 'unidentified' && r.Status !== 'Sold') ||
     (qKey && r.StockCode && stockCodeKey(r.StockCode).startsWith(qKey)) ||
     (r.Player || '').toLowerCase().includes(q) ||
     (r['Card Title'] || '').toLowerCase().includes(q) ||
@@ -15424,10 +15480,12 @@ function sellerPublishToShow(showId) {
 
   let count = 0;
   let flaggedSkipped = 0;
+  let unidentifiedSkipped = 0;
   selected.forEach(card => {
     if (!card._shows) card._shows = new Set();
     if (card._shows.has(showId)) return; // already published to this show — see note below
     if (card._trustFlag === 'flagged') { flaggedSkipped++; return; } // GTCR match: blocked pending seller action
+    if (card.IdentificationStatus === 'unidentified') { unidentifiedSkipped++; return; } // from a show-log import: details first
     card._shows.add(showId);
     count++;
     // Persist to show_inventory (fire-and-forget) — without this, the
@@ -15451,7 +15509,8 @@ function sellerPublishToShow(showId) {
   renderSellerShowsList();
   buildSellerQrPanel();
   if (count) showTipOnce('live');
-  showToast(`${count} cards added to "${show.name}"` + (flaggedSkipped ? ` · ${flaggedSkipped} flagged card${flaggedSkipped !== 1 ? 's' : ''} held back` : ''));
+  showToast(`${count} cards added to "${show.name}"` + (flaggedSkipped ? ` · ${flaggedSkipped} flagged card${flaggedSkipped !== 1 ? 's' : ''} held back` : '')
+    + (unidentifiedSkipped ? ` · ${unidentifiedSkipped} card${unidentifiedSkipped !== 1 ? 's' : ''} need details first` : ''));
 }
 
 function sellerRemoveFromShow(showId) {
@@ -21583,6 +21642,7 @@ const FEATURE_GUIDE = [
     { icon: '✅', name: 'Sell a card from your inventory', desc: "Find the card and enter the price and how they paid. On a phone: Sell / Add → Sell a card. You can also tap a card's Available status.", action: () => openQuickActions('pick') },
     { icon: '📷', name: 'Sell a card you never added', desc: 'Take a photo of it, check the details, then record the sale.', action: () => posOpenPhotoSheet() },
     { icon: '📈', name: 'Show results', desc: 'Profit on every card that left a show, sales and trades, plus what came in and your inventory at the start and end. Tab: Shows.', action: () => switchSellerTab('shows') },
+    { icon: '⬆', name: 'Import a show log', desc: 'Logged a show in a spreadsheet or with Claude? Import it (Date, Time, Type, Cards Out, Cards In, Cash In, Cash Out) from that show\'s results. Cards you got come in marked "Needs details".', action: () => switchSellerTab('shows') },
     { icon: '⚡', name: 'Snap & Sell', desc: 'Busy table? Snap the cards and the payment, type the total, save. Add the card details later under Needs details.', action: () => ssOpenFromClassic() },
     { icon: '📝', name: 'Log a manual sale', desc: 'Record a sale after the fact, with the show and the date it happened.', action: () => openManualSaleModal() },
     { icon: '📤', name: 'Share a sale', desc: 'Turn any sale into an image and caption for Instagram or X. Use the 📤 button next to it in the Report tab.', action: () => switchSellerTab('report') },
@@ -21909,10 +21969,17 @@ async function publishShowInventoryToDB(showId) {
     // (trust_flag = 'flagged') are excluded until the seller acts. Falls back to
     // the unfiltered select if the trust_flag migration hasn't run yet.
     let { data: cards, error: cardErr } = await dbSelectAllPages(() => db
-      .from('inventory').select('id, trust_flag')
+      .from('inventory').select('id, trust_flag, identification_status')
       .in('seller_id', sellerIds)
       .neq('status', 'Sold')
       .order('id'));
+    if (cardErr && /identification_status/i.test(cardErr.message || '')) {   // import migration not run
+      ({ data: cards, error: cardErr } = await dbSelectAllPages(() => db
+        .from('inventory').select('id, trust_flag')
+        .in('seller_id', sellerIds)
+        .neq('status', 'Sold')
+        .order('id')));
+    }
     if (cardErr && /trust_flag/i.test(cardErr.message || '')) {
       ({ data: cards, error: cardErr } = await dbSelectAllPages(() => db
         .from('inventory').select('id')
@@ -21921,7 +21988,8 @@ async function publishShowInventoryToDB(showId) {
         .order('id')));
     }
     if (cardErr) { console.error('publishShowInventoryToDB fetch failed:', cardErr.message); return 0; }
-    cards = (cards || []).filter(c => c.trust_flag !== 'flagged');
+    // Cards from a show-log import wait until the dealer adds their details.
+    cards = (cards || []).filter(c => c.trust_flag !== 'flagged' && c.identification_status !== 'unidentified');
     if (!cards || !cards.length) { console.log('No cards to publish for show', showId); return 0; }
 
     const rows = cards.map(c => ({ show_id: showId, card_id: c.id }));
@@ -22398,6 +22466,8 @@ function saveCEM() {
 
   // Persist edit to Supabase
   updateCardInDB(card);
+  // A card from a show-log import counts as identified once the dealer saves its details.
+  if (card.IdentificationStatus === 'unidentified' && typeof imMarkIdentified === 'function') imMarkIdentified(card);
 
   showToast('✓ Card updated');
 }
@@ -22573,6 +22643,7 @@ function dbRowToCard(row) {
     _imageSource:       row.image_source         || null,
     TrustClearAt:       row.trust_clear_at       || null,
     StockCode:          row.stock_code           || '',     // dealer's code (S-12) — written only by set/assign_stock_code RPCs
+    IdentificationStatus: row.identification_status || null, // 'unidentified' = from a show-log import, needs details
     _shows:          new Set(),
   };
   if (row.sold_price     != null) card.SoldPrice     = row.sold_price;

@@ -224,14 +224,17 @@ function shRenderHome() {
   if (r.unbalanced_trades) q.push(`<button class="sh-q" onclick="shOpenTxn('${_shEsc((r.unbalanced[0] || {}).txn_id || '')}', true)">${r.unbalanced_trades} trade${r.unbalanced_trades > 1 ? 's don\'t' : ' doesn\'t'} balance</button>`);
   if (r.ungrouped_cards) q.push(`<button class="sh-q" onclick="shOpenTxn('${_shEsc((r.ungrouped_txn_ids || [])[0] || '')}')">${r.ungrouped_cards} card${r.ungrouped_cards > 1 ? 's' : ''} traded with no record of what came back</button>`);
   if (r.needs_review) q.push(`<button class="sh-q" onclick="shOpenNeedsDetails()">${r.needs_review} sale${r.needs_review > 1 ? 's need' : ' needs'} details</button>`);
+  const needs = typeof imNeedsCards === 'function' ? imNeedsCards().length : 0;
+  if (needs) q.push(`<button class="sh-q" onclick="imShowNeedsCards()">${needs} imported card${needs > 1 ? 's need' : ' needs'} details</button>`);
   if (r.cards_missing_cost) q.push(`<button class="sh-q" onclick="shToggleMissingCost(true)">Cost missing on ${r.cards_missing_cost} card${r.cards_missing_cost > 1 ? 's' : ''}</button>`);
 
   const empty = !r.cards_out && !r.in_cards;
   el.innerHTML = `
     <button class="btn btn-ghost sh-back" onclick="shRenderListView()">← Shows</button>
-    <div class="sh-head">
-      <h3 class="sh-h">${_shEsc(k.name)}</h3>
-      <div class="sh-muted">${_shEsc([k.date, k.kind === 'private' ? 'Your show' : null].filter(Boolean).join(' · '))}</div>
+    <div class="sh-head sh-head-row">
+      <div><h3 class="sh-h">${_shEsc(k.name)}</h3>
+      <div class="sh-muted">${_shEsc([k.date, k.kind === 'private' ? 'Your show' : null].filter(Boolean).join(' · '))}</div></div>
+      ${typeof imOpen === 'function' ? '<button class="btn btn-ghost" onclick="imOpen()">⬆ Import show log</button>' : ''}
     </div>
     ${empty ? `<div class="sh-empty">Nothing logged at this show yet.<br>
         <button class="btn btn-primary" style="margin-top:0.75rem" onclick="openQuickActions('sell')">Log your first sale or trade</button></div>${inv}` : `

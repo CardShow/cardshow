@@ -631,6 +631,7 @@ function ssTodayTotals() {
 
 function ssRenderNeedsList() {
   const list = ssNeedsDetails();
+  const imported = typeof imNeedsCards === 'function' ? imNeedsCards() : [];   // cards from a show-log import
   const byShow = new Map();
   list.forEach(r => { const k = r.showId || ''; if (!byShow.has(k)) byShow.set(k, []); byShow.get(k).push(r); });
   const groups = [...byShow.entries()].map(([showId, rows]) => `
@@ -649,7 +650,15 @@ function ssRenderNeedsList() {
       <div class="sm-title">Needs details</div>
       <span style="width:44px"></span>
     </div>
-    ${list.length ? groups : '<div class="sm-empty">All caught up. Snap & Sell sales waiting for card details show up here.</div>'}`;
+    ${list.length ? groups : (imported.length ? '' : '<div class="sm-empty">All caught up. Snap & Sell sales waiting for card details show up here.</div>')}
+    ${imported.length ? `<div class="sm-section-label">Cards from an imported show log</div>
+      <div class="sm-list">${imported.map(c => `
+        <button class="sm-row sm-row--button" onclick="openCEM(${inventory.indexOf(c)})">
+          <span class="sm-row-body">
+            <span class="sm-row-title">${_ssEsc(c['Card Title'] || 'Card')}</span>
+            <span class="sm-row-meta">${_ssEsc([c.StockCode, 'Add details · goes live after'].filter(Boolean).join(' · '))}</span>
+          </span>${_smIcon('chev', 'sm-chev')}
+        </button>`).join('')}</div>` : ''}`;
   _ssSignPhotos(list).then(changed => { if (changed && _smScreen === 'needs' && !_ssEdit) ssRenderNeedsList(); });
 }
 

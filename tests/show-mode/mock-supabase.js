@@ -208,6 +208,33 @@
       data = S.__showList || [];
     } else if (name === 'dealer_show_report') {
       data = (S.__reports || {})[a.p_dealer_show_id || a.p_show_id] || { error: 'not_found' };
+    } else if (name === 'show_log_imported_keys') {
+      const done = new Set((S.dealer_transactions || []).map(d => d.import_key).filter(Boolean));
+      data = (a.p_keys || []).filter(k => done.has(k));
+    } else if (name === 'import_show_log') {
+      // Enough of the SQL (20261120120000_show_log_import.sql) for the browser test: dedup by key,
+      // outs marked Sold, ins created as "Needs details" cards with a code, refs for chained trades.
+      S.dealer_transactions = S.dealer_transactions || [];
+      const refs = {}; let imported = 0; const dups = [], created = []; let next = 500;
+      for (const t of a.p_txns) {
+        if (S.dealer_transactions.some(d => d.import_key === t.key)) { dups.push(t.key); continue; }
+        const id = 'dtx_' + Math.random().toString(36).slice(2);
+        S.dealer_transactions.push({ id, owner_id: UID, txn_type: t.txn_type, import_key: t.key, cash_in: t.cash_in, cash_out: t.cash_out,
+          dealer_show_id: a.p_dealer_show_id, show_id: a.p_show_id, source: 'import', occurred_at: t.occurred_at });
+        for (const n of t.in || []) {
+          const cid = 'imp_' + (next++);
+          const code = n.stock_code || ((n.grade ? 'S' : 'R') + '-' + next);
+          S.inventory.push({ id: cid, seller_id: UID, card_title: n.title, price: 0, status: 'Available', stock_code: code,
+            grader: n.grader, grade: n.grade ? Number(n.grade) : null, identification_status: 'unidentified' });
+          refs[n.ref] = cid; created.push({ ref: n.ref, id: cid, stock_code: code });
+        }
+        for (const o of t.out || []) {
+          const inv = S.inventory.find(r => r.id === (o.inventory_id || refs[o.ref]));
+          Object.assign(inv, { status: 'Sold', sold_price: o.value, payment_method: t.txn_type === 'trade' ? 'Trade' : (t.payment_method || 'Cash') });
+        }
+        imported++;
+      }
+      data = { imported, duplicates: dups, created };
     } else if (name === 'take_inventory_snapshot') {
       // Same rules as the SQL: Available cards, once per show for show_start/show_end, retries by client id.
       S.inventory_snapshots = S.inventory_snapshots || [];

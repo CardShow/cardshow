@@ -1497,7 +1497,8 @@ function smRenderHome() {
   const snapToday = typeof ssTodayTotals === 'function' ? ssTodayTotals() : { count: 0, total: 0 };
   const salesTotal = soldToday.reduce((s, r) => s + (Number(r.SoldPrice) || 0), 0) + snapToday.total;
   const salesCount = soldToday.length + snapToday.count;
-  const needsCount = typeof ssNeedsDetails === 'function' ? ssNeedsDetails().length : 0;
+  const needsCount = (typeof ssNeedsDetails === 'function' ? ssNeedsDetails().length : 0)
+                   + (typeof imNeedsCards === 'function' ? imNeedsCards().length : 0);   // + cards from a show-log import
   const available = mine.filter(r => r.Status !== 'Sold');
   const onShow = available.filter(r => r._shows instanceof Set && r._shows.has(show.id)).length;
 

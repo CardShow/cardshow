@@ -69,6 +69,8 @@ supabase/migrations/20261118120000_trades_show_home.sql → dealer_shows, dealer
 scripts/load_fixture_tito_nov7.js → TitoCollects' Nov 7 import package (CSVs from Drive, not in the repo) → SQL for one dealer; golden fixture for dealer_show_report()
 supabase/migrations/20261119120000_show_home.sql → dealer_show_report() + unbalanced/ungrouped lists, dealer_show_list(), take_inventory_snapshot(), close_ended_show_snapshots() (Show Home, Phase 2)
 js/show-home.js                   → Seller "Shows" tab: show list with P/L, Show Home report, snapshots, inventory baseline — loaded after js/snap-sell.js; see "Trades + Show Home"
+js/show-log-import.js             → Show Home → "Import show log": read a CSV/Excel/pasted log, review, import_show_log() — loaded after js/show-home.js; see "Phase 3" under "Trades + Show Home"
+supabase/migrations/20261120120000_show_log_import.sql → inventory.identification_status, import_show_log(), show_log_imported_keys() (Trades + Show Home Phase 3)
 netlify/functions/close-show-snapshots.js → Scheduled (hourly): close_ended_show_snapshots() writes show_end snapshots once a show's last day is over
 netlify/functions/cardsight-identify.js → Serverless: POST {image_base64, media_type} → CardSight catalog identification (Show Mode; runs beside scan-card.js)
 netlify/functions/card-image.js   → Serverless: GET ?id=<CardSight catalog id> → stock card image, CDN-cached 30 days (Show Mode Phase 4)
@@ -334,6 +336,10 @@ Required for Trades + Show Home (see that section below), after the Snap & Sell 
 app needs it; the Organizer Analytics ledger read and Snap & Sell's `txn_type` both work without it.
 **Run it after `20261115120000_snap_sell.sql` and don't re-run snap_sell afterwards**: snap_sell
 defines the ledger trigger `sft_items_from_ledger`, and this migration replaces it.
+
+Required for show-log import (Trades + Show Home Phase 3), after the Show Home migration:
+`supabase/migrations/20261120120000_show_log_import.sql`. Until it runs, "Import show log" reads and
+reviews the log but says importing is being set up.
 
 Required for Show Home (Trades + Show Home Phase 2), after the trades migration:
 `supabase/migrations/20261119120000_show_home.sql`. Until it runs, the Shows tab says it's being set up,
@@ -2578,7 +2584,12 @@ migration, no new external library.
   show and all-time, Show Home (KPIs, donuts, trades vs cash, what came in / on hand, inventory start vs
   end, every card out, data-quality links, CSV), private shows, show_start / show_end / baseline
   snapshots with an hourly closer. **Requires `20261119120000_show_home.sql`**
-  (not yet run in production). Phases 3–4 not built.
+  (run in production 2026-11-19). Phases 3–4 not built.
+- **Trades + Show Home, Phase 3 (session 2026-11-20)** — "Import show log" on Show Home: CSV, Excel or a
+  table pasted from Claude → review (errors in red, estimated values in amber, a balance line per trade)
+  → one all-or-nothing import, deduped per row. Cards that came in are new "Needs details" cards, not
+  published until edited. **Requires `20261120120000_show_log_import.sql`** (not yet run in production).
+  Phase 4 not built.
 
 ### Tier 1 — Ship before beta show
 - **Tighten RLS policies** (urgent, high complexity) — replace `using (true)` with `auth.uid() = seller_id`
@@ -6182,6 +6193,58 @@ snapshot once, Add cost, empty show, add a private show, baseline + strip, offli
 numbers, show_start once when Show Mode opens, no sideways scroll. The mock gained `dealer_show_list`,
 `dealer_show_report` (canned) and `take_inventory_snapshot`.
 
+### Phase 3 — Import a show log (session 2026-11-20)
+For dealers who log shows in a spreadsheet or with Claude (Tito). Columns: Date, Time, Type (SOLD / TRADE /
+BUY), Cards Out (stock codes), Cards In (descriptions), Cash In, Cash Out, Payment Method, Notes.
+
+**Migration `20261120120000_show_log_import.sql`** (after the Show Home one; re-runnable):
+- `inventory.identification_status` (null, or `'unidentified'` for a card made from a log's Cards In).
+- `import_show_log(p_show_id, p_dealer_show_id, p_txns jsonb)` (invoker): the whole reviewed log in one
+  database transaction. Rows are processed by time.
+  - Skips a row whose `import_key` is already imported (`dealer_transactions.import_key`, or a ledger row
+    whose `client_sale_id` = md5(owner | key)).
+  - SOLD at a CardShow show → the ledger (`source 'import'`): one card = `sale` (the ledger trigger adds the
+    item, `transaction_costs` adds its cost); several = `lot_sale` with `allocated` items, `api_eligible false`.
+  - SOLD at a private show, TRADE and BUY → `dealer_transactions` (`source 'import'`). A trade with nothing
+    in is `is_ungrouped`.
+  - Cards in: new inventory (`Available`, price 0, `identification_status 'unidentified'`), the code written
+    in the log if free, else `assign_stock_codes()`; `inventory_costs` = agreed value / price paid with
+    `acquired_txn_id`; item `agreed_trade_value` (trade) or `observed` (buy). `card_ref.import_ref` lets a
+    later row (even in a later import) trade that card away again.
+  - Cards out: marked Sold (`payment_method 'Trade'` on trades), item + `transaction_item_costs` from
+    `inventory_costs`.
+  - Refuses the whole import on another dealer's card, a card already sold, or an unknown ref.
+  - Writes only columns the table has (`_import_insert()`, `_import_update_inventory()`), since
+    `inventory` and the ledger were built in the dashboard.
+- `show_log_imported_keys(text[])`: which rows are already in (the review greys them out).
+
+**`js/show-log-import.js` (im*), Show Home → "⬆ Import show log":**
+- Reads a CSV/TSV/Excel file or pasted text (CSV, tab-separated, or a Markdown table straight from
+  Claude, with chat text around it). Header row found by name; dates like `11/7/26`, `Nov 7`, `2026-11-07`;
+  times like `2:15 PM`, `14:15`.
+- Cards Out: split on `, ; + & and`; each must start with a stock code (`S12`, `S-12`, `Slab 12`,
+  `single 4`). Cards In: split on `; |` and commas outside brackets; `S-67: Charizard PSA 9` keeps code
+  S-67; grader + grade read from the text.
+- Import key = SHA-256 of date | time (or row number) | cards out (cards in for a buy).
+- Values: one-card sale = cash in; buy of one card = cash out; several cards sold together = split by
+  asking price (amber); 1-for-1 trade = out at its asking price, in from the balance (amber); any other
+  trade or buy split is left blank (red) for the dealer.
+- Review: red errors block the import (unknown or sold code, a code used twice, bad date/time/type, missing
+  values); amber warnings don't (estimates, unbalanced trades, date outside the show, a Cards In code
+  already taken). Codes and values editable, rows can be left out, cards in added/removed. A trade's
+  card that came in earlier in the same log shows "Came in earlier in this log".
+- After import: inventory, costs and Show Home reload; GTCR reconcile runs.
+- **Needs details:** chip on the card in My Inventory, search "needs details", a Show Home strip line,
+  and a section in Show Mode → Needs details (opens Edit Card). Saving in Edit Card clears the flag and
+  publishes the card to `activeShowId`. Add My Cards and the admin publish skip these cards.
+- Needs a signal; nothing is queued. Retrying is safe (dedup).
+
+**Tests:** `show-log-import.test.sh` (Postgres, synthetic, 38 checks: first import and re-import, hand-
+calculated report for SOLD / lot / TRADE with cash both ways / chained trade / BUY / ungrouped, codes,
+costs, refusals write nothing, CardShow show → ledger once, anon refused). `show-log-import.e2e.mjs`
+(iPhone 13 + Pixel 7): parsers, review errors and estimates, fixing a row, the payload, re-import all
+"already imported", CSV file, Needs details chip/search/Edit Card, Add My Cards skips them.
+
 ### App changes in Phase 1
 - Organizer Analytics `_orgFetchSales()` reads the ledger with `select('*')` and treats `txn_type =
   'lot_sale'` as a lot too.
@@ -6191,7 +6254,8 @@ numbers, show_start once when Show Mode opens, no sideways scroll. The mock gain
 - Phase 2 gaps: the 1.5s-on-4G target wasn't measured on a real phone (one RPC per screen); editing or
   grouping trades from the detail view (Phase 4); a classic-view sale's `show_start` can race the sale's
   own DB write and count the sold card (Show Mode and Snap & Sell queue the snapshot first).
-- Phase 3: import of Claude-generated show logs (review step, dedup on `import_key`).
+- Phase 3 gaps: undoing an import (delete its transactions and new cards) isn't built; the import isn't
+  queued offline; Cards In split on commas, so a title with a comma becomes two cards until fixed in review.
 - Phase 4: quick-bar `T`/`B` syntax (needs the Cost spec Phase 2 parser, also not built), trade modal,
   chained trades from the app, edit/delete trades.
 - Organizer UI for the trade count.

@@ -75,7 +75,8 @@ function stockCodeFindDuplicate(code, exceptCard) {
 }
 
 function stockCodeChipHTML(card) {
-  return card && card.StockCode ? `<span class="stock-chip" title="Stock code">${_costEsc(card.StockCode)}</span>` : '';
+  return (card && card.StockCode ? `<span class="stock-chip" title="Stock code">${_costEsc(card.StockCode)}</span>` : '')
+    + (card && card.IdentificationStatus === 'unidentified' && card.Status !== 'Sold' ? '<span class="stock-chip im-needs-chip" title="From a show-log import. Edit the card to add its details; it goes live after that.">Needs details</span>' : '');
 }
 
 // ── Money ────────────────────────────────────────────────────────────────────
