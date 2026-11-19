@@ -21,6 +21,11 @@ node double-sale-offline.e2e.mjs "iPhone 13" # double-sale dialog + offline inve
 node auth-signout.e2e.mjs "iPhone 13"        # sign out → the sign-in button works again (was stuck on "Loading…")
 node cost-tracking.e2e.mjs "iPhone 13"      # stock codes, private cost, profit on sales, offline replay
 node cost-tracking-legacy.e2e.mjs "iPhone 13" # same, before the cost migration has run
+node snap-sell.e2e.mjs "iPhone 13"          # Snap & Sell: offline capture, sync without duplicates, undo, Needs details, report + analytics totals
+node show-home.e2e.mjs "iPhone 13"          # Show Home: show list, report sections, donuts, quality strip, CSV, snapshots, baseline
+node show-log-import.e2e.mjs "iPhone 13"    # Show log import: parsing, review, payload, re-import, Needs details
+node trade-log.e2e.mjs "iPhone 13"          # Trade screen: balance, offline save, sync, undo, buy, Show Home edit/undo
+node quick-bar.e2e.mjs "iPhone 13"          # Quick bar: syntax, preview, sale/lot/trade/buy, undo, offline
 node card-image.test.mjs                     # netlify/functions/card-image.js with CardSight stubbed (no browser)
 ```
 Set `CHROMIUM_PATH` to use a specific Chromium (the cloud container has `/opt/pw-browsers/chromium`).
@@ -42,4 +47,8 @@ psql -d cs_test -f show-mode-images.test.sql # runs 20261030120000_show_mode_ima
 psql -d cs_test -f delete-show.test.sql      # runs 20261031120000_delete_show.sql itself (twice)
 psql -d cs_test -f show-directory-social.test.sql # runs 20261105120000_show_directory_social_sales.sql itself (twice)
 psql -d cs_cost -f cost-tracking.test.sql    # fresh db + supabase-stub.sql; runs 20261114120000_cost_tracking.sql itself (twice)
+psql -d cs_snap -f snap-sell.test.sql        # fresh db + supabase-stub.sql; seeds ledger rows, runs 20261115120000_snap_sell.sql itself (twice)
+./show-log-import.test.sh                   # import_show_log(): synthetic log, hand-checked report, dedup, refusals (fresh db)
+./trade-logging.test.sh                     # record_trade / update / delete: ids, idempotency, refusals, undo order (fresh db)
+TITO_FIXTURE_DIR=/path/to/csvs ./trades.test.sh # Trades + Show Home: Tito's Nov 7 Show Report via dealer_show_report(), then show-home.test.sql (fresh db, runs the migrations itself)
 ```

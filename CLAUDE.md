@@ -63,6 +63,18 @@ js/show-mode.js                   → Show Mode v2 (flag show_mode_v2): routing,
 js/show-mode-scan.js              → Show Mode case scan (screens A–D): per-photo queue, review, commit — loaded right after js/show-mode.js
 js/cost-tracking.js               → Stock codes + private cost/profit (owner-only) — loaded after js/show-mode-scan.js; see "Cost Tracking & Stock Codes"
 supabase/migrations/20261114120000_cost_tracking.sql → inventory.stock_code (+ key, unique per seller), stock_code_counters, assign_stock_codes()/set_stock_code(), inventory_costs, transaction_costs (owner-only RLS)
+js/snap-sell.js                   → Snap & Sell: photo + total now, card details later (Show Mode screens #/sm/<show>/snap and /needs) — loaded after js/cost-tracking.js; see "Snap & Sell"
+supabase/migrations/20261115120000_snap_sell.sql → snap_sales, transaction_items (+ backfill + ledger trigger), transaction_photos, private sale-photos bucket, void_snap_sale(), show_sale_item_counts(); ledger source 'snap'
+supabase/migrations/20261118120000_trades_show_home.sql → dealer_shows, dealer_transactions (trades/buys, owner-only), transaction_items.direction, transaction_item_costs, inventory_snapshots, show_trade_count(), dealer_show_report() — see "Trades + Show Home"
+scripts/load_fixture_tito_nov7.js → TitoCollects' Nov 7 import package (CSVs from Drive, not in the repo) → SQL for one dealer; golden fixture for dealer_show_report()
+supabase/migrations/20261119120000_show_home.sql → dealer_show_report() + unbalanced/ungrouped lists, dealer_show_list(), take_inventory_snapshot(), close_ended_show_snapshots() (Show Home, Phase 2)
+js/show-home.js                   → Seller "Shows" tab: show list with P/L, Show Home report, snapshots, inventory baseline — loaded after js/snap-sell.js; see "Trades + Show Home"
+js/show-log-import.js             → Show Home → "Import show log": read a CSV/Excel/pasted log, review, import_show_log() — loaded after js/show-home.js; see "Phase 3" under "Trades + Show Home"
+supabase/migrations/20261120120000_show_log_import.sql → inventory.identification_status, import_show_log(), show_log_imported_keys() (Trades + Show Home Phase 3)
+js/trade-log.js                   → Show Mode "Log a trade or buy" (#/sm/<show>/trade, /buy): cards out, cards in, cash, balance; offline outbox ops trade_save / trade_delete — loaded after js/show-log-import.js; see "Phase 4" under "Trades + Show Home"
+js/quick-bar.js                   → Show Mode home quick bar: "S12 120", "lot 120", "T S12 for … +20", "B 50 …" in one line — loaded after js/trade-log.js; see "Quick bar" under "Trades + Show Home"
+supabase/migrations/20261121120000_trade_logging.sql → record_trade() (idempotent), update_dealer_trade(), delete_dealer_trade() (Trades + Show Home Phase 4)
+netlify/functions/close-show-snapshots.js → Scheduled (hourly): close_ended_show_snapshots() writes show_end snapshots once a show's last day is over
 netlify/functions/cardsight-identify.js → Serverless: POST {image_base64, media_type} → CardSight catalog identification (Show Mode; runs beside scan-card.js)
 netlify/functions/card-image.js   → Serverless: GET ?id=<CardSight catalog id> → stock card image, CDN-cached 30 days (Show Mode Phase 4)
 supabase/migrations/20261030120000_show_mode_images.sql → inventory.catalog_card_id, sellers.share_handle, backfill of existing photos — see "Phase 4"
@@ -316,6 +328,29 @@ Required for GTCR registration (Phase 4, see "Trust Check via GTCR" below):
 `supabase/migrations/20260930120000_gtcr_registration_lifecycle.sql` — adds `owner_email`, GTCR's
 registration ids, `seller_linked`, and a `failed` status to `gtcr_registrations`. Run it after the
 Trust Check migration below.
+
+Required for Snap & Sell (see that section below), after the Show Mode sales migration:
+`supabase/migrations/20261115120000_snap_sell.sql`. Until it runs, a Snap & Sell sale still writes its
+ledger row (source falls back to `'manual'` if the source check refuses `'snap'`), but nothing else
+reaches the server: photos and Needs details stay on the phone, and undo after sync isn't possible.
+
+Required for Trades + Show Home (see that section below), after the Snap & Sell migration:
+`supabase/migrations/20261118120000_trades_show_home.sql`. Phase 1 has no app UI yet, so nothing in the
+app needs it; the Organizer Analytics ledger read and Snap & Sell's `txn_type` both work without it.
+**Run it after `20261115120000_snap_sell.sql` and don't re-run snap_sell afterwards**: snap_sell
+defines the ledger trigger `sft_items_from_ledger`, and this migration replaces it.
+
+Required for show-log import (Trades + Show Home Phase 3), after the Show Home migration:
+`supabase/migrations/20261120120000_show_log_import.sql`. Until it runs, "Import show log" reads and
+reviews the log but says importing is being set up.
+
+Required for trade logging (Trades + Show Home Phase 4), after the show-log import migration (it uses its
+helpers): `supabase/migrations/20261121120000_trade_logging.sql`. Until it runs, a trade saved in Show Mode
+is taken back off the phone when it tries to sync, with "Trade logging is still being set up".
+
+Required for Show Home (Trades + Show Home Phase 2), after the trades migration:
+`supabase/migrations/20261119120000_show_home.sql`. Until it runs, the Shows tab says it's being set up,
+and snapshots are written straight to `inventory_snapshots` from the phone's numbers.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -2542,6 +2577,32 @@ migration, no new external library.
   codes (S/R/B/L or custom) with code search and "Assign codes", profit on Sell Drawer / Manual Sale /
   Show Mode sales, "Add cost" after a sale. See "Cost Tracking & Stock Codes". **Requires
   `20261114120000_cost_tracking.sql`.** Phases 2 (quick-sale bar, import, lot split) and 3 (P&L) not built.
+- **Snap & Sell, Phase 1 (session 2026-11-15)** — photo of the items + photo of the payment + the
+  total, saved on the phone in well under a second and synced later; "Needs details" to add the
+  cards afterward. Organizer Analytics GMV now reads the ledger. See "Snap & Sell". **Requires
+  `20261115120000_snap_sell.sql`.** Phases 2 (background AI identification, buyer-search hold) and 3
+  (full inbox, item costs, payment-photo retention) not built.
+- **Trades + Show Home, Phase 1 (session 2026-11-18)** — data model and the `dealer_show_report()`
+  metrics engine, checked against TitoCollects' Nov 7 Show Report (every number matches). Trades live
+  in an owner-only table, never on the shared ledger. No UI yet. See "Trades + Show Home". **Requires
+  `20261118120000_trades_show_home.sql`.** Phases 2 (Show Home screen, snapshots), 3 (show-log import)
+  and 4 (in-app trade/buy logging) not built.
+- **Trades + Show Home, Phase 2 (session 2026-11-19)** — seller "📈 Shows" tab: show list with P/L per
+  show and all-time, Show Home (KPIs, donuts, trades vs cash, what came in / on hand, inventory start vs
+  end, every card out, data-quality links, CSV), private shows, show_start / show_end / baseline
+  snapshots with an hourly closer. **Requires `20261119120000_show_home.sql`**
+  (run in production 2026-11-19). Phases 3–4 not built.
+- **Trades + Show Home, Phase 3 (session 2026-11-20)** — "Import show log" on Show Home: CSV, Excel or a
+  table pasted from Claude → review (errors in red, estimated values in amber, a balance line per trade)
+  → one all-or-nothing import, deduped per row. Cards that came in are new "Needs details" cards, not
+  published until edited. **Requires `20261120120000_show_log_import.sql`** (run in production 2026-11-19).
+- **Trades + Show Home, Phase 4 — trade screen (session 2026-11-21)** — Show Mode "Log a trade or buy": cards
+  out by stock code or name, cards in by title, cash either way, balance bar with a one-tap fix, saved
+  offline first. Undo from the toast or Recent, or from Show Home (plus Edit values). Classic Report and
+  "Sold today" no longer count traded cards as revenue. **Requires `20261121120000_trade_logging.sql`** (run in production 2026-11-19).
+- **Quick bar (session 2026-11-21)** — one line on the Show Mode home: `S12 120` sells, `lot 120` saves a Snap & Sell
+  lot, `T S12 for wemby psa 10 +20` trades, `B 50 charizard psa 9` buys; live preview, Undo toast, offline.
+  No migration. See "Quick bar" under "Trades + Show Home".
 
 ### Tier 1 — Ship before beta show
 - **Tighten RLS policies** (urgent, high complexity) — replace `using (true)` with `auth.uid() = seller_id`
@@ -5922,6 +5983,393 @@ not run). The mock now honors a single-column `onConflict` and implements the tw
 - Show Mode "Log a sale" / "Add & sell" have no cost input yet (the classic Manual Sale does).
 - Organizer RLS on `show_floor_transactions` is assumed readable by everyone (not tracked in
   migrations); the cost tables don't depend on that answer.
+
+## Snap & Sell (session 2026-11-15)
+
+Dealer feedback (Nov 2026): "record the sale, and if the AI can't tell what the card is, let me fill
+in the blanks later." Built from "Snap & Sell (Capture Now, Resolve Later) — Build Spec v1".
+**Phase 1 is built.** Phases 2–3 are not.
+
+### Decisions (Stephen, 2026-11-14), from the Phase 0 discovery
+The ledger (`show_floor_transactions`) is one row per card and can't be updated (RLS). So:
+1. **Header + items, the light version.** The ledger is not rewritten: every existing row is already a
+   one-card checkout. A Snap & Sell sale adds **one** ledger row: `source 'snap'`, card columns empty,
+   `api_eligible = false` (so `v_comp_sales` never sees a lot total), `client_sale_id` = the phone's id.
+   - Its changing state lives in **`snap_sales`** (owner-only, mutable): needs_review → complete / unresolved_lot.
+   - Card detail per checkout goes in **`transaction_items`**, keyed by `sale_key`: the `client_sale_id`
+     when there is one, else the ledger row's own id. Existing ledger rows are backfilled one observed,
+     confirmed item each. An AFTER INSERT trigger (`sft_items_from_ledger`) adds the item for every new
+     non-snap row and deletes it when a reversing (undo) row arrives.
+   - The trigger reads the ledger through `to_jsonb()` (its columns were made in the dashboard, so a
+     missing column reads null), and swallows its own errors so it can never block a sale.
+   - The spec's `capture_status`/`is_lot`/`item_count_hint`/`client_capture_id`/`captured_at` columns on the
+     ledger became `snap_sales` columns. The ledger's existing `client_sale_id` is the capture id.
+2. **Organizer Analytics reads GMV from the ledger** (`_orgFetchSales()`), not `inventory.sold_price`.
+   Undone sales drop out with their reversal. A snap row counts as its items for "cards sold" and
+   sell-through: resolved items, else the dealer's "N cards", else 1, via the SECURITY DEFINER
+   `show_sale_item_counts(show_id)` (counts only, never prices). Top cards skip lot rows. If the ledger
+   can't be read it falls back to inventory. **Older shows may show slightly lower GMV than before**
+   where a past ledger write was dropped (the 2026-08-31 activeShowId bug).
+3. **AI hold on buyer search (Phase 2):** a `pending_transaction_id` column, not a new status. Not built.
+4. **Lives in Show Mode** (its IndexedDB outbox, undo, screens), plus a "Snap & Sell" entry in the classic
+   Sell / Add menu and the Feature guide (`ssOpenFromClassic()` opens Show Mode on today's show).
+
+### Capture (`#/sm/<show>/snap`, `ssRenderCapture()`)
+- Show Mode home → **Snap & Sell** (above Add cards). Two photo tiles (Items, Payment; plain file inputs
+  with `capture="environment"`), the total (required, numeric keypad, auto-focused), payment chips
+  Cash / Card / Venmo / Other (last used per seller, `ssLastPay:<handle>`), a "How many cards?" stepper
+  plus a Lot chip once there's an items photo, an optional note, **Save sale**.
+- Photos are resized to 1600px JPEG (`_ssCompress()`, re-encoding strips EXIF) as soon as they're picked.
+- Save writes the record to IndexedDB (`snapSales` store, Show Mode DB **v4**) with the photo blobs,
+  queues a `snap_sale` outbox op, and goes home with "Sale saved · $120 · details later" + Undo.
+  Measured 0.4s from opening the screen to the toast, offline, with two photos (headless Chromium).
+- No IndexedDB → the sale stays in memory and a "Not saved offline on this phone" banner shows.
+
+### Sync (outbox ops, `ssRunOp()` in js/snap-sell.js, dispatched from `_smRunOp()`)
+- **`snap_sale`**: upserts `snap_sales` (ignoreDuplicates) → inserts the ledger row (a 23505 on
+  `client_sale_id` means an earlier try got there; the id is read back) → links `snap_sales.transaction_id`
+  → uploads photos to `sale-photos/<uid>/<client_sale_id>/<photo>.jpg` and adds `transaction_photos` rows.
+  Each step is remembered on the record (`headerSaved`, `transactionId`, `txLinked`, `uploaded`), so a
+  retry repeats nothing. After upload the payment photo is deleted from the phone; the items photo is
+  kept for the inbox thumbnail.
+- The show is read from the DB (`_ssShowFor()`) when `shows{}` isn't loaded yet (offline reload).
+- **`snap_void`**: `void_snap_sale()` — 10 minutes from when the server got it, only while needs_review;
+  adds the reversing ledger row and deletes items. An undo before the sale left the phone just drops
+  the queued op.
+- **`snap_resolve`**: replaces the sale's items (delete the rest, upsert by id), sets `capture_status`,
+  and marks linked inventory cards Sold (`neq('status','Sold')`, so once). **No ledger row** for those
+  cards: the snap row already holds the total.
+- `ssLoad(handle)` (login, online and offline paths) merges this phone's records with `snap_sales`
+  (+ items, photos). The phone's copy wins until it has synced. `ssReset()` on sign-out.
+- Header pill "N sales syncing" while records are unsynced.
+
+### Needs details (`#/sm/<show>/needs`, `/needs/<id>`)
+- Home shows **Needs details (N)**; Recent sales lists snap sales (badge, Undo for 10 minutes); Sold
+  today / Sales include them.
+- List grouped by show, newest first: items photo, total, method, time ("Today 2:14 PM"), card count, note.
+- Editor: items photo (signed URL, or the copy on the phone), total/method/time/show, **payment photo
+  only after "Show payment photo"**. Add cards by search over unsold inventory (stock codes too: "S12",
+  "slab 12") or "Card not in my inventory" (free text). Per-card price: typed = `observed`, blank =
+  `allocated` estimate shown as the placeholder. Running total; a mismatch warns but still saves (the
+  entered total stays the truth). **Mark complete** or **Keep as lot** (no details needed).
+- `ssAllocate(total, items)`: typed prices kept; the rest split by asking price (a card with no price
+  weighs the average; even split if none have one), rounded down to the cent, leftover to the top card.
+
+### Report tab (classic)
+`ssReportRows(showId)` adds one row per snap sale for the part of its total **not** already shown by a
+linked inventory card (`ssRemainder()`), so revenue = what was entered, never double-counted. Rows count
+toward revenue, transactions, payments and the log (tagged NEEDS DETAILS / SNAP, no share button), not
+toward vs-ask, best/worst or top cards. The CSV export includes them.
+
+### Privacy
+- Photos and all three tables are owner-only (RLS + storage folder = `auth.uid()`); `void_snap_sale` and
+  `show_sale_item_counts` refuse anon.
+- No identification or vision function is called in Phase 1. Phase 2 must send only `kind = 'items'` photos.
+- Snap sales never reach the share card, captions, buyer pages or organizer views (counts only).
+
+### Tests
+`tests/show-mode/snap-sell.test.sql` (26 checks: backfill + GMV match, trigger, undo row, RLS for owner / other
+dealer / organizer / anon, storage folders, undo window, item counts, source check) and
+`snap-sell.e2e.mjs` (49 checks, iPhone 13 + Pixel 7: split math, offline capture timing, offline reload,
+10 offline sales sync with no duplicates, replayed op, undo before/after sync, Needs details resolve,
+Keep as lot, Report and analytics totals, no vision calls). The mock gained `void_snap_sale`,
+`show_sale_item_counts` and `.not('id','in',…)`.
+
+### Not built yet
+- Phase 2: background identification of the items photo (reuse bulk-scan + case-scan matching), lot price
+  suggestions from AI, the `pending_transaction_id` buyer-search hold.
+- Phase 3: inbox filters/search by time, `transaction_item_costs` and the header cost sum (Snap & Sell
+  sales have no cost/profit yet), payment-photo retention setting + cleanup job, comps guard tests on
+  `price_basis = 'observed'`.
+- `lot 120` in the quick-sale bar (the bar itself is Cost Tracking Phase 2, not built).
+- Off-show Snap & Sell from the classic view (it always opens on a show in Show Mode).
+- A resolved sale can't be reopened from the app yet.
+- Vendor questions still open before Phase 2: typical/biggest lot size, see AI suggestions right away or
+  only in the inbox, lots from published inventory or from boxes never entered.
+
+## Trades + Show Home (session 2026-11-18)
+
+Dealer TitoCollects (Nov 2026): 23 of the 29 cards that left his Nov 7 show were traded, not sold. He
+runs his business in a spreadsheet; its **Show Report** tab is the acceptance target. Built from
+"Trades + Show Home — Build Spec v1". **Phase 1 is built (data model + metrics engine + golden
+fixture).** Phases 2–4 are not.
+
+### Decisions (Stephen, 2026-11-18), from the Phase 0 discovery
+1. **Built on the Snap & Sell branch** (#86 must merge first).
+2. **Trades and buys live in `dealer_transactions` (owner-only, editable), not on the ledger.** The spec
+   put them on `show_floor_transactions`, but that table is readable by every signed-in user and can't
+   be updated, so trade cash/values would reach organizers and trades couldn't be edited or undone.
+   - The ledger still holds only cash sales at CardShow shows, so organizer GMV can't change.
+   - Sales at a dealer's private show (and imported sales there) also go in `dealer_transactions`.
+   - Organizers get a trade **count** only: `show_trade_count(show_id)` (SECURITY DEFINER).
+   - The ledger gained `txn_type` (`sale` / `lot_sale`, default `sale`; existing Snap & Sell lots set
+     to `lot_sale`) and the source `'import'`. No `cash_in`/`cash_out` on the ledger: its `sold_price`
+     already is the cash received.
+3. **`transaction_item_costs` built here** (was Snap & Sell Phase 3): the cost of each card at the
+   moment it left. A one-card sale's cost copies over from `transaction_costs` by trigger, whichever
+   arrives first (`_copy_sale_cost_to_item()`), and existing ones were backfilled. Lots and trades write
+   item costs directly.
+4. **Unbalanced trades in the fixture = 2, not 3.** By the spec's own formula NOV7-06 balances ($100 out
+   + $20 cash paid = $120 in), since the CSV records Tito paying the $20. Revisit when Tito answers.
+
+### Schema (`20261118120000_trades_show_home.sql`, re-runnable)
+- `dealer_shows` (owner-only): shows not run on CardShow ("Mall Show").
+- `dealer_transactions` (owner-only): `txn_type` sale/lot_sale/trade/buy, `show_id` **or**
+  `dealer_show_id`, `cash_in`/`cash_out`, `is_ungrouped` (import bucket), `client_capture_id` (unique,
+  offline retries), `source` app/import, `import_key` (unique per owner, Phase 3 dedup).
+- `transaction_items`: `direction` out/in, `dealer_txn_id`; `price_basis` now also
+  `agreed_trade_value` and `unknown`. A trade's items use `sale_key = dealer_transactions.id`.
+  For `in` items, `price` = agreed value (trade) or price paid (buy), `inventory_id` = the card.
+- `inventory_costs.acquired_txn_id` → the trade or buy that brought the card in.
+- `inventory_snapshots` (owner-only): show_start / show_end / baseline / manual, card count, cost and ask
+  totals, missing-cost/price counts. One show_start and one show_end per dealer per show (unique index);
+  `client_snapshot_id` for offline retries. Nothing writes them yet (Phase 2).
+- The ledger trigger `sft_items_from_ledger` (from snap_sell) now also skips `lot_sale` rows (their
+  cards are added per card), marks non-comp rows' items `allocated`, and copies an item cost that
+  arrived first.
+- `balance_delta` is **computed** in the report, not stored: (Σ out value + cash_out) − (Σ in value +
+  cash_in) per trade, ungrouped buckets excluded.
+
+### `dealer_show_report(p_show_id text, p_dealer_show_id uuid)` → jsonb
+SECURITY INVOKER (RLS keeps it to the caller's rows). Checkouts = the caller's live ledger sales at the
+show (undone sales and their reversals dropped) + their `dealer_transactions` at the show. Cards out =
+`direction = 'out'` items; cost = `transaction_item_costs` (missing = 0, counted in `cost_coverage`).
+Returns every field in the spec's table: show result, trades, cash sales, what came in / still on hand
+(in-card cost = `inventory_costs.cost_basis`, else agreed value; ask = current `inventory.price`),
+cash, data quality (`cost_coverage`, `cards_missing_cost`, `unbalanced_trades`, `ungrouped_cards`,
+`needs_review` from Snap & Sell), `mix` (traded / cash_sale / lot, cards + value), `rows[]` (code, title,
+cost, value, profit, Win/Loss/Even, type, txn/item ids, price basis), snapshots and growth. Full
+precision; round in display only.
+
+### Golden fixture — TitoCollects, Nov 7 2026
+Import package in Drive (`cardshow_inventory_import.csv`, `cardshow_transactions_nov7.csv`,
+`cardshow_transaction_items_nov7.csv`, plus `README_TitoCollects_Import.md` and
+`cardshow_import_issues.csv`). **Not committed**: it's a real dealer's inventory and costs.
+- `scripts/load_fixture_tito_nov7.js --dir <csvs> --owner <uuid> [--handle h] [--show <CardShow id>] > f.sql`
+  writes SQL (ids derived from owner + row, so loading twice changes nothing). Without `--show` it
+  makes a private "Mall Show"; with `--show` the cash and lot sales go on the ledger (`source 'import'`,
+  `is_test`, lot `api_eligible = false`) and trades still go in `dealer_transactions`.
+- Mapping: LOT_SALE→lot_sale, SALE→sale, TRADE→trade, TRADE_UNGROUPED→trade + `is_ungrouped`; blank cash
+  = 0; Single 78's blank cost = 0; other blank costs stay unknown.
+- `tests/show-mode/trades.test.sh` (`TITO_FIXTURE_DIR=… ./trades.test.sh`, as a Postgres user) → 54
+  checks: every value in the spec's table (29 out, +$240, 7.4%, +$145 / +$95, 51.7%, 15/3/11, +100/−90,
+  trades 23/2925/3070, cash 6/300/395, in 68/5956/7726, on hand 56/4256/5596), mix 23/4/2, chained trade
+  S-75 (cost 100, −10), same numbers at a CardShow show, organizer GMV $395 with no trade rows on the
+  ledger, trade count 6 for organizers, RLS (other user / anon see nothing, can't edit), migration leaves
+  ledger GMV unchanged, item-cost backfill, snapshot once-per-show + growth, editing a trade's cash.
+
+### Phase 2 — Show Home (session 2026-11-19)
+**Migration `20261119120000_show_home.sql`** (run after the trades one; re-runnable):
+- `dealer_show_report()` replaced with the same function plus `unbalanced` ([{txn_id, delta}]) and
+  `ungrouped_txn_ids`, so each data-quality warning links to its fix. 47 fields, under Postgres's
+  100-argument limit for `jsonb_build_object`; split it before adding many more.
+- `dealer_show_list()` (invoker): the caller's CardShow shows (in `show_sellers`, or with their sales on
+  the ledger or trades) and private `dealer_shows`, each with `cards_out`, `net_pl`, `missing_cost`.
+- `take_inventory_snapshot(kind, show_id, dealer_show_id, client_snapshot_id)` (definer, owner = caller):
+  Available cards; missing cost/price count as 0 and are counted. A second show_start/show_end for the
+  same show, or a retry with the same client id, returns the existing row (`already: true`).
+- `close_ended_show_snapshots()` (service_role only), run hourly by `close-show-snapshots.js`: writes the
+  show_end for every show_start without one once the show's last day is over in its time zone (Pacific
+  when none). So "automatic at 11:59 pm" lands within the first hour after midnight.
+
+**`js/show-home.js` (sh*), seller tab "📈 Shows" (`switchSellerTab('shows')`, `#showHomePanel`):**
+- **List:** each show with date, cards out, net P/L; all-time total; "+ Add a show you did outside
+  CardShow" (inserts `dealer_shows`).
+- **Show Home**, in the spec's order: KPI row (Net P/L, Margin on cost, Trade value gained, Cash sale
+  profit, Win rate + W/L/E); inline SVG donuts "What left" (traded / cash sale / lot, Cards↔Value toggle)
+  and "Results" (win / loss / even), legends always written out, empty ring when all zero; Trades and
+  Cash sales cards; What came in and Still on hand; Inventory start / end / change with "Take start
+  snapshot now" and "End show"; every card out, sortable, tap → transaction detail (both sides, cash,
+  balance); data-quality strip (unbalanced trades → detail, ungrouped → the bucket, needs details →
+  Show Mode `/needs`, missing cost → filters the table, "Add cost" upserts `transaction_item_costs`);
+  Export CSV (cards + summary, no payment method or photos). Empty show → "Log your first sale or trade".
+- Positive numbers `var(--accent)`, negative `var(--danger)`. The classic app is dark only (no light
+  theme exists outside Show Mode); everything uses the theme variables.
+- **Snapshots** go through Show Mode's outbox (op `inv_snapshot`, `shRunOp()`). **Deviation:** online,
+  the server computes the snapshot (`take_inventory_snapshot`), because the phone's costs may not have
+  loaded yet when a show starts; a snapshot taken offline keeps the phone's numbers from that moment
+  (`op.offline`) and is inserted directly when it syncs.
+- **show_start** (`shEnsureShowStart(showId)`, once per seller per show via `shStart:<handle>:<show>`,
+  only on a show day): opening Show Mode, and the first sale — Sell Drawer `sdConfirm()` (before the card
+  is marked sold), Show Mode `smMarkSold()`, Snap & Sell `ssSave()`.
+- **Baseline:** "📌 Set baseline" on My Inventory; `#baselineStrip` shows "Since baseline (date): ±N cards
+  · cost ±$ · asking ±$" against the cards on this phone (`shLoadBaseline()` after costs load on login).
+- Feature guide entry "Show results". `shReset()` on sign-out.
+
+**Tests:** `show-home.test.sql` (run by `trades.test.sh`, 14 checks on Tito's fixture: report unchanged +
+the two lists, show list for a private and a CardShow show, start snapshot = 152 / $10,451 / $13,379,
+once per show, retry by client id, other dealer's show refused, hourly closer writes once and only as
+service role, anon refused) — `trades.test.sh` now prints 68 PASS. `show-home.e2e.mjs` (iPhone 13 +
+Pixel 7, synthetic report with the spec's numbers and made-up card names): list + all-time total, every
+KPI and section value formatted, donuts and toggle, sorting, quality strip → trade detail, CSV, start
+snapshot once, Add cost, empty show, add a private show, baseline + strip, offline snapshot keeps its
+numbers, show_start once when Show Mode opens, no sideways scroll. The mock gained `dealer_show_list`,
+`dealer_show_report` (canned) and `take_inventory_snapshot`.
+
+### Phase 3 — Import a show log (session 2026-11-20)
+For dealers who log shows in a spreadsheet or with Claude (Tito). Columns: Date, Time, Type (SOLD / TRADE /
+BUY), Cards Out (stock codes), Cards In (descriptions), Cash In, Cash Out, Payment Method, Notes.
+
+**Migration `20261120120000_show_log_import.sql`** (after the Show Home one; re-runnable):
+- `inventory.identification_status` (null, or `'unidentified'` for a card made from a log's Cards In).
+- `import_show_log(p_show_id, p_dealer_show_id, p_txns jsonb)` (invoker): the whole reviewed log in one
+  database transaction. Rows are processed by time.
+  - Skips a row whose `import_key` is already imported (`dealer_transactions.import_key`, or a ledger row
+    whose `client_sale_id` = md5(owner | key)).
+  - SOLD at a CardShow show → the ledger (`source 'import'`): one card = `sale` (the ledger trigger adds the
+    item, `transaction_costs` adds its cost); several = `lot_sale` with `allocated` items, `api_eligible false`.
+  - SOLD at a private show, TRADE and BUY → `dealer_transactions` (`source 'import'`). A trade with nothing
+    in is `is_ungrouped`.
+  - Cards in: new inventory (`Available`, price 0, `identification_status 'unidentified'`), the code written
+    in the log if free, else `assign_stock_codes()`; `inventory_costs` = agreed value / price paid with
+    `acquired_txn_id`; item `agreed_trade_value` (trade) or `observed` (buy). `card_ref.import_ref` lets a
+    later row (even in a later import) trade that card away again.
+  - Cards out: marked Sold (`payment_method 'Trade'` on trades), item + `transaction_item_costs` from
+    `inventory_costs`.
+  - Refuses the whole import on another dealer's card, a card already sold, or an unknown ref.
+  - Writes only columns the table has (`_import_insert()`, `_import_update_inventory()`), since
+    `inventory` and the ledger were built in the dashboard.
+- `show_log_imported_keys(text[])`: which rows are already in (the review greys them out).
+
+**`js/show-log-import.js` (im*), Show Home → "⬆ Import show log":**
+- Reads a CSV/TSV/Excel file or pasted text (CSV, tab-separated, or a Markdown table straight from
+  Claude, with chat text around it). Header row found by name; dates like `11/7/26`, `Nov 7`, `2026-11-07`;
+  times like `2:15 PM`, `14:15`.
+- Cards Out: split on `, ; + & and`; each must start with a stock code (`S12`, `S-12`, `Slab 12`,
+  `single 4`). Cards In: split on `; |` and commas outside brackets; `S-67: Charizard PSA 9` keeps code
+  S-67; grader + grade read from the text.
+- Import key = SHA-256 of date | time (or row number) | cards out (cards in for a buy).
+- Values: one-card sale = cash in; buy of one card = cash out; several cards sold together = split by
+  asking price (amber); 1-for-1 trade = out at its asking price, in from the balance (amber); any other
+  trade or buy split is left blank (red) for the dealer.
+- Review: red errors block the import (unknown or sold code, a code used twice, bad date/time/type, missing
+  values); amber warnings don't (estimates, unbalanced trades, date outside the show, a Cards In code
+  already taken). Codes and values editable, rows can be left out, cards in added/removed. A trade's
+  card that came in earlier in the same log shows "Came in earlier in this log".
+- After import: inventory, costs and Show Home reload; GTCR reconcile runs.
+- **Needs details:** chip on the card in My Inventory, search "needs details", a Show Home strip line,
+  and a section in Show Mode → Needs details (opens Edit Card). Saving in Edit Card clears the flag and
+  publishes the card to `activeShowId`. Add My Cards and the admin publish skip these cards.
+- Needs a signal; nothing is queued. Retrying is safe (dedup).
+
+**Tests:** `show-log-import.test.sh` (Postgres, synthetic, 38 checks: first import and re-import, hand-
+calculated report for SOLD / lot / TRADE with cash both ways / chained trade / BUY / ungrouped, codes,
+costs, refusals write nothing, CardShow show → ledger once, anon refused). `show-log-import.e2e.mjs`
+(iPhone 13 + Pixel 7): parsers, review errors and estimates, fixing a row, the payload, re-import all
+"already imported", CSV file, Needs details chip/search/Edit Card, Add My Cards skips them.
+
+### Phase 4 — trade screen (session 2026-11-21)
+Built first, at Stephen's request ("Start with the trade screen in Show Mode"); the quick-bar `T`/`B` syntax
+is still to come.
+
+**Migration `20261121120000_trade_logging.sql`** (run in production 2026-11-19; after the import one; uses its `_import_insert` /
+`_import_update_inventory` helpers; re-runnable):
+- `record_trade(p_client_id, p_show_id, p_dealer_show_id, p_txn)` (invoker): one trade or buy into
+  `dealer_transactions` (`source 'app'`, `client_capture_id` = the phone's id).
+  - A retry with the same client id returns the first result and writes nothing.
+  - Every card out is checked first; an already-sold card, another dealer's card or an unknown id returns
+    `{error}` and writes nothing.
+  - Cards in keep the id the phone gave them (`inventory.id`), status Available at the asking price typed
+    (else 0), `identification_status 'unidentified'`, a code from the title ("S-88: …") if free, else
+    `assign_stock_codes()`. `inventory_costs` = agreed value / price paid, `acquired_txn_id` set; items
+    `agreed_trade_value` (trade) or `observed` (buy).
+  - Cards out: item + `transaction_item_costs`, marked Sold (`payment_method 'Trade'`, sold price = value),
+    and their `show_inventory` rows deleted so they leave the buyer pages and organizer counts.
+  - Never touches the ledger.
+- `update_dealer_trade(p_txn_id, p_vals)`: cash in/out, note, item values. An in-card's value also updates its
+  cost; an out-card's value its sold price. Which cards were traded can't change (undo and log again).
+- `delete_dealer_trade(p_txn_id)`: out cards back to Available (sold fields cleared, back on the trade's
+  show), in cards deleted, the trade row deleted (items and item costs cascade). Refused with
+  `card_moved_on` once a card that came in has been sold or traded on (undo the later one first).
+
+**`js/trade-log.js` (tl*)**, Show Mode home → **Log a trade or buy** (also in the classic Sell / Add menu and
+the Feature guide, `tlOpenFromClassic()`):
+- Trade / Buy toggle (`#/sm/<show>/trade`, `/buy`). Cards going out: search unsold cards by stock code
+  ("S12", "slab 12") or name; value prefilled with the asking price, editable. Cards coming in: a title
+  (grader and grade read from it, a leading code kept), the agreed value or price paid, and an optional
+  asking price. Cash: No cash / I got cash / I paid cash.
+- `tlTotals()`: balance = out value + cash paid − in value − cash received. One card in with no value is
+  worth the balance, shown in amber as an estimate; two or more blank values block saving (never split).
+  A buy with blank cash pays what the cards are worth. The balance bar says "You're giving $X more" with a
+  one-tap "I got $X cash" / "I paid $X cash"; an uneven trade still saves.
+- Save (`tlSave()`): applies the trade on the phone at once (`tlApply()`: outs Sold as Trade and off the
+  show, ins added with Needs details and their cost), queues `trade_save`, goes home with an Undo toast.
+  A trade record is kept in localStorage (`tlRecent:<handle>`, last 20) for Recent and undo.
+  `smApplyPendingOps()` re-applies queued trades after a reload.
+- Sync (`tlRunOp()`): the server's stock codes are written onto the new cards (`_tlCodes` keeps them across
+  an inventory reload); GTCR reconcile runs. A refused trade is taken off the phone with a toast
+  ("S-12 was already sold") and the card is re-read from the server.
+- Undo: within 10 minutes from the toast or the Recent row. Before it synced, the queued op is just
+  dropped. After, `trade_delete` (finds the trade by client id) runs `delete_dealer_trade()`; if the server
+  refuses (`card_moved_on`) the trade is put back on the phone.
+- Show Home's transaction detail gains **Edit values** (`shEditTrade()`) and **Undo trade / buy**
+  (`shDeleteTrade()`) for trades and buys, logged or imported; both reload inventory and Show Home.
+- **Revenue fix:** traded cards are Sold with `PaymentMethod 'Trade'` (from Phase 3 imports too), which the
+  classic stat strip, Report tab, Report CSV and Show Mode "Sold today" were counting as sales.
+  `isSoldForCash()` (app.html) now leaves them out; their numbers are on Show Home.
+
+**Tests:** `trade-logging.test.sh` (Postgres, synthetic, 15 checks: phone ids kept, outs Sold as Trade and off
+the show, retry writes nothing, buy with a taken code, Show Home report, nothing on the ledger, refusals,
+edit, delete puts cards back on the show, chained trade cost and delete order, other dealer, anon).
+`trade-log.e2e.mjs` (iPhone 13 + Pixel 7): balance math, offline trade under a second, offline reload,
+sync with codes, undo before and after sync, buy, two blank values blocked, already-sold refusal, Show Home
+edit and undo, revenue excludes trades, no sideways scroll. The mock gained `record_trade`,
+`update_dealer_trade`, `delete_dealer_trade`.
+
+### Quick bar (session 2026-11-21)
+Cost Tracking Phase 2's quick-sale bar plus Trades Phase 4's `T`/`B` syntax. No spec document was found, so
+it's built from the decisions already recorded here (sales through `record_sale()`/`void_sale()`, the
+S/R/B/L words). **`js/quick-bar.js` (qb*)**, at the top of the Show Mode home (`qbHTML()`, between the
+stats and Sell a card). No migration.
+- **Syntax** (`qbParse()`, case-insensitive):
+  - `S12 120` / `slab 12 120` / `s-12 $120` — sell at $120. A payment word anywhere (`cash`, `venmo`,
+    `card`/`cc`, `zelle`/`paypal`/`apple pay` → Other) sets the payment, else the last one used.
+  - `S12` alone — sell at the asking price (refused if the card has none).
+  - `S12 120 R4 15` — several cards, each with its own price (separate sales).
+  - `S12 R4 130` — **refused**: one price for several cards is never split; the message suggests `lot 130`.
+  - `lot 120 [3 cards] [venmo]` — a Snap & Sell lot with no photos (`ssQuickLot()` in snap-sell.js),
+    Needs details later. `lot` followed by a number always means a lot sale; type `L12` to sell code L-12.
+  - `T S12 [R4] for wemby psa 10 +20` — trade (`for`, `->`, `→`, `=>`); `+N` = you got cash, `-N` = you paid,
+    anywhere in the line. Cards out at their asking price; one card in is worth the balance.
+  - `B 50 charizard psa 9` / `B charizard psa 9 $50` / `buy luka rc 40` — buy one card (amount: a `$` token,
+    else the first word, else the last word).
+  - When the bar can't value it on its own (nothing back yet, several cards in, a card out with no asking
+    price, a buy with no price or several cards), Enter opens the trade/buy screen pre-filled instead.
+- **Preview** (`#qbPreview`, `aria-live`): what Enter will do ("Sell S-1 Dylan Crews · $100 · Cash — Enter to
+  save"), amber when Enter opens the screen, red with the reason on an error (unknown code, sold card,
+  code twice, unknown word); the button is disabled and Enter shakes the box.
+- **Saves:** sales queue one `sale` op per card exactly like `smMarkSold()` (plus the private cost copy),
+  without leaving the home screen; toast "Sold S-1 · $100 · Cash · Profit +$x" with Undo (10s, all the cards,
+  via `smUndoSale()`; Recent sales still has Undo for 10 minutes). Trades and buys set `_tlDraft` and call
+  `tlSave()`. Lots call `ssQuickLot()`. All offline-first through the outbox.
+- The typed text and focus survive home re-renders (`qbBeforeRender()` / `qbAfterRender()` in `smRenderHome()`).
+- The input's handler is `qbOnInput()`, not `qbInput()`: inside a form, an inline handler named like an
+  input's id resolves to the element.
+- Feature guide entry "Quick bar"; `qbReset()` on sign-out.
+
+**Tests:** `quick-bar.e2e.mjs` (iPhone 13 + Pixel 7): every syntax form and error, live preview, text kept
+across a re-render, sale + sync + Undo, two cards offline, lot → Snap & Sell, trade and buy through
+`record_trade`, two cards for one price opens the buy screen, help, no sideways scroll.
+
+### App changes in Phase 1
+- Organizer Analytics `_orgFetchSales()` reads the ledger with `select('*')` and treats `txn_type =
+  'lot_sale'` as a lot too.
+- Snap & Sell's ledger row sends `txn_type` (`lot_sale` for a lot), retrying without it before the migration.
+
+### Not built yet
+- Phase 2 gaps: the 1.5s-on-4G target wasn't measured on a real phone (one RPC per screen); grouping
+  ungrouped imported trades from the detail view; a classic-view sale's `show_start` can race the sale's
+  own DB write and count the sold card (Show Mode and Snap & Sell queue the snapshot first).
+- Phase 3 gaps: undoing an import (delete its transactions and new cards) isn't built; the import isn't
+  queued offline; Cards In split on commas, so a title with a comma becomes two cards until fixed in review.
+- Quick bar gaps: Show Mode only (no classic-view bar); no buyer handle or note on a sale; a card with no
+  stock code can't be sold from it. Trade screen gaps: no photos or camera identification of cards coming in; a trade at a private (non-CardShow) show
+  can't be logged from Show Mode; edit can't change which cards were traded; undo of a trade made on
+  another phone only from Show Home.
+- Organizer UI for the trade count.
+- Snap & Sell's `snap_resolve` still doesn't write `transaction_item_costs` for lot cards.
+- Questions for Tito from the import README (direction of the $20, Captain Pikachu $100, $25 on
+  NOV7-09, which Glaceon, Slab 50, the 12 ungrouped trades, missing costs/asks).
 
 ## Show Configuration (Demo Data)
 - **MLP Card Show** — Oct 17-18, 2026 · Grand Hyatt Tampa Bay, FL · Code: MLPTPA (primary demo, shown to buyers without code)

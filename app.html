@@ -4765,6 +4765,178 @@
   .sm-badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-weight: 800; font-size: 13px; white-space: nowrap; }
   .sm-badge--ok { background: var(--sm-success-bg); color: var(--sm-success-fg); }
   .sm-badge--warn { background: var(--sm-warn-bg); color: var(--sm-warn-fg); }
+  /* ── Show Home (js/show-home.js): seller-only show results ── */
+  .sh-panel { padding: 0.25rem 0 1rem; }
+  .sh-h { font-family: 'Bebas Neue', sans-serif; font-size: 1.6rem; letter-spacing: 0.5px; color: var(--text); }
+  .sh-muted { color: var(--muted); font-size: 0.8rem; }
+  .sh-loading, .sh-empty { color: var(--muted); padding: 1.5rem 0; text-align: center; }
+  .sh-pos { color: var(--accent); }
+  .sh-neg { color: var(--danger); }
+  .sh-back { font-size: 0.8rem; margin-bottom: 0.5rem; }
+  .sh-head { margin-bottom: 0.75rem; }
+  .sh-list-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 0.75rem; }
+  .sh-alltime { display: flex; flex-direction: column; align-items: flex-end; }
+  .sh-alltime strong { font-family: 'Bebas Neue', sans-serif; font-size: 1.8rem; line-height: 1; }
+  .sh-show-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .sh-show-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%; text-align: left;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 1rem; color: var(--text); cursor: pointer; font: inherit; }
+  .sh-show-row:hover, .sh-show-row:focus-visible { border-color: var(--accent); outline: none; }
+  .sh-show-main { display: flex; flex-direction: column; min-width: 0; }
+  .sh-show-name { font-weight: 600; }
+  .sh-show-meta { color: var(--muted); font-size: 0.8rem; }
+  .sh-show-pl { font-family: 'DM Mono', monospace; font-weight: 600; white-space: nowrap; }
+  .sh-tag { font-family: 'DM Mono', monospace; font-size: 0.65rem; border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; color: var(--muted); margin-left: 4px; }
+  .sh-add { margin-top: 1rem; }
+  .sh-add summary { cursor: pointer; color: var(--accent); font-size: 0.85rem; }
+  .sh-add-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.6rem; margin-top: 0.6rem; align-items: end; }
+  .sh-add-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: var(--muted); }
+  .sh-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.6rem; margin-bottom: 0.75rem; }
+  .sh-kpi { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; }
+  .sh-kpi-label { font-family: 'DM Mono', monospace; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .sh-kpi-value { font-family: 'Bebas Neue', sans-serif; font-size: 1.9rem; line-height: 1.1; color: var(--text); }
+  .sh-kpi-value.sh-pos { color: var(--accent); } .sh-kpi-value.sh-neg { color: var(--danger); }
+  .sh-kpi-sub { color: var(--muted); font-size: 0.75rem; }
+  .sh-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.6rem; margin-bottom: 0.6rem; }
+  .sh-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem; margin-bottom: 0.6rem; min-width: 0; }
+  .sh-grid2 > .sh-card { margin-bottom: 0; }
+  .sh-card-title { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;
+    font-family: 'DM Mono', monospace; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.6rem; }
+  .sh-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .sh-toggle button { background: none; border: 0; color: var(--muted); font: inherit; padding: 3px 9px; cursor: pointer; }
+  .sh-toggle button[aria-pressed="true"] { background: var(--accent); color: var(--black); }
+  .sh-donut { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .sh-donut svg { width: 128px; height: 128px; flex-shrink: 0; }
+  .sh-donut-num { font-family: 'Bebas Neue', sans-serif; font-size: 22px; fill: var(--text); }
+  .sh-donut-sub { font-family: 'DM Mono', monospace; font-size: 9px; fill: var(--muted); text-transform: uppercase; }
+  .sh-legend { list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; color: var(--text); }
+  .sh-legend strong { margin-left: 4px; }
+  .sh-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+  .sh-stat { display: flex; justify-content: space-between; gap: 0.5rem; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 0.88rem; color: var(--text); }
+  .sh-stat:last-child { border-bottom: 0; }
+  .sh-stat span { color: var(--muted); }
+  .sh-stat strong { font-family: 'DM Mono', monospace; font-weight: 500; }
+  .sh-mini { width: 100%; border-collapse: collapse; font-size: 0.85rem; color: var(--text); }
+  .sh-mini th, .sh-mini td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  .sh-mini th:first-child, .sh-mini td:first-child { text-align: left; color: var(--muted); }
+  .sh-mini th { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--muted); font-weight: 400; text-transform: uppercase; }
+  .sh-change td { font-weight: 600; }
+  .sh-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; justify-content: flex-end; }
+  .sh-table-wrap { overflow-x: auto; }
+  .sh-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; color: var(--text); min-width: 520px; }
+  .sh-table th, .sh-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); text-align: right; vertical-align: top; }
+  .sh-table th:nth-child(2), .sh-table td:nth-child(2), .sh-table th:first-child, .sh-table td:first-child { text-align: left; }
+  .sh-table tbody tr { cursor: pointer; }
+  .sh-table tbody tr:hover, .sh-table tbody tr:focus-visible { background: var(--surface); outline: none; }
+  .sh-sort { cursor: pointer; font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--muted); font-weight: 400; text-transform: uppercase; user-select: none; }
+  .sh-sort.on { color: var(--accent); }
+  .sh-code { font-family: 'DM Mono', monospace; color: var(--muted); white-space: nowrap; }
+  .sh-title { max-width: 320px; }
+  .sh-chip { font-family: 'DM Mono', monospace; font-size: 0.7rem; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--border); white-space: nowrap; }
+  .sh-chip--win { color: var(--accent); border-color: var(--accent); }
+  .sh-chip--loss { color: var(--danger); border-color: var(--danger); }
+  .sh-chip--even { color: var(--muted); }
+  .sh-addcost, .sh-link { background: none; border: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; padding: 0; }
+  .sh-quality { display: flex; flex-direction: column; gap: 6px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.35);
+    border-radius: 10px; padding: 0.75rem; margin-bottom: 0.6rem; color: var(--text); }
+  .sh-q { text-align: left; background: none; border: 0; color: var(--text); text-decoration: underline; cursor: pointer; font: inherit; padding: 2px 0; }
+  .sh-baseline { display: flex; flex-wrap: wrap; gap: 0.25rem 0.9rem; font-size: 0.82rem; color: var(--text); padding: 0.45rem 0.75rem; margin: 0 0 0.6rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+  .sh-modal { max-width: 560px; width: calc(100vw - 2rem); max-height: calc(100dvh - 2rem); overflow-y: auto; }
+  .sh-side { font-family: 'DM Mono', monospace; font-size: 0.7rem; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .sh-items { list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--text); margin-bottom: 0.6rem; }
+  .sh-items li { display: flex; justify-content: space-between; gap: 0.5rem; }
+  .sh-balance { margin: 0.5rem 0; padding: 0.5rem 0.65rem; border-radius: 8px; background: rgba(245,200,66,0.1); color: var(--accent); font-size: 0.85rem; }
+  .sh-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+  /* ── Show log import (js/show-log-import.js) ── */
+  .im-ov { z-index: 960; }
+  .im-modal { max-width: 920px; width: calc(100vw - 1.5rem); max-height: calc(100dvh - 1.5rem); overflow-y: auto; display: flex; flex-direction: column; gap: 0.6rem;
+    padding: 1rem 1rem 0; box-sizing: border-box; }
+  #imImportBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .im-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .im-head .sh-card-title { margin: 0; }
+  .im-x { background: none; border: 0; color: var(--muted); font-size: 1.1rem; cursor: pointer; min-width: 44px; min-height: 44px; }
+  .im-pick { display: flex; gap: 0.5rem; }
+  .im-paste-label { font-size: 0.8rem; color: var(--muted); }
+  .im-paste { width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem;
+    font-family: 'DM Mono', monospace; font-size: 0.8rem; resize: vertical; }
+  .im-msg { color: var(--danger); font-size: 0.85rem; min-height: 1em; }
+  .im-rows { display: flex; flex-direction: column; gap: 0.6rem; }
+  .im-row { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem; color: var(--text); min-width: 0; }
+  .im-row--off { opacity: 0.6; }
+  .im-row--dup { opacity: 0.55; }
+  .im-row-head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 0.85rem; }
+  .im-row-head .im-type { width: auto; min-width: 110px; padding: 4px 8px; }
+  .im-inc { display: inline-flex; align-items: center; gap: 6px; font-family: 'DM Mono', monospace; font-size: 0.75rem; color: var(--muted); }
+  .im-inc input { width: 20px; height: 20px; }
+  .im-n { font-family: 'DM Mono', monospace; font-size: 0.75rem; color: var(--muted); }
+  .im-pill { margin-left: auto; font-family: 'DM Mono', monospace; font-size: 0.7rem; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--border); }
+  .im-pill--ok { color: var(--success); border-color: var(--success); }
+  .im-pill--warn { color: #f59e0b; border-color: #f59e0b; }
+  .im-pill--bad { color: var(--danger); border-color: var(--danger); }
+  .im-pill--off, .im-pill--dup { color: var(--muted); }
+  .im-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.6rem; }
+  .im-card { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 4px; min-width: 0; }
+  .im-card-title { flex: 1; min-width: 0; font-size: 0.8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .im-bad .im-card-title { color: var(--danger); }
+  .im-code { width: 84px; flex-shrink: 0; padding: 4px 6px; font-family: 'DM Mono', monospace; }
+  .im-in-title { flex: 1; min-width: 0; padding: 4px 6px; }
+  .im-val { width: 84px; flex-shrink: 0; padding: 4px 6px; text-align: right; }
+  .im-est { border-color: #f59e0b !important; background: rgba(245,158,11,0.1); }
+  .im-field-bad { border-color: var(--danger) !important; background: rgba(239,68,68,0.08); }
+  .im-cash { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; margin-top: 0.5rem; font-size: 0.8rem; color: var(--muted); }
+  .im-cash label { display: inline-flex; align-items: center; gap: 0.4rem; }
+  .im-balance { font-size: 0.8rem; margin-top: 0.4rem; color: var(--text); }
+  .im-msgs { list-style: none; font-size: 0.8rem; margin-top: 0.3rem; display: flex; flex-direction: column; gap: 2px; }
+  .im-note { font-size: 0.8rem; margin-top: 0.3rem; }
+  .im-text-bad { color: var(--danger); }
+  .im-text-warn { color: #f59e0b; }
+  .im-text-ok { color: var(--success); }
+  .im-foot { position: sticky; bottom: -1px; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end;
+    background: var(--surface); border-top: 1px solid var(--border); padding: 0.6rem 0; margin-top: 0.25rem; }
+  .im-summary { margin-right: auto; font-size: 0.8rem; color: var(--muted); }
+  .im-needs-chip { color: #f59e0b; border-color: #f59e0b; }
+  @media (max-width: 599px) {
+    .im-sides { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 599px) {
+    .sh-kpis { grid-template-columns: repeat(2, 1fr); }
+    .sh-kpi-value { font-size: 1.6rem; }
+    .sh-alltime { align-items: flex-start; }
+  }
+  /* ── Snap & Sell (js/snap-sell.js) ── */
+  .sm-sec-btn--snap { min-height: 64px; border: 2px solid var(--sm-ink); background: var(--sm-accent-soft); }
+  .sm-sec-btn--snap strong { display: block; }
+  .sm-sec-sub { display: block; font-weight: 600; font-size: 13px; color: var(--sm-muted); }
+  .ss-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+  .ss-tile { position: relative; aspect-ratio: 4 / 3; border-radius: 16px; border: 2px dashed var(--sm-placeholder-line);
+    background: var(--sm-placeholder); display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; font-weight: 800; cursor: pointer; overflow: hidden; min-width: 0; }
+  .ss-tile svg { width: 28px; height: 28px; }
+  .ss-tile--done { border-style: solid; border-color: var(--sm-ink); }
+  .ss-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .ss-tile-tag { position: absolute; left: 6px; bottom: 6px; background: var(--sm-ink); color: #fff; border-radius: 8px; padding: 2px 8px; font-size: 12px; }
+  .ss-tile:focus-within { outline: 2px solid var(--sm-ink); outline-offset: 2px; }
+  .ss-amount { display: block; margin-top: 14px; }
+  .ss-amount-box { display: flex; align-items: center; gap: 4px; border: 2px solid var(--sm-ink); border-radius: 16px; background: var(--sm-surface);
+    padding: 0 14px; font-family: var(--sm-display); font-weight: 800; font-size: 34px; }
+  .ss-amount-box input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; color: var(--sm-ink); min-height: 64px; outline: none; }
+  .ss-amount-box:focus-within { box-shadow: 0 0 0 3px var(--sm-accent); }
+  #showModeRoot .ss-amount-box input, #showModeRoot .ss-amount-box input:focus-visible { outline: none; border: 0; box-shadow: none; padding: 0; }
+  .ss-count { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .ss-count-num { min-width: 36px; text-align: center; font-family: var(--sm-display); font-weight: 800; font-size: 26px; }
+  .ss-row { cursor: pointer; }
+  .ss-thumb-empty { display: flex; align-items: center; justify-content: center; color: var(--sm-muted); }
+  .ss-thumb-empty svg { width: 22px; height: 22px; }
+  .ss-photo { display: block; margin-top: 4px; border-radius: 16px; overflow: hidden; border: 1px solid var(--sm-line); background: var(--sm-placeholder); }
+  .ss-photo img { display: block; width: 100%; max-height: 52vh; object-fit: contain; }
+  .ss-meta { margin-top: 10px; }
+  .ss-meta-amount { font-family: var(--sm-display); font-weight: 800; font-size: 28px; }
+  .ss-pay-photo { display: block; width: 100%; max-height: 40vh; object-fit: contain; margin-top: 8px; border-radius: 12px; border: 1px solid var(--sm-line); }
+  .ss-item { align-items: center; }
+  .ss-price { display: flex; align-items: center; gap: 2px; font-weight: 800; flex-shrink: 0; }
+  .ss-price input { width: 84px; min-height: 44px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--sm-line); background: var(--sm-surface); font: 700 16px var(--sm-body); color: var(--sm-ink); }
+  .ss-total { margin-top: 6px; font-weight: 700; font-size: 14px; }
+  .ss-total--warn { color: var(--sm-warn-fg); background: var(--sm-warn-bg); border-radius: 10px; padding: 8px 10px; }
   .sm-link { background: none; border: 0; min-height: 44px; padding: 0 4px; font-weight: 700; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; color: var(--sm-ink) !important; }
   .sm-link--dark { color: var(--sm-ink) !important; }
   .sm-links { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: center; margin-top: 6px; }
@@ -4836,6 +5008,37 @@
   .sm-hero-price { font-family: var(--sm-display); font-weight: 800; font-size: 64px; letter-spacing: -2px; line-height: 1; margin: 2px 0 12px; }
   .sm-chip-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .sm-chip-grid--3 { grid-template-columns: repeat(3, 1fr); }
+  .sm-chip-grid--2 { grid-template-columns: repeat(2, 1fr); }
+  /* ── Trade logging (js/trade-log.js) ── */
+  .tl-in { border: 1px solid var(--sm-line); border-radius: 14px; padding: 4px 10px 8px; margin-bottom: 10px; background: var(--sm-surface); }
+  .tl-in .sm-form-row { align-items: flex-end; }
+  .tl-in-x { flex-shrink: 0; }
+  #showModeRoot .tl-est, #showModeRoot input.tl-est::placeholder { color: var(--sm-warn-fg); }
+  #showModeRoot input.tl-est { background: var(--sm-warn-bg); }
+  .tl-est-note { color: var(--sm-warn-fg); margin-top: 0; }
+  .tl-bal { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--sm-warn-bg); color: var(--sm-warn-fg); font-weight: 700; font-size: 14px; }
+  .tl-bal .sm-link { color: var(--sm-ink) !important; }
+  .tl-bal .sm-row-meta { display: block; color: var(--sm-warn-fg); }
+  .tl-bal--even { background: var(--sm-accent-soft); color: var(--sm-ink); }
+  /* ── Quick bar (js/quick-bar.js) ── */
+  .qb { margin: 0 0 14px; }
+  .qb-form { display: flex; gap: 8px; }
+  #showModeRoot .qb-input { flex: 1; min-width: 0; min-height: 52px; padding: 0 14px; border-radius: 14px; border: 2px solid var(--sm-ink);
+    background: var(--sm-surface); color: var(--sm-ink); font: 700 17px var(--sm-mono, ui-monospace, monospace); outline: none; }
+  #showModeRoot .qb-input:focus-visible { box-shadow: 0 0 0 3px var(--sm-accent); }
+  .qb-go { flex-shrink: 0; width: 52px; min-height: 52px; border-radius: 14px; border: 2px solid var(--sm-ink); background: var(--sm-accent);
+    display: flex; align-items: center; justify-content: center; }
+  .qb-go svg { width: 24px; height: 24px; }
+  .qb-go:disabled { opacity: .4; }
+  .qb-preview { min-height: 1.2em; margin-top: 6px; font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+  .qb-preview--error { color: var(--sm-danger, #b42318); }
+  .qb-preview--open { color: var(--sm-warn-fg); }
+  .qb-help { min-height: 44px; font-size: 13px; }
+  .qb-help-box { font-size: 13px; line-height: 1.5; padding: 8px 10px; border-radius: 12px; background: var(--sm-placeholder); overflow-wrap: anywhere; }
+  .qb-help-box b { font-family: var(--sm-mono, ui-monospace, monospace); }
+  @keyframes qbShake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+  .qb-shake { animation: qbShake .25s; }
+  @media (prefers-reduced-motion: reduce) { .qb-shake { animation: none; } }
   .sm-chip-grid .sm-chip { padding: 0 6px; }
   .sm-field { display: flex; flex-direction: column; gap: 4px; font-weight: 700; font-size: 13px; color: var(--sm-muted); margin-top: 10px; flex: 1; min-width: 0; }
   .sm-field input, .sm-field select { min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--sm-line); background: var(--sm-surface); font: 600 16px var(--sm-body); color: var(--sm-ink); width: 100%; }
@@ -5774,6 +5977,7 @@
           <div style="display:flex;gap:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;width:fit-content">
             <button class="admin-tab active" id="sellerTabInventory" onclick="switchSellerTab('inventory')">📋 My Inventory</button>
             <button class="admin-tab" id="sellerTabReport" onclick="switchSellerTab('report')">📊 Report</button>
+            <button class="admin-tab" id="sellerTabShows" onclick="switchSellerTab('shows')">📈 Shows</button>
           </div>
         </div>
 
@@ -5796,6 +6000,7 @@
           <input type="text" class="search-input" id="sellerSearchInput" placeholder="Search cards…" oninput="applyInventoryFilters()">
           <button class="btn btn-ghost" id="selectAllBtn" onclick="selectAll()" style="display:none">Select All</button>
           <button class="btn btn-ghost" id="compCheckBtn" onclick="runCompCheck(getCompCheckCards())" style="display:none;font-size:0.8rem" title="Look up market prices for selected cards (or all available if none selected)">💲 Check Comps</button>
+          <button class="btn btn-ghost" id="baselineBtn" onclick="shSetBaseline()" style="display:none;font-size:0.8rem" title="Record your inventory now; the strip below then shows growth since this point">📌 Set baseline</button>
           <button class="btn btn-ghost" id="assignCodesBtn" onclick="assignStockCodesBulk()" style="display:none;font-size:0.8rem" title="Give a stock code (S-1, R-1, B-1, L-1) to every unsold card that doesn't have one">🏷 Assign codes</button>
           <button class="btn btn-ghost" id="sportValidateBtn" onclick="runSportValidation(getSportValidationCards())" style="display:none;font-size:0.8rem" title="Look up sport via PriceCharting for selected cards with no sport badge (or all such cards if none selected)">🏷️ Validate Sport</button>
           <div style="position:relative;display:none" id="exportInventoryWrap">
@@ -5809,6 +6014,9 @@
           <button class="btn btn-ghost" id="backToShowsBtn" style="display:none;font-size:0.8rem" onclick="switchAdminTab('shows')">← Shows</button>
         </div>
 
+      <div id="baselineStrip" class="sh-baseline" style="display:none" role="status"></div>
+      <!-- Show Home (js/show-home.js): the dealer's own show results. Never shown to organizers or buyers. -->
+      <div id="showHomePanel" class="sh-panel" style="display:none"></div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -6715,6 +6923,14 @@
       <button class="qa-choice" onclick="qaGo('scanSell')">
         <span class="qa-choice-icon" aria-hidden="true">📷</span>
         <span class="qa-choice-text"><strong>It's not in my inventory</strong><span>Take a photo of the card and record the sale</span></span>
+      </button>
+      <button class="qa-choice" onclick="qaGo('snap')">
+        <span class="qa-choice-icon" aria-hidden="true">⚡</span>
+        <span class="qa-choice-text"><strong>Snap &amp; Sell</strong><span>Photo and total now, card details later. Good for lots.</span></span>
+      </button>
+      <button class="qa-choice" onclick="qaGo('trade')">
+        <span class="qa-choice-icon" aria-hidden="true">🔁</span>
+        <span class="qa-choice-text"><strong>Trade or buy</strong><span>Cards out, cards in, any cash</span></span>
       </button>
     </div>
 
@@ -7681,9 +7897,14 @@
 </div>
 
 <!-- Show Mode v2 (flag show_mode_v2). Bump ?v= when it changes: the service worker caches by URL. -->
-<script src="/js/show-mode.js?v=20261114a"></script>
+<script src="/js/show-mode.js?v=20261121b"></script>
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
 <script src="/js/cost-tracking.js?v=20261114a"></script>
+<script src="/js/snap-sell.js?v=20261121a"></script>
+<script src="/js/show-home.js?v=20261121a"></script>
+<script src="/js/show-log-import.js?v=20261120a"></script>
+<script src="/js/trade-log.js?v=20261121a"></script>
+<script src="/js/quick-bar.js?v=20261121a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -11080,8 +11301,11 @@ function applyInventoryFilters() {
   // "s12", "S-12" or "slab 12" finds stock code S-12 (exact, or codes starting with it).
   const qKey = stockCodeQueryKey(q);
 
+  // "needs details" lists cards from a show-log import that still need their details.
+  const qNeeds = q.length >= 4 && 'needs details'.startsWith(q);
   let filtered = scoped.filter(r =>
     !q ||
+    (qNeeds && r.IdentificationStatus === 'unidentified' && r.Status !== 'Sold') ||
     (qKey && r.StockCode && stockCodeKey(r.StockCode).startsWith(qKey)) ||
     (r.Player || '').toLowerCase().includes(q) ||
     (r['Card Title'] || '').toLowerCase().includes(q) ||
@@ -11104,8 +11328,9 @@ function updateStats() {
     .reduce((sum, r) => sum + (Number(r.Price) || 0), 0);
   // Graded = slabs in full inventory
   const graded    = scoped.filter(r => r.Grade && !isNaN(Number(r.Grade))).length;
-  // Sold count + revenue — always computed, shown only when show is active
-  const soldCards = scoped.filter(r => r.Status === 'Sold');
+  // Sold count + revenue — always computed, shown only when show is active.
+  // Cards that left in a trade aren't sales (no revenue): see isSoldForCash().
+  const soldCards = scoped.filter(isSoldForCash);
   const soldCount = soldCards.length;
   const revenue   = soldCards.reduce((sum, r) => sum + (Number(r.SoldPrice) || 0), 0);
 
@@ -12167,6 +12392,8 @@ function sdConfirm() {
   const saleShowId = document.getElementById('sdShowWrap')?.style.display === 'none'
     ? _resolveSaleShowId(card)
     : (document.getElementById('sdShow')?.value || null);
+  // First sale at a show today: inventory snapshot, before this sale changes it.
+  if (saleShowId && typeof shEnsureShowStart === 'function') shEnsureShowStart(saleShowId);
   card.Status        = 'Sold';
   card.SoldPrice     = price;
   card.PaymentMethod = sdSelectedPayment;
@@ -13280,6 +13507,11 @@ function _txSortKey(r) {
   return r.SoldDate + 'T' + time;
 }
 
+// A card sold for money. Cards that left in a trade (PaymentMethod 'Trade', from
+// trade logging or a show-log import) are Sold too, but they aren't sales: their
+// numbers are on Show Home.
+function isSoldForCash(r) { return r.Status === 'Sold' && r.PaymentMethod !== 'Trade'; }
+
 function updateReport() {
   populateReportShowSelector();
   const showId    = (document.getElementById('rptShowFilter') || {}).value || '';
@@ -13288,22 +13520,28 @@ function updateReport() {
   const scoped    = showId
     ? all.filter(r => r._shows instanceof Set && r._shows.has(showId))
     : all;
-  const soldCards = scoped.filter(r => r.Status === 'Sold');
+  const soldCards = scoped.filter(isSoldForCash);   // traded cards are on Show Home, not here
+  // Snap & Sell sales (js/snap-sell.js): the part of each total not already
+  // shown by a linked inventory card. They count toward revenue, payments and
+  // the log, not toward vs-ask, best/worst or top cards (no asking price).
+  const snapRows  = typeof ssReportRows === 'function' ? ssReportRows(showId) : [];
+  const allSales  = soldCards.concat(snapRows);
   const total     = scoped.length;
-  const revenue   = soldCards.reduce((s, r) => s + (Number(r.SoldPrice) || 0), 0);
+  const cardRevenue = soldCards.reduce((s, r) => s + (Number(r.SoldPrice) || 0), 0);
+  const revenue   = allSales.reduce((s, r) => s + (Number(r.SoldPrice) || 0), 0);
   const askOfSold = soldCards.reduce((s, r) => s + (Number(r.Price)     || 0), 0);
   const askLeft   = scoped.filter(r => r.Status !== 'Sold').reduce((s, r) => s + (Number(r.Price) || 0), 0);
-  const pct       = askOfSold ? Math.round(revenue / askOfSold * 100) : null;
+  const pct       = askOfSold ? Math.round(cardRevenue / askOfSold * 100) : null;
   const el = id => document.getElementById(id);
   if (!el('rptRevenue')) return;
 
   el('rptRevenue').textContent = '$' + revenue.toLocaleString();
-  el('rptRevSub').textContent  = soldCards.length + ' transaction' +
-    (soldCards.length !== 1 ? 's' : '') +
-    (soldCards.length ? ' · avg $' + Math.round(revenue / soldCards.length).toLocaleString() : '');
+  el('rptRevSub').textContent  = allSales.length + ' transaction' +
+    (allSales.length !== 1 ? 's' : '') +
+    (allSales.length ? ' · avg $' + Math.round(revenue / allSales.length).toLocaleString() : '');
   el('rptVsAsk').textContent    = pct != null ? pct + '%' : '—';
   el('rptVsAskSub').textContent = pct != null
-    ? '$' + Math.abs(revenue - askOfSold).toLocaleString() + ' ' + (revenue >= askOfSold ? 'above' : 'below') + ' ask'
+    ? '$' + Math.abs(cardRevenue - askOfSold).toLocaleString() + ' ' + (cardRevenue >= askOfSold ? 'above' : 'below') + ' ask'
     : 'No sales yet';
   el('rptAskLeft').textContent    = '$' + askLeft.toLocaleString();
   el('rptAskLeftSub').textContent = scoped.filter(r => r.Status !== 'Sold').length + ' cards remaining';
@@ -13313,17 +13551,17 @@ function updateReport() {
   const methods = ['Cash','Venmo','Zelle','PayPal','Square','Other'];
   const colors  = {Cash:'#22c55e',Venmo:'#3b82f6',Zelle:'#c084fc',PayPal:'#f59e0b',Square:'#ef4444',Other:'#5a6585'};
   const totals  = {};
-  soldCards.forEach(r => {
-    const m = r.PaymentMethod || 'Other';
+  allSales.forEach(r => {
+    const m = methods.includes(r.PaymentMethod) ? r.PaymentMethod : 'Other';
     totals[m] = (totals[m] || 0) + (Number(r.SoldPrice) || 0);
   });
   const maxAmt = Math.max(...Object.values(totals), 1);
   const payEl  = el('rptPayBreakdown');
-  if (!soldCards.length) {
+  if (!allSales.length) {
     payEl.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:12px 0">No transactions yet</div>';
   } else {
     payEl.innerHTML = methods.filter(m => totals[m]).map(m => {
-      const cnt = soldCards.filter(r => (r.PaymentMethod || 'Other') === m).length;
+      const cnt = allSales.filter(r => (methods.includes(r.PaymentMethod) ? r.PaymentMethod : 'Other') === m).length;
       return `<div class="report-pay-row">
         <div class="report-pay-left">
           <span class="pay-chip-sm ${m}">${m}</span>
@@ -13405,7 +13643,7 @@ function updateReport() {
 
   // ── Transaction log ──
   const tbody = el('rptTxBody');
-  if (!soldCards.length) {
+  if (!allSales.length) {
     tbody.innerHTML = '<tr><td colspan="8" style="padding:16px 8px;color:var(--muted);font-size:12px">No sales yet</td></tr>';
   } else {
     // Newest sale first — full date+time, not just date. SoldTime is a
@@ -13417,12 +13655,12 @@ function updateReport() {
     // different sources — POS, Sell Drawer, Manual Sale — in one day).
     // A row with no SoldDate (a legacy pre-feature sale) sorts to the very
     // bottom, same as before.
-    const sorted = [...soldCards].sort((a, b) => _txSortKey(b).localeCompare(_txSortKey(a)));
+    const sorted = [...allSales].sort((a, b) => _txSortKey(b).localeCompare(_txSortKey(a)));
     tbody.innerHTML = sorted.map(r => {
       const delta    = (Number(r.SoldPrice) || 0) - (Number(r.Price) || 0);
-      const mslBadge = r._manualSale
-        ? '<span class="msl-badge">MANUAL</span>'
-        : '';
+      const mslBadge = r._snap
+        ? `<span class="msl-badge">${r._needsDetails ? 'NEEDS DETAILS' : 'SNAP'}</span>`
+        : (r._manualSale ? '<span class="msl-badge">MANUAL</span>' : '');
       // Legacy rows sold before this feature shipped have no SoldDate — show
       // "—" rather than guessing (see CLAUDE.md "Add a Date to the Transaction Log").
       const dateLabel = r.SoldDate
@@ -13436,16 +13674,16 @@ function updateReport() {
           <div style="font-weight:500;font-size:12px;color:var(--text)">${r.Player || '—'}${mslBadge}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:1px">${r['Card Title'] || ''}</div>
         </td>
-        <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5);font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)">$${Number(r.Price||0).toLocaleString()}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5);font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)">${r._snap ? '—' : '$' + Number(r.Price||0).toLocaleString()}</td>
         <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5);font-family:'DM Mono',monospace;font-size:12px;color:#4ade80;font-weight:500">$${Number(r.SoldPrice).toLocaleString()}</td>
-        <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5);font-family:'DM Mono',monospace;font-size:11px;color:${delta>=0?'#4ade80':'#f87171'}">${delta>=0?'+':'-'}$${Math.abs(delta).toLocaleString()}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5);font-family:'DM Mono',monospace;font-size:11px;color:${delta>=0?'#4ade80':'#f87171'}">${r._snap ? '—' : (delta>=0?'+':'-') + '$' + Math.abs(delta).toLocaleString()}</td>
         <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5)"><span class="pay-chip-sm ${r.PaymentMethod||'Other'}">${r.PaymentMethod||'—'}</span></td>
         <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5);font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)">${dateLabel}</td>
         <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5);font-family:'DM Mono',monospace;font-size:10px;color:var(--muted)">${r.SoldTime||'—'}</td>
-        <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5)">
+        <td style="padding:7px 8px;border-bottom:1px solid rgba(30,38,64,.5)">${r._snap ? '' : `
           <button type="button" onclick="openShareCardModal(inventory[${invIdx}])"
             style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px"
-            title="Share this sale" aria-label="Share this sale">📤</button>
+            title="Share this sale" aria-label="Share this sale">📤</button>`}
         </td>
       </tr>`;
     }).join('');
@@ -13457,10 +13695,11 @@ function exportReportCSV() {
   const showName = showId && shows[showId] ? shows[showId].name.replace(/[^a-z0-9]/gi, '-').toLowerCase() : 'all-time';
   const all      = getSellerInventory();
   const soldCards = showId
-    ? all.filter(r => r.Status === 'Sold' && r._shows instanceof Set && r._shows.has(showId))
-    : all.filter(r => r.Status === 'Sold');
+    ? all.filter(r => isSoldForCash(r) && r._shows instanceof Set && r._shows.has(showId))
+    : all.filter(isSoldForCash);
+  const snapRows = typeof ssReportRows === 'function' ? ssReportRows(showId) : [];
   const header = ['Card Title','Player','Year','Set','Grade','Grader','Ask Price','Sold Price','Delta','Payment Method','Sale Date','Sale Time','Notes'];
-  const rows   = soldCards.map(r => {
+  const rows   = soldCards.concat(snapRows).map(r => {
     const delta = (Number(r.SoldPrice) || 0) - (Number(r.Price) || 0);
     return [
       r['Card Title'] || '', r.Player || '', r.Year || '', r['Set '] || r.Set || '',
@@ -13772,6 +14011,8 @@ function loginAsSeller(handle, opts) {
   if (sportValidateBtn) sportValidateBtn.style.display = '';
   const assignCodesBtn = document.getElementById('assignCodesBtn');
   if (assignCodesBtn) assignCodesBtn.style.display = '';
+  const baselineBtn = document.getElementById('baselineBtn');
+  if (baselineBtn) baselineBtn.style.display = '';
   const exportInvWrap = document.getElementById('exportInventoryWrap');
   if (exportInvWrap) exportInvWrap.style.display = '';
   const sidebarToggleBtn = document.getElementById('sidebarToggle');
@@ -13824,6 +14065,7 @@ function loginAsSeller(handle, opts) {
         updateStats();
         updateReport();
         smApplyPendingOps();
+        ssLoad(handle); // Snap & Sell sales still on this phone
         if (_smShowId) smRefresh();
         _gsDataReady = true;
         gsRender();
@@ -13844,11 +14086,12 @@ function loginAsSeller(handle, opts) {
       await hydrateCardShowMembership(handle);
       updateReport(); // safe even if the seller isn't on the Report tab yet
       smInventoryLoaded(handle); // saves a copy on this device for an offline reload
+      ssLoad(handle); // Snap & Sell sales (this phone + server) — js/snap-sell.js
       smApplyPendingOps(); // Show Mode: re-apply sales still waiting in the offline queue
       if (_smShowId) smRefresh(); // "In case" depends on the card._shows just loaded
       gtcrHydrateLatestChecks(); // badges + "Registry clear" markers survive a reload
       gtcrHydrateRegistrations(); // "Registered with GTCR" markers
-      costHydrate().then(_costRerender); // private costs (owner-only table)
+      costHydrate().then(() => { _costRerender(); shLoadBaseline(); }); // private costs (owner-only table); baseline needs them
       _gsDataReady = true; // the checklist waits for real data, so returning sellers never see a false "0 done"
       gsRender();
     }
@@ -13959,6 +14202,7 @@ function loginAsAdmin(opts = {}) {
   if (sportValidateBtnAdm) sportValidateBtnAdm.style.display = 'none';
   const assignCodesBtnAdm = document.getElementById('assignCodesBtn');
   if (assignCodesBtnAdm) assignCodesBtnAdm.style.display = 'none';
+  const baselineBtnAdm = document.getElementById('baselineBtn'); if (baselineBtnAdm) baselineBtnAdm.style.display = 'none';
   const exportInvWrapAdm = document.getElementById('exportInventoryWrap');
   if (exportInvWrapAdm) { exportInvWrapAdm.style.display = 'none'; closeExportInventoryMenu(); }
   const sidebarToggleBtnAdm = document.getElementById('sidebarToggle');
@@ -14106,6 +14350,7 @@ async function signOut() {
   if (sportValidateBtnSO) sportValidateBtnSO.style.display = 'none';
   const assignCodesBtnSO = document.getElementById('assignCodesBtn');
   if (assignCodesBtnSO) assignCodesBtnSO.style.display = 'none';
+  const baselineBtnSO = document.getElementById('baselineBtn'); if (baselineBtnSO) baselineBtnSO.style.display = 'none';
   const exportInvWrapSO = document.getElementById('exportInventoryWrap');
   if (exportInvWrapSO) { exportInvWrapSO.style.display = 'none'; closeExportInventoryMenu(); }
   const sidebarToggleBtnSO = document.getElementById('sidebarToggle');
@@ -14145,6 +14390,10 @@ async function signOut() {
   // Clear scan history
   _scanHistory = [];
   costReset(); // cost-tracking prompts + pending code batch
+  ssReset();   // Snap & Sell sales in memory
+  if (typeof tlReset === 'function') tlReset();   // trade screen draft
+  if (typeof qbReset === 'function') qbReset();   // quick bar text
+  shReset();   // Show Home + baseline
   _renderScanHistory();
 }
 
@@ -15276,10 +15525,12 @@ function sellerPublishToShow(showId) {
 
   let count = 0;
   let flaggedSkipped = 0;
+  let unidentifiedSkipped = 0;
   selected.forEach(card => {
     if (!card._shows) card._shows = new Set();
     if (card._shows.has(showId)) return; // already published to this show — see note below
     if (card._trustFlag === 'flagged') { flaggedSkipped++; return; } // GTCR match: blocked pending seller action
+    if (card.IdentificationStatus === 'unidentified') { unidentifiedSkipped++; return; } // from a show-log import: details first
     card._shows.add(showId);
     count++;
     // Persist to show_inventory (fire-and-forget) — without this, the
@@ -15303,7 +15554,8 @@ function sellerPublishToShow(showId) {
   renderSellerShowsList();
   buildSellerQrPanel();
   if (count) showTipOnce('live');
-  showToast(`${count} cards added to "${show.name}"` + (flaggedSkipped ? ` · ${flaggedSkipped} flagged card${flaggedSkipped !== 1 ? 's' : ''} held back` : ''));
+  showToast(`${count} cards added to "${show.name}"` + (flaggedSkipped ? ` · ${flaggedSkipped} flagged card${flaggedSkipped !== 1 ? 's' : ''} held back` : '')
+    + (unidentifiedSkipped ? ` · ${unidentifiedSkipped} card${unidentifiedSkipped !== 1 ? 's' : ''} need details first` : ''));
 }
 
 function sellerRemoveFromShow(showId) {
@@ -18203,11 +18455,20 @@ function selectAll() {
 function switchSellerTab(tab) {
   const invBtn    = document.getElementById('sellerTabInventory');
   const rptBtn    = document.getElementById('sellerTabReport');
+  const shBtn     = document.getElementById('sellerTabShows');
+  const shPanel   = document.getElementById('showHomePanel');
+  const baseStrip = document.getElementById('baselineStrip');
+  const baseBtn   = document.getElementById('baselineBtn');
   const invPanel  = document.getElementById('adminInventoryPanel');
   const rptPanel  = document.getElementById('adminReportPanel');
   const tableWrap = invPanel ? invPanel.querySelector('.table-wrap') : null;
 
-  [invBtn, rptBtn].forEach(b => b && b.classList.remove('active'));
+  [invBtn, rptBtn, shBtn].forEach(b => b && b.classList.remove('active'));
+  if (shPanel) shPanel.style.display = tab === 'shows' ? '' : 'none';
+  if (baseStrip && tab !== 'inventory') baseStrip.style.display = 'none';
+  if (baseBtn) baseBtn.style.display = tab === 'inventory' ? '' : 'none';
+  // The inventory title + search do nothing on Show Home.
+  ['inventoryTitle', 'sellerSearchInput'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = tab === 'shows' ? 'none' : ''; });
 
   // The mobile Sell / Add button is for working the inventory list — on
   // the Report tab they just float over report cards/CTAs (Log a Manual
@@ -18224,20 +18485,23 @@ function switchSellerTab(tab) {
   const sportValidateBtn = document.getElementById('sportValidateBtn');
   const exportInvWrap = document.getElementById('exportInventoryWrap');
 
-  if (tab === 'report') {
-    rptBtn && rptBtn.classList.add('active');
+  if (tab === 'report' || tab === 'shows') {
+    (tab === 'shows' ? shBtn : rptBtn)?.classList.add('active');
     if (tableWrap) tableWrap.style.display = 'none';
-    if (rptPanel)  rptPanel.style.display  = 'block';
+    if (rptPanel)  rptPanel.style.display  = tab === 'report' ? 'block' : 'none';
     if (fabAdd)  fabAdd.style.display  = 'none';
     if (selectAllBtn) selectAllBtn.style.display = 'none';
     if (compCheckBtn) compCheckBtn.style.display = 'none';
     if (sportValidateBtn) sportValidateBtn.style.display = 'none';
     const acb = document.getElementById('assignCodesBtn'); if (acb) acb.style.display = 'none';
     if (exportInvWrap) { exportInvWrap.style.display = 'none'; closeExportInventoryMenu(); }
-    populateReportShowSelector();
-    updateReport();
-    gsMark('report');
-    showTipOnce('report');
+    if (tab === 'shows') { if (typeof shOpenTab === 'function') shOpenTab(); }
+    else {
+      populateReportShowSelector();
+      updateReport();
+      gsMark('report');
+      showTipOnce('report');
+    }
   } else {
     invBtn && invBtn.classList.add('active');
     if (tableWrap) tableWrap.style.display = '';
@@ -18248,6 +18512,7 @@ function switchSellerTab(tab) {
     if (sportValidateBtn) sportValidateBtn.style.display = '';
     const acb = document.getElementById('assignCodesBtn'); if (acb) acb.style.display = '';
     if (exportInvWrap) exportInvWrap.style.display = '';
+    if (typeof shRenderBaseline === 'function') shRenderBaseline();
   }
   gsRender();
 }
@@ -20141,10 +20406,11 @@ function _orgSetState(state) {
 
 async function _orgFetchAndRender(showId) {
   try {
-    const [cards, events, tableData] = await Promise.all([
+    const [cards, events, tableData, sales] = await Promise.all([
       _orgFetchInventory(showId),
       _orgFetchEvents(showId),
-      _orgFetchTableAssignments(showId)
+      _orgFetchTableAssignments(showId),
+      _orgFetchSales(showId)
     ]);
 
     // The "Cards" stat chip on the show card is only refreshed once, at admin
@@ -20154,7 +20420,7 @@ async function _orgFetchAndRender(showId) {
     showCardCounts[showId] = cards.length;
     if (typeof updateAscHeader === 'function') updateAscHeader(showId);
 
-    _orgRender(showId, cards, events, tableData.tableMap, tableData.sellerIds);
+    _orgRender(showId, cards, events, tableData.tableMap, tableData.sellerIds, sales);
     _orgSetState('ready');
 
   } catch (err) {
@@ -20163,6 +20429,35 @@ async function _orgFetchAndRender(showId) {
     if (msgEl) msgEl.textContent = err.message || 'Could not load analytics';
     _orgSetState('error');
   }
+}
+
+// Sold rows come from the ledger (show_floor_transactions), the record of
+// what was actually entered at the table (decision 2026-11-14, Snap & Sell):
+// a Snap & Sell lot has no inventory rows, and the total the dealer typed is
+// the sale. Undone sales (a reversing row with voids_transaction_id) are
+// dropped with their reversal. A snap row counts as its items (resolved
+// cards, else the dealer's "N cards", else 1) via show_sale_item_counts(),
+// which returns counts only. Returns null if the ledger can't be read, and
+// the caller falls back to inventory.sold_price.
+async function _orgFetchSales(showId) {
+  // select('*'): columns added by later migrations (client_sale_id, voids_transaction_id,
+  // txn_type) are simply absent on a project that hasn't run them.
+  const res = await dbSelectAllPages(() => db.from('show_floor_transactions').select('*').eq('show_id', showId).order('id'));
+  if (res.error) { console.warn('[org-analytics] ledger fetch failed — using inventory', res.error.message); return null; }
+  const rows = res.data || [];
+  const voided = new Set(rows.filter(r => r.voids_transaction_id).map(r => r.voids_transaction_id));
+  const live = rows.filter(r => !r.voids_transaction_id && !voided.has(r.id) && Number(r.sold_price) > 0);
+  let counts = {};
+  if (live.some(r => r.source === 'snap')) {
+    const { data, error } = await db.rpc('show_sale_item_counts', { p_show_id: showId });
+    if (!error) (data || []).forEach(c => { counts[c.client_sale_id] = c.items; });
+  }
+  return live.map(r => Object.assign({}, r, {
+    price: r.asking_price,
+    // Trades never reach the ledger (they're in dealer_transactions), so every row here is a sale.
+    _lot: r.source === 'snap' || r.txn_type === 'lot_sale',
+    _items: r.source === 'snap' ? (counts[r.client_sale_id] || 1) : 1,
+  }));
 }
 
 // Two explicit queries (show_inventory → card_ids, then inventory .in(ids))
@@ -20237,15 +20532,17 @@ async function _orgFetchTableAssignments(showId) {
 
 // ── RENDER ────────────────────────────────────────────────
 
-function _orgRender(showId, cards, events, tableMap, authorizedSellerIds) {
+function _orgRender(showId, cards, events, tableMap, authorizedSellerIds, sales) {
   const show    = shows[showId];
-  const sold    = cards.filter(c => (c.status || '').toLowerCase() === 'sold'
+  // Ledger rows when available (see _orgFetchSales), else sold inventory.
+  const sold    = sales || cards.filter(c => (c.status || '').toLowerCase() === 'sold'
                                  && c.sold_price != null);
   const listed  = cards.length;
-  const soldCnt = sold.length;
+  const txCnt   = sold.length;                                       // checkouts
+  const soldCnt = sold.reduce((s, c) => s + (c._items || 1), 0);    // cards sold
 
   const gmv     = sold.reduce((s, c) => s + (Number(c.sold_price) || 0), 0);
-  const avgTx   = soldCnt ? gmv / soldCnt : 0;
+  const avgTx   = txCnt ? gmv / txCnt : 0;
 
   // ── Active sellers (UUID deduplication) ──
   const activeSellers = new Set(sold.map(c => c.seller_id).filter(Boolean));
@@ -20270,9 +20567,9 @@ function _orgRender(showId, cards, events, tableMap, authorizedSellerIds) {
   // ── North star ──
   _orgSetKPI('orgGMV',
     '$' + gmv.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }),
-    `${soldCnt} transaction${soldCnt !== 1 ? 's' : ''}`);
+    `${txCnt} transaction${txCnt !== 1 ? 's' : ''}`);
 
-  const stPct = listed > 0 ? Math.round((soldCnt / listed) * 100) : null;
+  const stPct = listed > 0 ? Math.min(100, Math.round((soldCnt / listed) * 100)) : null;
   _orgSetKPI('orgSellThru',
     stPct !== null ? `${stPct}%` : '—',
     `${soldCnt} sold of ${listed} listed`);
@@ -20306,7 +20603,7 @@ function _orgRender(showId, cards, events, tableMap, authorizedSellerIds) {
   // ── Health metrics ──
   const avgEl  = document.getElementById('orgAvgTx');
   const partEl = document.getElementById('orgParticipationRate');
-  if (avgEl)  avgEl.textContent  = soldCnt ? '$' + Math.round(avgTx).toLocaleString() : '—';
+  if (avgEl)  avgEl.textContent  = txCnt ? '$' + Math.round(avgTx).toLocaleString() : '—';
   if (partEl) partEl.textContent = authSellers
     ? `${Math.round((uploadedSellers.size / authSellers) * 100)}%` : '—';
 
@@ -20365,7 +20662,7 @@ function _orgRenderSellerTable(sold, allCards, authorizedSellerIds) {
     const sid = c.seller_id || '__unknown__';
     const d = ensure(sid);
     d.revenue += Number(c.sold_price) || 0;
-    d.soldCnt += 1;
+    d.soldCnt += c._items || 1;
   });
   allCards.forEach(c => {
     const sid = c.seller_id || '__unknown__';
@@ -20456,7 +20753,7 @@ function _orgRenderTablePerformance(sold, allCards, tableMap) {
   sold.forEach(c => {
     const t = ensure(bucketFor(c.seller_id));
     t.revenue += Number(c.sold_price) || 0;
-    t.soldCnt += 1;
+    t.soldCnt += c._items || 1;
     if (c.seller_id) t.sellers.add(c.seller_id);
   });
   allCards.forEach(c => {
@@ -20506,7 +20803,7 @@ function _orgRenderTopCards(sold) {
   const el = document.getElementById('orgTopCards');
   if (!el) return;
 
-  const top = [...sold]
+  const top = sold.filter(c => !c._lot)   // a Snap & Sell lot total isn't a card
     .sort((a, b) => (Number(b.sold_price) || 0) - (Number(a.sold_price) || 0))
     .slice(0, 10);
 
@@ -20691,11 +20988,11 @@ async function _orgRenderVsPrev(currentShowId, currentGMV, currentSold, currentS
 
   // Fetch previous show inventory
   try {
-    const prevCards   = await _orgFetchInventory(prevShow.id);
-    const prevSold    = prevCards.filter(c =>
+    const [prevCards, prevSales] = await Promise.all([_orgFetchInventory(prevShow.id), _orgFetchSales(prevShow.id)]);
+    const prevSold    = prevSales || prevCards.filter(c =>
       (c.status || '').toLowerCase() === 'sold' && c.sold_price != null);
     const prevGMV     = prevSold.reduce((s, c) => s + (Number(c.sold_price) || 0), 0);
-    const prevSoldCnt = prevSold.length;
+    const prevSoldCnt = prevSold.reduce((s, c) => s + (c._items || 1), 0);
     const prevListed  = prevCards.length;
     const prevSTPct   = prevListed > 0 ? Math.round((prevSoldCnt / prevListed) * 100) : null;
 
@@ -21002,6 +21299,8 @@ function qaBack() {
 
 function qaGo(kind) {
   if (kind === 'scanSell') posOpenPhotoSheet();
+  else if (kind === 'snap') ssOpenFromClassic();
+  else if (kind === 'trade') tlOpenFromClassic();
   else if (kind === 'scanOne') { openAddCard(); openCertScanner(); }
   else if (kind === 'bulk') document.getElementById('bulkScanInput')?.click();
   else if (kind === 'upload') document.querySelector('#uploadZone input[type="file"]')?.click();
@@ -21388,6 +21687,11 @@ const FEATURE_GUIDE = [
   { group: 'Sell', items: [
     { icon: '✅', name: 'Sell a card from your inventory', desc: "Find the card and enter the price and how they paid. On a phone: Sell / Add → Sell a card. You can also tap a card's Available status.", action: () => openQuickActions('pick') },
     { icon: '📷', name: 'Sell a card you never added', desc: 'Take a photo of it, check the details, then record the sale.', action: () => posOpenPhotoSheet() },
+    { icon: '📈', name: 'Show results', desc: 'Profit on every card that left a show, sales and trades, plus what came in and your inventory at the start and end. Tab: Shows.', action: () => switchSellerTab('shows') },
+    { icon: '⬆', name: 'Import a show log', desc: 'Logged a show in a spreadsheet or with Claude? Import it (Date, Time, Type, Cards Out, Cards In, Cash In, Cash Out) from that show\'s results. Cards you got come in marked "Needs details".', action: () => switchSellerTab('shows') },
+    { icon: '⌨️', name: 'Quick bar', desc: 'In Show Mode, type a sale in one line: S12 120 sells S-12 for $120. Also lot 120, T S12 for wemby psa 10 +20, B 50 charizard psa 9.', action: () => { const id = _smDefaultShowId() || (_smAuthorizedShows()[0] || {}).id; if (id) openShowMode(id, ''); else smOpenFromNav(); } },
+    { icon: '🔁', name: 'Log a trade or buy', desc: 'Pick the cards going out, type what came back and any cash. The balance shows if it\'s even. Cards that came in go in your case with Needs details.', action: () => tlOpenFromClassic() },
+    { icon: '⚡', name: 'Snap & Sell', desc: 'Busy table? Snap the cards and the payment, type the total, save. Add the card details later under Needs details.', action: () => ssOpenFromClassic() },
     { icon: '📝', name: 'Log a manual sale', desc: 'Record a sale after the fact, with the show and the date it happened.', action: () => openManualSaleModal() },
     { icon: '📤', name: 'Share a sale', desc: 'Turn any sale into an image and caption for Instagram or X. Use the 📤 button next to it in the Report tab.', action: () => switchSellerTab('report') },
   ]},
@@ -21713,10 +22017,17 @@ async function publishShowInventoryToDB(showId) {
     // (trust_flag = 'flagged') are excluded until the seller acts. Falls back to
     // the unfiltered select if the trust_flag migration hasn't run yet.
     let { data: cards, error: cardErr } = await dbSelectAllPages(() => db
-      .from('inventory').select('id, trust_flag')
+      .from('inventory').select('id, trust_flag, identification_status')
       .in('seller_id', sellerIds)
       .neq('status', 'Sold')
       .order('id'));
+    if (cardErr && /identification_status/i.test(cardErr.message || '')) {   // import migration not run
+      ({ data: cards, error: cardErr } = await dbSelectAllPages(() => db
+        .from('inventory').select('id, trust_flag')
+        .in('seller_id', sellerIds)
+        .neq('status', 'Sold')
+        .order('id')));
+    }
     if (cardErr && /trust_flag/i.test(cardErr.message || '')) {
       ({ data: cards, error: cardErr } = await dbSelectAllPages(() => db
         .from('inventory').select('id')
@@ -21725,7 +22036,8 @@ async function publishShowInventoryToDB(showId) {
         .order('id')));
     }
     if (cardErr) { console.error('publishShowInventoryToDB fetch failed:', cardErr.message); return 0; }
-    cards = (cards || []).filter(c => c.trust_flag !== 'flagged');
+    // Cards from a show-log import wait until the dealer adds their details.
+    cards = (cards || []).filter(c => c.trust_flag !== 'flagged' && c.identification_status !== 'unidentified');
     if (!cards || !cards.length) { console.log('No cards to publish for show', showId); return 0; }
 
     const rows = cards.map(c => ({ show_id: showId, card_id: c.id }));
@@ -22202,6 +22514,8 @@ function saveCEM() {
 
   // Persist edit to Supabase
   updateCardInDB(card);
+  // A card from a show-log import counts as identified once the dealer saves its details.
+  if (card.IdentificationStatus === 'unidentified' && typeof imMarkIdentified === 'function') imMarkIdentified(card);
 
   showToast('✓ Card updated');
 }
@@ -22377,6 +22691,7 @@ function dbRowToCard(row) {
     _imageSource:       row.image_source         || null,
     TrustClearAt:       row.trust_clear_at       || null,
     StockCode:          row.stock_code           || '',     // dealer's code (S-12) — written only by set/assign_stock_code RPCs
+    IdentificationStatus: row.identification_status || null, // 'unidentified' = from a show-log import, needs details
     _shows:          new Set(),
   };
   if (row.sold_price     != null) card.SoldPrice     = row.sold_price;

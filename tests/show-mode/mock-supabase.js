@@ -28,7 +28,10 @@
       in(c,vs){ filters.push(r=>vs.map(String).includes(String(r[c]))); return b; },
       is(c,v){ filters.push(r=> v===null ? (r[c]==null) : r[c]===v); return b; },
       gte(c,v){ filters.push(r=> String(r[c]) >= String(v)); return b; },
-      not(c,o,v){ if (o==='is' && v===null) filters.push(r=>r[c]!=null); return b; }, lte(){ return b; }, ilike(){ return b; }, or(){ return b; }, filter(){ return b; },
+      not(c,o,v){
+        if (o==='is' && v===null) filters.push(r=>r[c]!=null);
+        if (o==='in') { const vs = String(v).replace(/^\(|\)$/g,'').split(',').filter(Boolean); filters.push(r=>!vs.includes(String(r[c]))); }
+        return b; }, lte(){ return b; }, ilike(){ return b; }, or(){ return b; }, filter(){ return b; },
       maybeSingle(){ single=true; return b; }, single(){ single=true; return b; },
       insert(p){ op='insert'; payload=p; return b; },
       upsert(p,o){ op='upsert'; payload=p; opts=o||{}; return b; },
@@ -201,6 +204,134 @@
       if (!inv) data = { error: 'not_found' };
       else if (dup) data = { error: 'duplicate', card_id: dup.id, card_title: dup.card_title };
       else { inv.stock_code = code; data = { ok: true, stock_code: code }; }
+    } else if (name === 'dealer_show_list') {
+      data = S.__showList || [];
+    } else if (name === 'dealer_show_report') {
+      data = (S.__reports || {})[a.p_dealer_show_id || a.p_show_id] || { error: 'not_found' };
+    } else if (name === 'show_log_imported_keys') {
+      const done = new Set((S.dealer_transactions || []).map(d => d.import_key).filter(Boolean));
+      data = (a.p_keys || []).filter(k => done.has(k));
+    } else if (name === 'import_show_log') {
+      // Enough of the SQL (20261120120000_show_log_import.sql) for the browser test: dedup by key,
+      // outs marked Sold, ins created as "Needs details" cards with a code, refs for chained trades.
+      S.dealer_transactions = S.dealer_transactions || [];
+      const refs = {}; let imported = 0; const dups = [], created = []; let next = 500;
+      for (const t of a.p_txns) {
+        if (S.dealer_transactions.some(d => d.import_key === t.key)) { dups.push(t.key); continue; }
+        const id = 'dtx_' + Math.random().toString(36).slice(2);
+        S.dealer_transactions.push({ id, owner_id: UID, txn_type: t.txn_type, import_key: t.key, cash_in: t.cash_in, cash_out: t.cash_out,
+          dealer_show_id: a.p_dealer_show_id, show_id: a.p_show_id, source: 'import', occurred_at: t.occurred_at });
+        for (const n of t.in || []) {
+          const cid = 'imp_' + (next++);
+          const code = n.stock_code || ((n.grade ? 'S' : 'R') + '-' + next);
+          S.inventory.push({ id: cid, seller_id: UID, card_title: n.title, price: 0, status: 'Available', stock_code: code,
+            grader: n.grader, grade: n.grade ? Number(n.grade) : null, identification_status: 'unidentified' });
+          refs[n.ref] = cid; created.push({ ref: n.ref, id: cid, stock_code: code });
+        }
+        for (const o of t.out || []) {
+          const inv = S.inventory.find(r => r.id === (o.inventory_id || refs[o.ref]));
+          Object.assign(inv, { status: 'Sold', sold_price: o.value, payment_method: t.txn_type === 'trade' ? 'Trade' : (t.payment_method || 'Cash') });
+        }
+        imported++;
+      }
+      data = { imported, duplicates: dups, created };
+    } else if (name === 'record_trade') {
+      // Enough of 20261121120000_trade_logging.sql: idempotent on client id, refuses a sold card,
+      // new cards keep the phone's id and get a code, outs Sold as Trade and off the show.
+      S.dealer_transactions = S.dealer_transactions || []; S.transaction_items = S.transaction_items || [];
+      S.inventory_costs = S.inventory_costs || [];
+      const ex = S.dealer_transactions.find(d => d.client_capture_id === a.p_client_id);
+      const t = a.p_txn;
+      if (ex) data = { ok: true, already: true, id: ex.id, created: S.transaction_items.filter(i => i.dealer_txn_id === ex.id && i.direction === 'in')
+        .map(i => ({ id: i.inventory_id, stock_code: (S.inventory.find(r => r.id === i.inventory_id) || {}).stock_code })) };
+      else {
+        const sold = (t.out || []).map(o => S.inventory.find(r => r.id === o.inventory_id)).find(r => !r || r.status === 'Sold');
+        if (sold !== undefined) data = sold ? { error: 'already_sold', card: sold.id, title: sold.stock_code || sold.card_title } : { error: 'unknown_card' };
+        else {
+          const id = 'dtx_' + Math.random().toString(36).slice(2), created = [];
+          S.dealer_transactions.push({ id, client_capture_id: a.p_client_id, owner_id: UID, txn_type: t.txn_type, show_id: a.p_show_id,
+            cash_in: t.cash_in, cash_out: t.cash_out, note: t.note, source: 'app', occurred_at: t.occurred_at });
+          let n2 = 700 + S.inventory.length;
+          for (const n of t.in || []) {
+            const code = n.stock_code || ((n.grade ? 'S' : 'R') + '-' + (n2++));
+            S.inventory.push({ id: n.id, seller_id: UID, card_title: n.title, price: n.price || 0, status: 'Available', stock_code: code,
+              grader: n.grader, grade: n.grade ? Number(n.grade) : null, identification_status: 'unidentified' });
+            S.inventory_costs.push({ inventory_id: n.id, owner_id: UID, cost_basis: n.value, acquired_txn_id: id });
+            S.transaction_items.push({ id: 'ti_' + Math.random().toString(36).slice(2), dealer_txn_id: id, sale_key: id, direction: 'in', inventory_id: n.id, card_title: n.title, price: n.value, price_basis: t.txn_type === 'buy' ? 'observed' : 'agreed_trade_value' });
+            created.push({ id: n.id, stock_code: code });
+          }
+          for (const o of t.out || []) {
+            const inv = S.inventory.find(r => r.id === o.inventory_id);
+            Object.assign(inv, { status: 'Sold', sold_price: o.value, payment_method: 'Trade', sold_date: t.local_date, sold_time: t.local_time });
+            S.show_inventory = S.show_inventory.filter(r => r.card_id !== inv.id);
+            S.transaction_items.push({ id: 'ti_' + Math.random().toString(36).slice(2), dealer_txn_id: id, sale_key: id, direction: 'out', inventory_id: inv.id, card_title: inv.card_title, price: o.value, price_basis: 'agreed_trade_value' });
+          }
+          data = { ok: true, id, created };
+        }
+      }
+    } else if (name === 'delete_dealer_trade') {
+      const d = (S.dealer_transactions || []).find(x => x.id === a.p_txn_id);
+      if (!d) data = { error: 'not_found' };
+      else {
+        const items = S.transaction_items.filter(i => i.dealer_txn_id === d.id);
+        const moved = items.filter(i => i.direction === 'in').map(i => S.inventory.find(r => r.id === i.inventory_id)).find(r => r && r.status === 'Sold');
+        if (moved) data = { error: 'card_moved_on', title: moved.stock_code || moved.card_title };
+        else {
+          const ins = new Set(items.filter(i => i.direction === 'in').map(i => i.inventory_id));
+          S.inventory = S.inventory.filter(r => !ins.has(r.id));
+          items.filter(i => i.direction === 'out').forEach(i => {
+            const inv = S.inventory.find(r => r.id === i.inventory_id);
+            if (inv) Object.assign(inv, { status: 'Available', sold_price: null, payment_method: null, sold_date: null, sold_time: null });
+            if (d.show_id && !S.show_inventory.some(r => r.show_id === d.show_id && r.card_id === i.inventory_id)) S.show_inventory.push({ show_id: d.show_id, card_id: i.inventory_id });
+          });
+          S.transaction_items = S.transaction_items.filter(i => i.dealer_txn_id !== d.id);
+          S.dealer_transactions = S.dealer_transactions.filter(x => x !== d);
+          data = { ok: true };
+        }
+      }
+    } else if (name === 'update_dealer_trade') {
+      const d = (S.dealer_transactions || []).find(x => x.id === a.p_txn_id);
+      if (!d) data = { error: 'not_found' };
+      else {
+        if ('cash_in' in a.p_vals) d.cash_in = a.p_vals.cash_in;
+        if ('cash_out' in a.p_vals) d.cash_out = a.p_vals.cash_out;
+        (a.p_vals.items || []).forEach(v => { const i = S.transaction_items.find(x => x.id === v.id); if (i) i.price = v.value; });
+        data = { ok: true };
+      }
+    } else if (name === 'take_inventory_snapshot') {
+      // Same rules as the SQL: Available cards, once per show for show_start/show_end, retries by client id.
+      S.inventory_snapshots = S.inventory_snapshots || [];
+      const key = a.p_show_id || a.p_dealer_show_id;
+      const ex = S.inventory_snapshots.find(x => (a.p_client_snapshot_id && x.client_snapshot_id === a.p_client_snapshot_id)
+        || (['show_start', 'show_end'].includes(a.p_kind) && x.kind === a.p_kind && (x.show_id || x.dealer_show_id) === key));
+      if (ex) data = Object.assign({ already: true }, ex);
+      else {
+        const av = S.inventory.filter(r => r.seller_id === UID && r.status === 'Available');
+        const cost = id => ((S.inventory_costs || []).find(c => c.inventory_id === id) || {}).cost_basis;
+        data = { id: 'snap_' + Math.random().toString(36).slice(2), client_snapshot_id: a.p_client_snapshot_id, owner_id: UID,
+          show_id: a.p_show_id || null, dealer_show_id: a.p_dealer_show_id || null, kind: a.p_kind, taken_at: new Date().toISOString(),
+          card_count: av.length, cost_total: av.reduce((t, r) => t + (Number(cost(r.id)) || 0), 0), ask_total: av.reduce((t, r) => t + (Number(r.price) || 0), 0),
+          cards_missing_cost: av.filter(r => cost(r.id) == null).length, cards_missing_price: av.filter(r => !(Number(r.price) > 0)).length };
+        S.inventory_snapshots.push(data);
+      }
+    } else if (name === 'void_snap_sale') {
+      // Same rules as the SQL (20261115120000_snap_sell.sql).
+      const s = (S.snap_sales || []).find(x => x.client_sale_id === a.p_client_sale_id);
+      if (!s) data = { error: 'not_found' };
+      else if (s.voided_at) data = { voided: true, already: true };
+      else if ((s.capture_status || 'needs_review') !== 'needs_review') data = { error: 'resolved' };
+      else {
+        s.voided_at = new Date().toISOString();
+        S.transaction_items = (S.transaction_items || []).filter(i => i.sale_key !== s.client_sale_id);
+        const tx = S.show_floor_transactions.find(t => t.client_sale_id === s.client_sale_id);
+        if (tx) S.show_floor_transactions.push(Object.assign({}, tx, { id:'rev_'+tx.id, client_sale_id:null, sold_price:-tx.sold_price, voids_transaction_id:tx.id }));
+        data = { voided: true };
+      }
+    } else if (name === 'show_sale_item_counts') {
+      data = (S.snap_sales || []).filter(x => x.show_id === a.p_show_id && !x.voided_at).map(x => ({
+        client_sale_id: x.client_sale_id,
+        items: (S.transaction_items || []).filter(i => i.sale_key === x.client_sale_id).length || x.item_count_hint || 1,
+      }));
     } else if (name === 'void_sale') {
       const s = S.sales.find(x => x.client_sale_id === a.p_client_sale_id);
       if (s.status === 'voided') data = { voided:false, status:'voided' };
