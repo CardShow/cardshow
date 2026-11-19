@@ -2576,7 +2576,15 @@ migration, no new external library.
 - **Cost Tracking & Stock Codes, Phase 1 (session 2026-11-14)** — private cost per card, stock
   codes (S/R/B/L or custom) with code search and "Assign codes", profit on Sell Drawer / Manual Sale /
   Show Mode sales, "Add cost" after a sale. See "Cost Tracking & Stock Codes". **Requires
-  `20261114120000_cost_tracking.sql`.** Phases 2 (quick-sale bar, import, lot split) and 3 (P&L) not built.
+  `20261114120000_cost_tracking.sql`.** Phase 2's quick-sale bar shipped as the Show Mode quick bar and its
+  import as Show Home's "Import show log"; lot cost split and Phase 3 (P&L) not built.
+- **PR #86 merged to main (2026-11-19, merge commit `f4cddb9`)** — Cost Tracking Phase 1, Snap & Sell Phase 1,
+  Trades + Show Home Phases 1–4 and the quick bar, all live on production after the Netlify deploy. Its
+  migrations must already be run in this order: cost_tracking → snap_sell → trades_show_home → show_home →
+  show_log_import → trade_logging (the last three confirmed run 2026-11-19). Never re-run snap_sell after
+  trades_show_home (it would put back the old ledger trigger). After the deploy, check that Netlify lists
+  the hourly `close-show-snapshots` function, and test one Snap & Sell sale, one trade + undo and one
+  quick-bar sale on a phone. The PR description only covers Phase 1 of each feature.
 - **Snap & Sell, Phase 1 (session 2026-11-15)** — photo of the items + photo of the payment + the
   total, saved on the phone in well under a second and synced later; "Needs details" to add the
   cards afterward. Organizer Analytics GMV now reads the ledger. See "Snap & Sell". **Requires
@@ -2585,13 +2593,12 @@ migration, no new external library.
 - **Trades + Show Home, Phase 1 (session 2026-11-18)** — data model and the `dealer_show_report()`
   metrics engine, checked against TitoCollects' Nov 7 Show Report (every number matches). Trades live
   in an owner-only table, never on the shared ledger. No UI yet. See "Trades + Show Home". **Requires
-  `20261118120000_trades_show_home.sql`.** Phases 2 (Show Home screen, snapshots), 3 (show-log import)
-  and 4 (in-app trade/buy logging) not built.
+  `20261118120000_trades_show_home.sql`.** Phases 2–4 followed (below).
 - **Trades + Show Home, Phase 2 (session 2026-11-19)** — seller "📈 Shows" tab: show list with P/L per
   show and all-time, Show Home (KPIs, donuts, trades vs cash, what came in / on hand, inventory start vs
   end, every card out, data-quality links, CSV), private shows, show_start / show_end / baseline
   snapshots with an hourly closer. **Requires `20261119120000_show_home.sql`**
-  (run in production 2026-11-19). Phases 3–4 not built.
+  (run in production 2026-11-19).
 - **Trades + Show Home, Phase 3 (session 2026-11-20)** — "Import show log" on Show Home: CSV, Excel or a
   table pasted from Claude → review (errors in red, estimated values in amber, a balance line per trade)
   → one all-or-nothing import, deduped per row. Cards that came in are new "Needs details" cards, not
@@ -5919,8 +5926,9 @@ type" field (v2 only records sold sales and has sold/asking price sources instea
 ## Cost Tracking & Stock Codes (session 2026-11-14)
 
 From dealer feedback ("I gave each card a code name — slab 1, 2, 3… singles 1, 2, 3 — so when I sell I
-can log it fast"). Build Spec v1; **Phase 1 is built.** Phase 2 (quick-sale bar, bulk import, lot cost
-split) and Phase 3 (show P&L, CSV export) are not.
+can log it fast"). Build Spec v1; **Phase 1 is built.** From Phase 2, the quick-sale bar is the Show
+Mode quick bar and bulk import is "Import show log" (both under "Trades + Show Home"); lot cost split is
+not built. Phase 3's per-show P&L and CSV are covered by Show Home.
 
 ### Decisions (Stephen, 2026-11-14)
 - **`transaction_costs` is keyed by `client_sale_id`**, not `show_floor_transactions.id`. Every sale now
@@ -6081,7 +6089,6 @@ Keep as lot, Report and analytics totals, no vision calls). The mock gained `voi
 - Phase 3: inbox filters/search by time, `transaction_item_costs` and the header cost sum (Snap & Sell
   sales have no cost/profit yet), payment-photo retention setting + cleanup job, comps guard tests on
   `price_basis = 'observed'`.
-- `lot 120` in the quick-sale bar (the bar itself is Cost Tracking Phase 2, not built).
 - Off-show Snap & Sell from the classic view (it always opens on a show in Show Mode).
 - A resolved sale can't be reopened from the app yet.
 - Vendor questions still open before Phase 2: typical/biggest lot size, see AI suggestions right away or
@@ -6091,11 +6098,12 @@ Keep as lot, Report and analytics totals, no vision calls). The mock gained `voi
 
 Dealer TitoCollects (Nov 2026): 23 of the 29 cards that left his Nov 7 show were traded, not sold. He
 runs his business in a spreadsheet; its **Show Report** tab is the acceptance target. Built from
-"Trades + Show Home — Build Spec v1". **Phase 1 is built (data model + metrics engine + golden
-fixture).** Phases 2–4 are not.
+"Trades + Show Home — Build Spec v1". **Phases 1–4 are built and merged to main (PR #86,
+2026-11-19)**: data model + metrics engine + golden fixture, Show Home, show-log import, trade screen, and
+the quick bar.
 
 ### Decisions (Stephen, 2026-11-18), from the Phase 0 discovery
-1. **Built on the Snap & Sell branch** (#86 must merge first).
+1. **Built on the Snap & Sell branch** (both shipped together in PR #86, merged 2026-11-19).
 2. **Trades and buys live in `dealer_transactions` (owner-only, editable), not on the ledger.** The spec
    put them on `show_floor_transactions`, but that table is readable by every signed-in user and can't
    be updated, so trade cash/values would reach organizers and trades couldn't be edited or undone.
