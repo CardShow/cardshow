@@ -5020,6 +5020,25 @@
   .tl-bal .sm-link { color: var(--sm-ink) !important; }
   .tl-bal .sm-row-meta { display: block; color: var(--sm-warn-fg); }
   .tl-bal--even { background: var(--sm-accent-soft); color: var(--sm-ink); }
+  /* ── Quick bar (js/quick-bar.js) ── */
+  .qb { margin: 0 0 14px; }
+  .qb-form { display: flex; gap: 8px; }
+  #showModeRoot .qb-input { flex: 1; min-width: 0; min-height: 52px; padding: 0 14px; border-radius: 14px; border: 2px solid var(--sm-ink);
+    background: var(--sm-surface); color: var(--sm-ink); font: 700 17px var(--sm-mono, ui-monospace, monospace); outline: none; }
+  #showModeRoot .qb-input:focus-visible { box-shadow: 0 0 0 3px var(--sm-accent); }
+  .qb-go { flex-shrink: 0; width: 52px; min-height: 52px; border-radius: 14px; border: 2px solid var(--sm-ink); background: var(--sm-accent);
+    display: flex; align-items: center; justify-content: center; }
+  .qb-go svg { width: 24px; height: 24px; }
+  .qb-go:disabled { opacity: .4; }
+  .qb-preview { min-height: 1.2em; margin-top: 6px; font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
+  .qb-preview--error { color: var(--sm-danger, #b42318); }
+  .qb-preview--open { color: var(--sm-warn-fg); }
+  .qb-help { min-height: 32px; font-size: 13px; }
+  .qb-help-box { font-size: 13px; line-height: 1.5; padding: 8px 10px; border-radius: 12px; background: var(--sm-placeholder); overflow-wrap: anywhere; }
+  .qb-help-box b { font-family: var(--sm-mono, ui-monospace, monospace); }
+  @keyframes qbShake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+  .qb-shake { animation: qbShake .25s; }
+  @media (prefers-reduced-motion: reduce) { .qb-shake { animation: none; } }
   .sm-chip-grid .sm-chip { padding: 0 6px; }
   .sm-field { display: flex; flex-direction: column; gap: 4px; font-weight: 700; font-size: 13px; color: var(--sm-muted); margin-top: 10px; flex: 1; min-width: 0; }
   .sm-field input, .sm-field select { min-height: 48px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--sm-line); background: var(--sm-surface); font: 600 16px var(--sm-body); color: var(--sm-ink); width: 100%; }
@@ -7878,13 +7897,14 @@
 </div>
 
 <!-- Show Mode v2 (flag show_mode_v2). Bump ?v= when it changes: the service worker caches by URL. -->
-<script src="/js/show-mode.js?v=20261121a"></script>
+<script src="/js/show-mode.js?v=20261121b"></script>
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
 <script src="/js/cost-tracking.js?v=20261114a"></script>
-<script src="/js/snap-sell.js?v=20261119a"></script>
+<script src="/js/snap-sell.js?v=20261121a"></script>
 <script src="/js/show-home.js?v=20261121a"></script>
 <script src="/js/show-log-import.js?v=20261120a"></script>
 <script src="/js/trade-log.js?v=20261121a"></script>
+<script src="/js/quick-bar.js?v=20261121a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -14372,6 +14392,7 @@ async function signOut() {
   costReset(); // cost-tracking prompts + pending code batch
   ssReset();   // Snap & Sell sales in memory
   if (typeof tlReset === 'function') tlReset();   // trade screen draft
+  if (typeof qbReset === 'function') qbReset();   // quick bar text
   shReset();   // Show Home + baseline
   _renderScanHistory();
 }
@@ -21668,6 +21689,7 @@ const FEATURE_GUIDE = [
     { icon: '📷', name: 'Sell a card you never added', desc: 'Take a photo of it, check the details, then record the sale.', action: () => posOpenPhotoSheet() },
     { icon: '📈', name: 'Show results', desc: 'Profit on every card that left a show, sales and trades, plus what came in and your inventory at the start and end. Tab: Shows.', action: () => switchSellerTab('shows') },
     { icon: '⬆', name: 'Import a show log', desc: 'Logged a show in a spreadsheet or with Claude? Import it (Date, Time, Type, Cards Out, Cards In, Cash In, Cash Out) from that show\'s results. Cards you got come in marked "Needs details".', action: () => switchSellerTab('shows') },
+    { icon: '⌨️', name: 'Quick bar', desc: 'In Show Mode, type a sale in one line: S12 120 sells S-12 for $120. Also lot 120, T S12 for wemby psa 10 +20, B 50 charizard psa 9.', action: () => { const id = _smDefaultShowId() || (_smAuthorizedShows()[0] || {}).id; if (id) openShowMode(id, ''); else smOpenFromNav(); } },
     { icon: '🔁', name: 'Log a trade or buy', desc: 'Pick the cards going out, type what came back and any cash. The balance shows if it\'s even. Cards that came in go in your case with Needs details.', action: () => tlOpenFromClassic() },
     { icon: '⚡', name: 'Snap & Sell', desc: 'Busy table? Snap the cards and the payment, type the total, save. Add the card details later under Needs details.', action: () => ssOpenFromClassic() },
     { icon: '📝', name: 'Log a manual sale', desc: 'Record a sale after the fact, with the show and the date it happened.', action: () => openManualSaleModal() },

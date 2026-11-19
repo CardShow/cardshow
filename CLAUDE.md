@@ -72,6 +72,7 @@ js/show-home.js                   → Seller "Shows" tab: show list with P/L, Sh
 js/show-log-import.js             → Show Home → "Import show log": read a CSV/Excel/pasted log, review, import_show_log() — loaded after js/show-home.js; see "Phase 3" under "Trades + Show Home"
 supabase/migrations/20261120120000_show_log_import.sql → inventory.identification_status, import_show_log(), show_log_imported_keys() (Trades + Show Home Phase 3)
 js/trade-log.js                   → Show Mode "Log a trade or buy" (#/sm/<show>/trade, /buy): cards out, cards in, cash, balance; offline outbox ops trade_save / trade_delete — loaded after js/show-log-import.js; see "Phase 4" under "Trades + Show Home"
+js/quick-bar.js                   → Show Mode home quick bar: "S12 120", "lot 120", "T S12 for … +20", "B 50 …" in one line — loaded after js/trade-log.js; see "Quick bar" under "Trades + Show Home"
 supabase/migrations/20261121120000_trade_logging.sql → record_trade() (idempotent), update_dealer_trade(), delete_dealer_trade() (Trades + Show Home Phase 4)
 netlify/functions/close-show-snapshots.js → Scheduled (hourly): close_ended_show_snapshots() writes show_end snapshots once a show's last day is over
 netlify/functions/cardsight-identify.js → Serverless: POST {image_base64, media_type} → CardSight catalog identification (Show Mode; runs beside scan-card.js)
@@ -2599,7 +2600,9 @@ migration, no new external library.
   out by stock code or name, cards in by title, cash either way, balance bar with a one-tap fix, saved
   offline first. Undo from the toast or Recent, or from Show Home (plus Edit values). Classic Report and
   "Sold today" no longer count traded cards as revenue. **Requires `20261121120000_trade_logging.sql`** (run in production 2026-11-19).
-  Quick-bar `T`/`B` syntax not built.
+- **Quick bar (session 2026-11-21)** — one line on the Show Mode home: `S12 120` sells, `lot 120` saves a Snap & Sell
+  lot, `T S12 for wemby psa 10 +20` trades, `B 50 charizard psa 9` buys; live preview, Undo toast, offline.
+  No migration. See "Quick bar" under "Trades + Show Home".
 
 ### Tier 1 — Ship before beta show
 - **Tighten RLS policies** (urgent, high complexity) — replace `using (true)` with `auth.uid() = seller_id`
@@ -6313,6 +6316,41 @@ sync with codes, undo before and after sync, buy, two blank values blocked, alre
 edit and undo, revenue excludes trades, no sideways scroll. The mock gained `record_trade`,
 `update_dealer_trade`, `delete_dealer_trade`.
 
+### Quick bar (session 2026-11-21)
+Cost Tracking Phase 2's quick-sale bar plus Trades Phase 4's `T`/`B` syntax. No spec document was found, so
+it's built from the decisions already recorded here (sales through `record_sale()`/`void_sale()`, the
+S/R/B/L words). **`js/quick-bar.js` (qb*)**, at the top of the Show Mode home (`qbHTML()`, between the
+stats and Sell a card). No migration.
+- **Syntax** (`qbParse()`, case-insensitive):
+  - `S12 120` / `slab 12 120` / `s-12 $120` — sell at $120. A payment word anywhere (`cash`, `venmo`,
+    `card`/`cc`, `zelle`/`paypal`/`apple pay` → Other) sets the payment, else the last one used.
+  - `S12` alone — sell at the asking price (refused if the card has none).
+  - `S12 120 R4 15` — several cards, each with its own price (separate sales).
+  - `S12 R4 130` — **refused**: one price for several cards is never split; the message suggests `lot 130`.
+  - `lot 120 [3 cards] [venmo]` — a Snap & Sell lot with no photos (`ssQuickLot()` in snap-sell.js),
+    Needs details later. `lot` followed by a number always means a lot sale; type `L12` to sell code L-12.
+  - `T S12 [R4] for wemby psa 10 +20` — trade (`for`, `->`, `→`, `=>`); `+N` = you got cash, `-N` = you paid,
+    anywhere in the line. Cards out at their asking price; one card in is worth the balance.
+  - `B 50 charizard psa 9` / `B charizard psa 9 $50` / `buy luka rc 40` — buy one card (amount: a `$` token,
+    else the first word, else the last word).
+  - When the bar can't value it on its own (nothing back yet, several cards in, a card out with no asking
+    price, a buy with no price or several cards), Enter opens the trade/buy screen pre-filled instead.
+- **Preview** (`#qbPreview`, `aria-live`): what Enter will do ("Sell S-1 Dylan Crews · $100 · Cash — Enter to
+  save"), amber when Enter opens the screen, red with the reason on an error (unknown code, sold card,
+  code twice, unknown word); the button is disabled and Enter shakes the box.
+- **Saves:** sales queue one `sale` op per card exactly like `smMarkSold()` (plus the private cost copy),
+  without leaving the home screen; toast "Sold S-1 · $100 · Cash · Profit +$x" with Undo (10s, all the cards,
+  via `smUndoSale()`; Recent sales still has Undo for 10 minutes). Trades and buys set `_tlDraft` and call
+  `tlSave()`. Lots call `ssQuickLot()`. All offline-first through the outbox.
+- The typed text and focus survive home re-renders (`qbBeforeRender()` / `qbAfterRender()` in `smRenderHome()`).
+- The input's handler is `qbOnInput()`, not `qbInput()`: inside a form, an inline handler named like an
+  input's id resolves to the element.
+- Feature guide entry "Quick bar"; `qbReset()` on sign-out.
+
+**Tests:** `quick-bar.e2e.mjs` (iPhone 13 + Pixel 7): every syntax form and error, live preview, text kept
+across a re-render, sale + sync + Undo, two cards offline, lot → Snap & Sell, trade and buy through
+`record_trade`, two cards for one price opens the buy screen, help, no sideways scroll.
+
 ### App changes in Phase 1
 - Organizer Analytics `_orgFetchSales()` reads the ledger with `select('*')` and treats `txn_type =
   'lot_sale'` as a lot too.
@@ -6324,8 +6362,8 @@ edit and undo, revenue excludes trades, no sideways scroll. The mock gained `rec
   own DB write and count the sold card (Show Mode and Snap & Sell queue the snapshot first).
 - Phase 3 gaps: undoing an import (delete its transactions and new cards) isn't built; the import isn't
   queued offline; Cards In split on commas, so a title with a comma becomes two cards until fixed in review.
-- Phase 4 rest: quick-bar `T`/`B` syntax (needs the Cost spec Phase 2 parser, also not built). Trade screen
-  gaps: no photos or camera identification of cards coming in; a trade at a private (non-CardShow) show
+- Quick bar gaps: Show Mode only (no classic-view bar); no buyer handle or note on a sale; a card with no
+  stock code can't be sold from it. Trade screen gaps: no photos or camera identification of cards coming in; a trade at a private (non-CardShow) show
   can't be logged from Show Mode; edit can't change which cards were traded; undo of a trade made on
   another phone only from Show Home.
 - Organizer UI for the trade count.

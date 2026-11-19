@@ -1547,6 +1547,7 @@ function smRenderHome() {
       <div><button class="sm-notice-btn" onclick="sellerPublishToShow('${smEsc(show.id)}')">Add my cards to this show</button></div>
     </div>` : '';
 
+  const qbState = typeof qbBeforeRender === 'function' ? qbBeforeRender() : null;
   el.innerHTML = `
     ${_smHeaderHTML()}
     <div class="sm-live">
@@ -1563,6 +1564,7 @@ function smRenderHome() {
       <div class="sm-stat"><div class="sm-stat-num">${available.length}</div><div class="sm-stat-label">In case</div></div>
     </div>
     ${offline}${notice}
+    ${typeof qbHTML === 'function' ? qbHTML() : ''}
     <button class="sm-hero" onclick="smStartSell('home_cta')">
       <span class="sm-hero-tile">${_smIcon('scan')}</span>
       <span>
@@ -1581,6 +1583,7 @@ function smRenderHome() {
     </div>
     <div class="sm-section-label">Recent sales</div>
     <div class="sm-list">${recentHTML}</div>`;
+  if (typeof qbAfterRender === 'function') qbAfterRender(qbState);
 }
 
 function _smHeaderHTML() {

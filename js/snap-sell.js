@@ -329,6 +329,25 @@ async function ssSave() {
   _ssShowToast(rec);
 }
 
+// Quick bar "lot 120": a Snap & Sell sale with no photos, saved straight away.
+async function ssQuickLot(amount, payment, count, note) {
+  const now = Date.now();
+  const rec = {
+    clientSaleId: _smUuid(), seller: currentSeller, showId: _smShowId,
+    amount, payment: SS_PAYMENTS.includes(payment) ? payment : 'Cash', count: count || null,
+    isLot: true, note: (note || '').trim(), capturedAt: now, status: 'needs_review', items: [],
+    synced: false, voided: false, photos: [],
+  };
+  await _ssPut(rec);
+  if (typeof shEnsureShowStart === 'function') shEnsureShowStart(rec.showId);
+  await smEnqueue({ type: 'snap_sale', clientSaleId: rec.clientSaleId });
+  try { localStorage.setItem('ssLastPay:' + currentSeller, rec.payment); } catch (_) {}
+  _smLogEvent('snap_sale_saved', { hasItemsPhoto: false, hasPaymentPhoto: false, isLot: true, count: rec.count, from: 'quick_bar', queuedOffline: !navigator.onLine });
+  _ssAfterChange();
+  _ssShowToast(rec);
+  return rec;
+}
+
 function _ssHideToast() {
   clearTimeout(_ssToastTimer);
   const t = document.getElementById('ssToast');
