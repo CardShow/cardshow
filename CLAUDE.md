@@ -2598,7 +2598,7 @@ migration, no new external library.
 - **Trades + Show Home, Phase 4 — trade screen (session 2026-11-21)** — Show Mode "Log a trade or buy": cards
   out by stock code or name, cards in by title, cash either way, balance bar with a one-tap fix, saved
   offline first. Undo from the toast or Recent, or from Show Home (plus Edit values). Classic Report and
-  "Sold today" no longer count traded cards as revenue. **Requires `20261121120000_trade_logging.sql`.**
+  "Sold today" no longer count traded cards as revenue. **Requires `20261121120000_trade_logging.sql`** (run in production 2026-11-19).
   Quick-bar `T`/`B` syntax not built.
 
 ### Tier 1 — Ship before beta show
@@ -6259,7 +6259,7 @@ costs, refusals write nothing, CardShow show → ledger once, anon refused). `sh
 Built first, at Stephen's request ("Start with the trade screen in Show Mode"); the quick-bar `T`/`B` syntax
 is still to come.
 
-**Migration `20261121120000_trade_logging.sql`** (after the import one; uses its `_import_insert` /
+**Migration `20261121120000_trade_logging.sql`** (run in production 2026-11-19; after the import one; uses its `_import_insert` /
 `_import_update_inventory` helpers; re-runnable):
 - `record_trade(p_client_id, p_show_id, p_dealer_show_id, p_txn)` (invoker): one trade or buy into
   `dealer_transactions` (`source 'app'`, `client_capture_id` = the phone's id).
