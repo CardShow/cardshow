@@ -2648,6 +2648,11 @@
   .mk-blocked-hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; line-height: 1.4; }
   .mk-actions .btn:disabled { opacity: 0.45; cursor: default; }
   .mk-cem-status { font-size: 0.82rem; color: var(--text); margin-bottom: 0.3rem; }
+  .mk-cem-comp { font-size: 0.8rem; color: var(--text); margin-bottom: 0.45rem; line-height: 1.5; }
+  .mk-cem-comp:empty { display: none; }
+  .mk-comp-muted { color: var(--muted); }
+  .mk-comp-use { margin-left: 0.3rem; padding: 0.15rem 0.55rem; border: 1px solid var(--accent); border-radius: 999px;
+                 background: transparent; color: var(--accent); font-size: 0.75rem; cursor: pointer; }
   .mk-cem-btn { margin-top: 0.5rem; min-height: 44px; width: 100%; }
   @media (max-width: 480px) { .mk-grid { grid-template-columns: 1fr; } }
 
@@ -6889,6 +6894,7 @@
           <summary>🛒 Marketplace <span class="cost-summary-val" id="cem_mk_summary"></span></summary>
           <div class="cost-private-body">
             <div class="mk-cem-status" id="cem_mk_status"></div>
+            <div class="mk-cem-comp" id="cem_mk_comp"></div>
             <label class="mk-check"><input type="checkbox" id="cem_mk_accept" onchange="mkCemToggleOffers()"> Accept offers</label>
             <div class="cost-grid" id="cem_mk_offer_rows">
               <div>
@@ -8021,7 +8027,7 @@
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261120d"></script>
-<script src="/js/marketplace-dealer.js?v=20261120d"></script>
+<script src="/js/marketplace-dealer.js?v=20261120e"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -22858,6 +22864,9 @@ function dbRowToCard(row) {
     MinOfferCents:      row.min_offer_cents      != null ? row.min_offer_cents : null,
     AutoAcceptCents:    row.auto_accept_cents    != null ? row.auto_accept_cents : null,
     SaleModes:          Array.isArray(row.sale_modes) ? row.sale_modes : null,
+    // Online comp from the marketplace pricing service (Card Hedge). Written only by CardShow's server.
+    CompValueCents:     row.comp_value_cents     != null ? row.comp_value_cents : null,
+    CompRefreshedAt:    row.comp_refreshed_at    || null,
     _shows:          new Set(),
   };
   if (row.sold_price     != null) card.SoldPrice     = row.sold_price;

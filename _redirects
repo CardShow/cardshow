@@ -1,3 +1,6 @@
+# Marketplace read-only MCP server (Phase 1) — AI assistants connect to https://getcardshow.com/mcp
+/mcp    /.netlify/functions/mcp    200
+
 # Platform app
 /app    /app.html    200
 

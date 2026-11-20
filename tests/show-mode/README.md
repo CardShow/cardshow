@@ -58,6 +58,8 @@ node marketplace-dealer.e2e.mjs "iPhone 13"   # marketplace listing controls (pa
 ./shows-rls.test.sh                         # shows security: organizer-only writes, listing locked, then self-join + directory re-run
 node marketplace-dealer.e2e.mjs "iPhone 13"   # marketplace listing controls (panel, Edit Card, chips); also "Pixel 7"
 ./marketplace-listings.test.sh              # Marketplace Phase 0: listing guard, publish/reserve/release/mark_sold/expire, race (fresh db)
+./marketplace-search.test.sh                # Marketplace Phase 1: pricing tables/guard, search, listing page, shows, saved searches, 10k timing (fresh db)
+node marketplace-pricing.test.mjs           # Pricing job (Card Hedge stubbed), read-only MCP server, saved-search emails (run npm install at the repo root first)
 ./marketplace-photos.test.sh                # Listing image rule: slab photo for graded, photo or picked catalog image for raw, sealed exempt (fresh db)
 node catalog-image-search.test.mjs          # catalog-image-search.js with CardSight stubbed (exact vs other matches, autos, inserts, number variants)
 ./trade-logging.test.sh                     # record_trade / update / delete: ids, idempotency, refusals, undo order (fresh db)
