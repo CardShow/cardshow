@@ -193,14 +193,23 @@ async function cpFindCatalog() {
   if (navigator.onLine === false) { box.innerHTML = '<div class="cp-note">Finding catalog images needs a signal.</div>'; return; }
   const seq = ++_cpSearchSeq;
   box.innerHTML = '<div class="cp-note">Looking up catalog images…</div>';
-  let results = [], others = [];
+  let results = [], others = [], failed = '';
   try {
     const res = await fetch('/.netlify/functions/catalog-image-search', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
     const data = await res.json();
     if (data && data.success) { results = data.results || []; others = data.others || []; }
-  } catch (e) { console.warn('[card-photo] catalog search failed', e); }
+    else failed = (data && data.error) || 'error';
+  } catch (e) { console.warn('[card-photo] catalog search failed', e); failed = 'network'; }
   if (seq !== _cpSearchSeq || _cpCard !== card) return;
+  // Say when the search itself failed, so it isn't read as "this card isn't in the catalog".
+  if (failed) {
+    box.innerHTML = `<div class="cp-note" id="cem_photo_failed">${failed === 'cardsight_http_429'
+      ? 'The catalog is busy right now. Try again in a minute, or take a photo.'
+      : 'Couldn’t reach the catalog. Try again, or take a photo.'}</div>
+      <button type="button" class="mk-link cp-none" onclick="cpFindCatalog()">Try again</button>`;
+    return;
+  }
   const sub = r => r.parallel ? `<em>Base image · your parallel: ${_cpEsc(r.parallel)}</em>`
     : (r.variation ? '<em>Image variation</em>' : '');
   const tile = r => `

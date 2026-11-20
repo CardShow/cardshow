@@ -36,7 +36,8 @@ const catTile = (id, i) => ({ id, title: `2023 Topps Chrome Card ${i + 1}`, year
   imageUrl: '/.netlify/functions/card-image?id=' + id });
 await ctx.route('**/.netlify/functions/catalog-image-search', async r => {
   catalogQueries.push(JSON.parse(r.request().postData() || '{}'));
-  const body = catalogMode === 'parallel' ? { success: true, results: [{ ...catTile(CAT[0], 0), parallel: 'Tie-Dye' }], others: [] }
+  const body = catalogMode === 'busy' ? { success: false, error: 'cardsight_http_429' }
+    : catalogMode === 'parallel' ? { success: true, results: [{ ...catTile(CAT[0], 0), parallel: 'Tie-Dye' }], others: [] }
     : catalogMode === 'noimage' ? { success: true, results: [catTile(CAT[2], 2)], others: [] }
     : catalogNoMatch ? { success: true, results: [], others: [catTile(CAT[3], 3)] }
     : { success: true, results: CAT.slice(0, 3).map(catTile), others: [catTile(CAT[3], 3)] };
@@ -244,6 +245,10 @@ catalogMode = 'noimage';
 await page.fill('#cem_parallel', '');
 await page.click('#cem_photo_stock'); await wait(1000);
 check('exact match with no image: names the card, asks for a photo', /catalog has this card \(2023 Topps Chrome Card 3\) but no image/.test(await page.textContent('#cem_photo_nomatch')));
+// Catalog busy: says so, offers Try again
+catalogMode = 'busy';
+await page.click('#cem_photo_stock'); await wait(1000);
+check('catalog busy: says busy, not "no match"', /busy/.test(await page.textContent('#cem_photo_failed')) && !(await page.isVisible('#cem_photo_nomatch')));
 catalogMode = '';
 // A grader named in the title makes it a graded card
 await page.fill('#cem_title', '2018 Leaf NSC Shohei Ohtani Rookie TAG'); await wait(150);

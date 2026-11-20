@@ -6590,7 +6590,8 @@ card (not behind the marketplace switch).
   RAU-CSK is found but CardSight has no image for it. Third round: Witt #7 matched #7 cards from Bowman / Prizm /
   Diamond Icons (number alone counted); "Steph Curry" found nothing (catalog name "Stephen Curry"; CardSight had no
   2024-25 Obsidian Curry at all on 2026-11-20); Elly De La Cruz HA-20 (Topps Home Field Advantage) isn't in CardSight
-  under that number or set.
+  under that number or set (release "Topps" + setName "Home Field Advantage" also returned nothing). When the search
+  fails (CardSight 429 / network), the panel says "The catalog is busy…" with Try again, not "No exact match".
 - **CardSight image terms:** images may be cached only short-term and must not be stored to build a library.
   `card-image.js` caches 30 days at Netlify's CDN; confirm that's acceptable with CardSight or shorten it.
 - **Not built:** catalog images for lots/sealed, a back photo, deleting a photo, photos in Add Card (add one
