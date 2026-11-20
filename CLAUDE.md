@@ -616,7 +616,7 @@ Edit Card, Comp Results):
   (it's at the end of the form). It's sticky again when the keyboard closes.
 - On focus inside the modal, the field is scrolled to the middle (300ms and 650ms later, after the keyboard opens).
 Checked in headless Chromium (Pixel 7, page shortened to 420px): price field centered, action row static,
-`kb-open` cleared on blur. Not checked on a real phone yet.
+`kb-open` cleared on blur. Confirmed on the seller's Android phone (deploy preview, 2026-11-20).
 
 ## Sport Classification — imported Sport field override (session 2026-09-14)
 
