@@ -93,7 +93,7 @@ supabase/migrations/20261122120000_marketplace_listings.sql → Marketplace Phas
 supabase/migrations/20261123120000_marketplace_sold_on_insert.sql → Follow-up: cards created already sold are marked sold; backfills Sold cards still draft
 supabase/migrations/20261129120000_marketplace_listing_photos.sql → inventory.stock_image_id; publish_listings() requires an image (graded: slab photo; raw: photo or picked catalog image; sealed exempt)
 js/card-photo.js                  → Edit Card "Photo" section: take/replace a photo, or (raw cards) pick a CardSight catalog image — loaded after js/quick-bar.js; see "Card photos"
-netlify/functions/catalog-image-search.js → Serverless: POST {player, year, cardSet, cardNumber} → up to 8 CardSight catalog cards (id, title, imageUrl) for "Use a catalog image"
+netlify/functions/catalog-image-search.js → Serverless: POST {player, year, cardSet, cardNumber, parallel, title, features} → CardSight catalog exact matches (results) + same player/year non-matches (others) for "Use a catalog image"
 supabase/migrations/20261124120000_inventory_rls.sql → Inventory security: public read, sellers write only their own cards, GTCR trust fields locked (see "Inventory security")
 supabase/migrations/20261125120000_show_inventory_rls.sql → show_inventory security: sellers publish only their own cards to shows they're in; organizers publish/remove in their own shows (see "show_inventory security")
 supabase/migrations/20261126120000_show_sellers_rls.sql → show_sellers security: public read, only the show's organizer adds/edits/removes sellers; sellers join/leave through the join/leave functions (see "show_sellers security")
@@ -6537,22 +6537,41 @@ card (not behind the marketplace switch).
   cropped, saved through Show Mode's capture path (`smSaveCapture`, entry point `case_scan`) and linked with an
   `attach_capture` outbox op. **Replace photo** sends `replace: true`, which makes `_smOpAttachCapture()` overwrite
   `primary_capture_id` (otherwise it only fills an empty one). Works offline; the photo uploads later.
-- **Use a catalog image** (raw single cards only, `cpFindCatalog()`): POSTs the card's live form fields to
-  `catalog-image-search.js` (CardSight catalog: name+year+number, then +releaseName, then name+year; max 3 calls,
-  8 results, exact number/year first). Tiles show through `card-image.js`; a tile whose image 404s is removed. The
+- **Use a catalog image** (raw single cards only, `cpFindCatalog()`): POSTs the card's live form fields (incl. title,
+  parallel, Features) to `catalog-image-search.js`. Searches, max 5 CardSight calls: name+year+number (then the number
+  without dashes if nothing came back), name+year+release+manufacturer+`attributeShortName=AU` (autographs only),
+  name+year+release+manufacturer, name+year. Release = the set name minus its year and a leading "Panini"
+  (`setRelease()`); `inferManufacturer()` / `extractReleaseName()` are copied from comp-lookup.js.
+  **Exact match** (`judge()`), all of: same year; same card number (variants: as typed, no dashes, the letters after
+  the last dash, e.g. RAU-CSK → CSK) or every release word in the catalog card's release; an autograph only matches an
+  autograph (AU attribute, or "auto"/"signature" in its set name) and a non-auto only a non-auto; insert/parallel words
+  from the card ("cubic", "star gazing" — title + parallel minus player, set, year, number and generic words) must
+  appear in the catalog card's set name, and a card with none of those words doesn't match an insert set.
+  Response: `results` (exact, max 8) and `others` (same player and year, not a match, max 6; other years dropped).
+  The app shows exact matches in a grid (or "No exact catalog match for this card. Take a photo instead"), and others
+  in a closed `<details>` labeled "not an exact match". `debug: true` returns the release, insert words and attempt
+  counts. Tiles show through `card-image.js`; a tile whose image 404s is removed. The
   note says these are catalog images, not the seller's card. Picking one (`cpChooseStock()`) writes
   `inventory.stock_image_id` and `catalog_card_id` (needs a signal); **Remove catalog image** clears it. The
   thumbnail shows a CATALOG tag. A seller photo always wins over a catalog image.
-- **Never for graded cards** (`cpIsGraded()`: a grader other than Raw, or a cert #, read live from the form):
-  their photo must be the exact slab, because buyers match the cert number. Changing the grader/cert in the form
+- **Never for graded cards** (`cpIsGraded()`: a grader other than Raw, a cert #, or a grader named in the title —
+  `cpTitleGrader()`: PSA/BGS/BVG/SGC/CGC/TAG/HGA/GMA/CSG/AGS/ISA in capitals, or a grader + grade in any case like
+  "psa 10"; read live from the form): their photo must be the exact slab, because buyers match the cert number. When
+  only the title names a grader, the section says "The title says TAG… Set the Grader field if it is". Changing the grader/cert in the form
   updates the section. Not offered for lots or sealed product.
-- **Listing rule** (`publish_listings()` via `_listing_image_state()`, and `mkImageOk()` in the app): sealed → no
-  image needed; seller photo uploaded → OK (`photo_uploading` until then); graded → only a seller photo; raw / lot →
+- **Listing rule** (`publish_listings()` via `_listing_image_state()`, and `mkImageOk()` in the app; both use the same
+  title regexes): sealed → no image needed; seller photo uploaded → OK (`photo_uploading` until then); graded → only a seller photo; raw / lot →
   seller photo or `stock_image_id`. `stock_image_id` is only ever set by the seller's choice, unlike
   `catalog_card_id` (identification and comp checks fill that in).
 - `dbRowToCard()` reads `StockImageId`. `openCEM()` now scrolls the modal back to the top.
-- **Tests:** `marketplace-dealer.e2e.mjs` (photo add/replace, graded slab, catalog pick/remove, grader change,
-  listing), `catalog-image-search.test.mjs` (CardSight stubbed), `marketplace-photos.test.sh` (13 checks).
+- **Tests:** `marketplace-dealer.e2e.mjs` (photo add/replace, graded slab, catalog pick/remove, others group, no
+  exact match, grader in the title, grader change, listing), `catalog-image-search.test.mjs` (CardSight stubbed;
+  insert auto, auto with prefixed number, base vs insert, other years, AU 500, debug), `marketplace-photos.test.sh`
+  (15 checks, incl. "Rookie TAG" / "psa 10" titles and an ordinary "Tag").
+- **Why (2026-11-20):** on real cards the first version showed any card of the player and year as options (Ohtani
+  2018 Leaf NSC got Diamond Kings / Archives / Heritage), ranked the base card above the Cubic Autograph insert, and
+  found nothing for 2025 Topps Chrome Black Skattebo RAU-CSK. Whether CardSight has Leaf NSC or 2025 Chrome Black at
+  all is unknown; run the search with `debug: true` on the deploy preview to see what each attempt returned.
 - **Not built:** catalog images for lots/sealed, a back photo, deleting a photo, photos in Add Card (add one
   after saving), delisting a listed card that later loses its image, and whether CardSight's catalog search
   accepts every param here (`year=`, `releaseName=`) was taken from comp-lookup.js, not re-checked live.

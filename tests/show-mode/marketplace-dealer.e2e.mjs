@@ -28,13 +28,16 @@ await ctx.route('**/.netlify/functions/**', r => r.fulfill({ contentType: 'appli
 await ctx.route('**/supabase-js@2*', r => r.fulfill({ contentType: 'application/javascript', body: mock }));
 await ctx.route('https://fonts.**', r => r.fulfill({ body: '' }));
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
-const CAT = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'];
+const CAT = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'];
 let catalogQueries = [];
+let catalogNoMatch = false;
+const catTile = (id, i) => ({ id, title: `2023 Topps Chrome Card ${i + 1}`, year: '2023', release: 'Topps Chrome', number: String(i + 1),
+  imageUrl: '/.netlify/functions/card-image?id=' + id });
 await ctx.route('**/.netlify/functions/catalog-image-search', async r => {
   catalogQueries.push(JSON.parse(r.request().postData() || '{}'));
-  r.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true, results: CAT.map((id, i) => ({
-    id, title: `2023 Topps Chrome Card ${i + 1}`, year: '2023', release: 'Topps Chrome', number: String(i + 1),
-    imageUrl: '/.netlify/functions/card-image?id=' + id })) }) });
+  const body = catalogNoMatch ? { success: true, results: [], others: [catTile(CAT[3], 3)] }
+    : { success: true, results: CAT.slice(0, 3).map(catTile), others: [catTile(CAT[3], 3)] };
+  r.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
 });
 // The third catalog card has no image: its tile should disappear.
 await ctx.route('**/.netlify/functions/card-image**', r => r.request().url().includes(CAT[2])
@@ -199,8 +202,11 @@ await page.evaluate(() => closeCEM());
 // Raw card: pick a catalog image
 await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c12'); await wait(300);
 await page.click('#cem_photo_stock'); await wait(1200);
-check('catalog search uses the card details', catalogQueries.length === 1 && catalogQueries[0].player === 'Elly' && catalogQueries[0].cardNumber === '2', JSON.stringify(catalogQueries));
-check('catalog options shown; the one with no image is dropped', (await page.locator('#cem_photo_grid .cp-opt').count()) === 2);
+check('catalog search uses the card details, title and features', catalogQueries.length === 1 && catalogQueries[0].player === 'Elly' && catalogQueries[0].cardNumber === '2'
+  && catalogQueries[0].title === 'Raw Catalog Card' && Array.isArray(catalogQueries[0].features), JSON.stringify(catalogQueries));
+check('exact matches shown; the one with no image is dropped', (await page.locator('#cem_photo_grid .cp-opt').count()) === 2);
+check('other cards shown apart, closed, labeled not a match', await page.isVisible('#cem_photo_others') && !(await page.isVisible('#cem_photo_others .cp-opt'))
+  && /not an exact match/.test(await page.textContent('#cem_photo_others summary')));
 await page.locator('#cem_photo_grid .cp-opt').nth(1).click(); await wait(600);
 S = await srv();
 check('chosen catalog image saved', row(S, 'c12').stock_image_id === CAT[1] && row(S, 'c12').catalog_card_id === CAT[1]);
@@ -217,6 +223,18 @@ check('raw card lists with its catalog image', row(S, 'c12').listing_status === 
 await page.click('#cem_photo_stock_remove'); await wait(500);
 S = await srv();
 check('Remove catalog image', !row(S, 'c12').stock_image_id && !(await page.isVisible('#cem_photo_thumb img')));
+// No exact match: says so, other cards still apart
+catalogNoMatch = true;
+await page.click('#cem_photo_stock'); await wait(1000);
+check('no exact match: says so, no match grid, others closed', await page.isVisible('#cem_photo_nomatch') && !(await page.isVisible('#cem_photo_grid'))
+  && /No exact catalog match/.test(await page.textContent('#cem_photo_nomatch')) && await page.isVisible('#cem_photo_others'));
+catalogNoMatch = false;
+// A grader named in the title makes it a graded card
+await page.fill('#cem_title', '2018 Leaf NSC Shohei Ohtani Rookie TAG'); await wait(150);
+check('grader in the title: treated as graded, says so, no catalog option', /title says TAG/.test(await page.textContent('#cem_photo_status'))
+  && !(await page.isVisible('#cem_photo_stock')) && !(await page.isVisible('#cem_photo_options .cp-opt')));
+await page.fill('#cem_title', '2021 Topps Tag Team Insert'); await wait(150);
+check('ordinary word "Tag" in the title: still a raw card', (await page.isVisible('#cem_photo_stock')) && !/title says/.test(await page.textContent('#cem_photo_status')));
 await page.evaluate(() => closeCEM());
 
 // ── Sign out hides it ──

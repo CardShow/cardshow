@@ -3,7 +3,8 @@
 -- card_captures and inventory.primary_capture_id). See CLAUDE.md "Card photos".
 --
 -- What counts:
---   * Graded cards (a grader other than Raw, or a cert #): only the seller's photo of the exact slab,
+--   * Graded cards (a grader other than Raw, a cert #, or a grader named in the title, like "Rookie TAG"
+--     or "psa 10"): only the seller's photo of the exact slab,
 --     because buyers match the cert number. A catalog image never counts.
 --   * Raw cards and lots: the seller's photo, or a catalog image the seller picked as the
 --     representative image (inventory.stock_image_id, set from Edit Card → "Use a catalog image").
@@ -44,7 +45,10 @@ begin
   if v_photo is null then return null; end if;
   v_graded := (nullif(trim(coalesce(p_card->>'grader', '')), '') is not null
                and lower(trim(p_card->>'grader')) <> 'raw')
-              or nullif(trim(coalesce(p_card->>'cert_number', '')), '') is not null;
+              or nullif(trim(coalesce(p_card->>'cert_number', '')), '') is not null
+              -- same rule as cpTitleGrader() in js/card-photo.js
+              or coalesce(p_card->>'card_title', '') ~ '\m(PSA|BGS|BVG|SGC|CGC|TAG|HGA|GMA|CSG|AGS|ISA)\M'
+              or coalesce(p_card->>'card_title', '') ~* '\m(psa|bgs|bvg|sgc|cgc|tag|hga|gma|csg)\s?(10|[1-9](\.5)?)\M';
   if not v_graded and nullif(trim(coalesce(p_card->>'stock_image_id', '')), '') is not null then return null; end if;
   return v_photo;
 end $$;

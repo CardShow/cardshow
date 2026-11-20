@@ -252,7 +252,9 @@
                        const photo = !c || c.deleted_at || !c.crop_key ? 'no_photo' : !c.uploaded_at ? 'photo_uploading' : null;
                        if (!photo) return null;
                        const g = String(r.grader || '').trim();
-                       const graded = (g && g.toLowerCase() !== 'raw') || String(r.cert_number || '').trim();
+                       const t = String(r.card_title || '');
+                       const graded = (g && g.toLowerCase() !== 'raw') || String(r.cert_number || '').trim()
+                         || /\b(PSA|BGS|BVG|SGC|CGC|TAG|HGA|GMA|CSG|AGS|ISA)\b/.test(t) || /\b(psa|bgs|bvg|sgc|cgc|tag|hga|gma|csg)\s?(10|[1-9](\.5)?)\b/i.test(t);
                        return !graded && r.stock_image_id ? null : photo; })();
           if (why) skipped.push({ id, reason: why }); else { r.listing_status = 'active'; ok.push(id); }
         } else {

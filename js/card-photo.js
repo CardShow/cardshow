@@ -12,17 +12,39 @@ let _cpBusy = false;
 
 function _cpEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-// Graded = a grader other than Raw, or a cert number. form: read Edit Card's live fields.
+// A grading company named in a card title: "PSA" etc. in capitals, or a grader followed by a grade
+// in any case ("psa 10", "bgs 9.5"). Same rule as _listing_image_state() in the listing migration.
+const CP_TITLE_GRADER_RE = /\b(PSA|BGS|BVG|SGC|CGC|TAG|HGA|GMA|CSG|AGS|ISA)\b/;
+const CP_TITLE_GRADE_RE = /\b(psa|bgs|bvg|sgc|cgc|tag|hga|gma|csg)\s?(10|[1-9](\.5)?)\b/i;
+function cpTitleGrader(title) {
+  const t = String(title || '');
+  const m = t.match(CP_TITLE_GRADER_RE) || t.match(CP_TITLE_GRADE_RE);
+  return m ? m[1].toUpperCase() : '';
+}
+
+// Graded = a grader other than Raw, a cert number, or a grader named in the title.
+// form: read Edit Card's live fields.
 function cpIsGraded(card, form) {
-  let grader, cert;
+  let grader, cert, title;
   if (form && document.getElementById('cem_grader')) {
     grader = typeof _resolveGraderValue === 'function' ? _resolveGraderValue('cem_grader', 'cem_grader_other') : document.getElementById('cem_grader').value;
     cert = document.getElementById('cem_cert')?.value;
+    title = document.getElementById('cem_title')?.value;
   } else {
-    grader = card && card.Grader; cert = card && card['Cert #'];
+    grader = card && card.Grader; cert = card && card['Cert #']; title = card && card['Card Title'];
   }
   grader = String(grader || '').trim();
-  return (!!grader && grader.toLowerCase() !== 'raw') || !!String(cert || '').trim();
+  return (!!grader && grader.toLowerCase() !== 'raw') || !!String(cert || '').trim() || !!cpTitleGrader(title);
+}
+// Graded only because the title names a grader (the Grader field is empty).
+function cpGraderOnlyInTitle(card, form) {
+  const field = form && document.getElementById('cem_grader')
+    ? (typeof _resolveGraderValue === 'function' ? _resolveGraderValue('cem_grader', 'cem_grader_other') : document.getElementById('cem_grader').value)
+    : card && card.Grader;
+  const cert = form ? document.getElementById('cem_cert')?.value : card && card['Cert #'];
+  const title = form ? document.getElementById('cem_title')?.value : card && card['Card Title'];
+  const f = String(field || '').trim();
+  return (!f || f.toLowerCase() === 'raw') && !String(cert || '').trim() ? cpTitleGrader(title) : '';
 }
 function cpItemType(card) { return (card && card.item_type) || 'card'; }
 
@@ -84,8 +106,12 @@ function cpCemRender() {
   let msg;
   if (hasOwn) msg = 'Your photo of this card.';
   else if (stockOk) msg = 'Catalog image (not your card). Buyers see it as a representative image. A photo of your own card is better.';
-  else if (graded) msg = 'Graded cards need a photo of the exact slab, so buyers can match the cert number.'
-    + (card.StockImageId ? ' The catalog image you picked isn\'t used for graded cards.' : '');
+  else if (graded) {
+    const fromTitle = cpGraderOnlyInTitle(card, true);
+    msg = (fromTitle ? `The title says ${fromTitle}, so this looks like a graded card. Set the Grader field if it is. ` : '')
+      + 'Graded cards need a photo of the exact slab, so buyers can match the cert number.'
+      + (card.StockImageId ? ' The catalog image you picked isn\'t used for graded cards.' : '');
+  }
   else if (sealed) msg = 'Optional. Sealed product can be listed without a photo.';
   else if (cpItemType(card) === 'lot') msg = 'Add a photo of the lot.';
   else msg = 'No photo yet. Take one, or pick a catalog image of this card.';
@@ -157,37 +183,54 @@ async function cpFindCatalog() {
   if (!card || !box) return;
   if (!cpCanUseCatalog(card, true)) { box.innerHTML = ''; return; }
   const v = id => (document.getElementById(id)?.value || '').trim();
+  const features = typeof _getCheckedFeatures === 'function' ? _getCheckedFeatures('cem_features_group') : (card.Features || []);
   const q = { player: v('cem_player') || card.Player || '', year: v('cem_year') || card.Year || '',
               cardSet: v('cem_set') || card['Set '] || '', cardNumber: v('cem_number') || card.Number || '',
-              parallel: v('cem_parallel') || card['Parallel/Variant'] || '' };
+              parallel: v('cem_parallel') || card['Parallel/Variant'] || '',
+              title: v('cem_title') || card['Card Title'] || '', features };
   if (!q.player) { box.innerHTML = '<div class="cp-note">Add the player or character name first.</div>'; return; }
   if (navigator.onLine === false) { box.innerHTML = '<div class="cp-note">Finding catalog images needs a signal.</div>'; return; }
   const seq = ++_cpSearchSeq;
   box.innerHTML = '<div class="cp-note">Looking up catalog images…</div>';
-  let results = [];
+  let results = [], others = [];
   try {
     const res = await fetch('/.netlify/functions/catalog-image-search', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
     const data = await res.json();
-    if (data && data.success) results = data.results || [];
+    if (data && data.success) { results = data.results || []; others = data.others || []; }
   } catch (e) { console.warn('[card-photo] catalog search failed', e); }
   if (seq !== _cpSearchSeq || _cpCard !== card) return;
-  if (!results.length) { box.innerHTML = '<div class="cp-note">No catalog images found for this card. Take a photo instead.</div>'; return; }
-  box.innerHTML = `
-    <div class="cp-note">Catalog images, not your card. Pick the one that matches exactly: same year, set, number and parallel.</div>
-    <div class="cp-grid" id="cem_photo_grid">${results.map(r => `
+  const tile = r => `
       <button type="button" class="cp-opt${r.id === card.StockImageId ? ' cp-opt--on' : ''}" onclick="cpChooseStock('${_cpEsc(r.id)}')" title="${_cpEsc(r.title)}">
         <img src="${_cpEsc(r.imageUrl)}" alt="" loading="lazy" onerror="cpOptionFailed(this)">
         <span>${_cpEsc(r.title)}</span>
-      </button>`).join('')}</div>
-    <button type="button" class="mk-link cp-none" onclick="document.getElementById('cem_photo_options').innerHTML=''">None of these match</button>`;
+      </button>`;
+  const head = results.length
+    ? `<div class="cp-note">Catalog images, not your card. Pick the one that matches exactly: same year, set, number and parallel.</div>
+       <div class="cp-grid cp-grid--match" id="cem_photo_grid">${results.map(tile).join('')}</div>`
+    : `<div class="cp-note" id="cem_photo_nomatch">No exact catalog match for this card. Take a photo instead${others.length ? ', or check the card details if one of the cards below is it' : ''}.</div>`;
+  const rest = others.length ? `
+    <details class="cp-others" id="cem_photo_others">
+      <summary>Other ${_cpEsc(q.player)} cards${q.year ? ' from ' + _cpEsc(String(q.year).slice(0, 4)) : ''} (${others.length}) · not an exact match</summary>
+      <div class="cp-note">These don't match the details above. Only pick one if your card's details are wrong.</div>
+      <div class="cp-grid">${others.map(tile).join('')}</div>
+    </details>` : '';
+  box.innerHTML = head + rest + `
+    <button type="button" class="mk-link cp-none" onclick="document.getElementById('cem_photo_options').innerHTML=''">${results.length ? 'None of these match' : 'Close'}</button>`;
 }
 function cpOptionFailed(img) {
   const opt = img.closest('.cp-opt');
+  const grid = opt && opt.parentElement;
   if (opt) opt.remove();
-  const grid = document.getElementById('cem_photo_grid');
   if (grid && !grid.children.length) {
-    document.getElementById('cem_photo_options').innerHTML = '<div class="cp-note">No catalog images found for this card. Take a photo instead.</div>';
+    if (grid.id === 'cem_photo_grid') {
+      const note = grid.previousElementSibling;
+      if (note) { note.id = 'cem_photo_nomatch'; note.textContent = 'No catalog image for this card. Take a photo instead.'; }
+      grid.remove();
+    } else {
+      const det = grid.closest('details');
+      if (det) det.remove();
+    }
   }
 }
 

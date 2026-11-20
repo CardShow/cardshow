@@ -2641,6 +2641,9 @@
   .cp-opt img { width: 100%; aspect-ratio: 5 / 7; object-fit: contain; background: #0003; border-radius: 4px; }
   .cp-opt span { font-size: 0.65rem; line-height: 1.3; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .cp-none { margin-top: 0.4rem; }
+  .cp-others { margin-top: 0.7rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+  .cp-others summary { cursor: pointer; font-size: 0.78rem; color: var(--muted); min-height: 32px; display: flex; align-items: center; }
+  .cp-others .cp-opt { opacity: 0.8; }
   .mk-blocked-hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; line-height: 1.4; }
   .mk-actions .btn:disabled { opacity: 0.45; cursor: default; }
   .mk-cem-status { font-size: 0.82rem; color: var(--text); margin-bottom: 0.3rem; }
@@ -6726,7 +6729,7 @@
 
         <div>
           <div class="section-label" style="margin-bottom:0.3rem">Card Title *</div>
-          <input class="show-input" id="cem_title" placeholder="e.g. 2025-26 Topps Chrome Cooper Flagg RC Auto" style="margin:0">
+          <input class="show-input" id="cem_title" placeholder="e.g. 2025-26 Topps Chrome Cooper Flagg RC Auto" style="margin:0" oninput="cpCemFormChanged()">
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.55rem">
@@ -8016,8 +8019,8 @@
 <script src="/js/show-log-import.js?v=20261120a"></script>
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
-<script src="/js/card-photo.js?v=20261120a"></script>
-<script src="/js/marketplace-dealer.js?v=20261120c"></script>
+<script src="/js/card-photo.js?v=20261120b"></script>
+<script src="/js/marketplace-dealer.js?v=20261120d"></script>
 <script>
 // ── STATE ──
 let inventory = [];

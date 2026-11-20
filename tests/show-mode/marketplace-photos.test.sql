@@ -32,7 +32,10 @@ insert into inventory (id, seller_id, card_title, price, status, item_type, grad
   ('a0000000-0000-0000-0000-000000000012', 'aaaaaaaa-0000-0000-0000-000000000001', 'slab + catalog image only', 500, 'Available', 'card', 'PSA', 10, '12345', 'd0000000-0000-0000-0000-000000000002', null),
   ('a0000000-0000-0000-0000-000000000013', 'aaaaaaaa-0000-0000-0000-000000000001', 'cert, no grader + catalog', 500, 'Available', 'card', '', null, '999', 'd0000000-0000-0000-0000-000000000003', null),
   ('a0000000-0000-0000-0000-000000000014', 'aaaaaaaa-0000-0000-0000-000000000001', 'raw (grader Raw) + catalog', 20, 'Available', 'card', 'Raw', null, null, 'd0000000-0000-0000-0000-000000000004', null),
-  ('a0000000-0000-0000-0000-000000000015', 'aaaaaaaa-0000-0000-0000-000000000001', 'slab + photo uploaded', 300, 'Available', 'card', 'BGS', 9.5, '777', null, 'c0000000-0000-0000-0000-000000000001');
+  ('a0000000-0000-0000-0000-000000000015', 'aaaaaaaa-0000-0000-0000-000000000001', 'slab + photo uploaded', 300, 'Available', 'card', 'BGS', 9.5, '777', null, 'c0000000-0000-0000-0000-000000000001'),
+  ('a0000000-0000-0000-0000-000000000016', 'aaaaaaaa-0000-0000-0000-000000000001', '2018 Leaf NSC Shohei Ohtani Rookie TAG', 80, 'Available', 'card', null, null, null, 'd0000000-0000-0000-0000-000000000005', null),
+  ('a0000000-0000-0000-0000-000000000017', 'aaaaaaaa-0000-0000-0000-000000000001', '2020 Prizm Joe Burrow psa 10', 80, 'Available', 'card', null, null, null, 'd0000000-0000-0000-0000-000000000006', null),
+  ('a0000000-0000-0000-0000-000000000018', 'aaaaaaaa-0000-0000-0000-000000000001', '2021 Topps Tag Team Insert', 10, 'Available', 'card', null, null, null, 'd0000000-0000-0000-0000-000000000007', null);
 \set ON_ERROR_STOP 0
 
 set session authorization authenticator;
@@ -42,7 +45,8 @@ create temp table p as select public.publish_listings(array[
   'a0000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000003',
   'a0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005','a0000000-0000-0000-0000-000000000006',
   'a0000000-0000-0000-0000-000000000007','a0000000-0000-0000-0000-000000000011','a0000000-0000-0000-0000-000000000012',
-  'a0000000-0000-0000-0000-000000000013','a0000000-0000-0000-0000-000000000014','a0000000-0000-0000-0000-000000000015']::uuid[]) j;
+  'a0000000-0000-0000-0000-000000000013','a0000000-0000-0000-0000-000000000014','a0000000-0000-0000-0000-000000000015',
+  'a0000000-0000-0000-0000-000000000016','a0000000-0000-0000-0000-000000000017','a0000000-0000-0000-0000-000000000018']::uuid[]) j;
 create temp view sk as select e->>'id' id, e->>'reason' reason from p, jsonb_array_elements(p.j->'skipped') e;
 
 select case when (select j->'published' from p) @> '["a0000000-0000-0000-0000-000000000001"]'
@@ -73,6 +77,12 @@ select case when (select j->'published' from p) @> '["a0000000-0000-0000-0000-00
   then 'PASS 12 graded card with its own photo lists' else 'FAIL 12' end;
 select case when not has_function_privilege('authenticated', 'public._listing_image_state(jsonb)', 'execute')
   then 'PASS 13 image helper not callable from the app' else 'FAIL 13' end;
+
+select case when (select reason from sk where id = 'a0000000-0000-0000-0000-000000000016') = 'no_photo'
+  and (select reason from sk where id = 'a0000000-0000-0000-0000-000000000017') = 'no_photo'
+  then 'PASS 14 grader named in the title ("Rookie TAG", "psa 10") counts as graded' else 'FAIL 14' end;
+select case when (select j->'published' from p) @> '["a0000000-0000-0000-0000-000000000018"]'
+  then 'PASS 15 ordinary word "Tag" in a title does not make a card graded' else 'FAIL 15' end;
 
 -- 9. Once the photo finishes uploading, the card lists.
 reset role; reset session authorization;
