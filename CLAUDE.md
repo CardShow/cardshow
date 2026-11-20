@@ -87,6 +87,9 @@ tests/show-mode/                  → Playwright + SQL tests for Show Mode (see 
 sw.js                             → Service worker: offline app shell (network-first app.html, cached scripts/fonts); never caches Supabase or functions — see "Show Mode v2"
 manifest.webmanifest              → Installable app manifest ("Add to Home Screen"); icons at assets/app-icon-192.png / -512.png
 qrcode.min.js                     → Self-hosted qrcodejs 1.0.0 (all QR codes); cdnjs is only a backup — see "Seller QR blank"
+docs/marketplace-plan-v3.md       → CardShow Marketplace strategy + build plan v3 (the spec); progress and deviations are in "CardShow Marketplace" below
+supabase/migrations/20261122120000_marketplace_listings.sql → Marketplace Phase 0: listing columns on inventory, listing_reservations, listing_events, publish/delist/reserve/release/mark_sold/expire functions + guard triggers
+netlify/functions/expire-listing-reservations.js → Scheduled (every 5 min): expire_listing_reservations(); no-op unless MARKETPLACE_ENABLED=true
 CLAUDE.md                         → This file
 ```
 
@@ -351,6 +354,10 @@ is taken back off the phone when it tries to sync, with "Trade logging is still 
 Required for Show Home (Trades + Show Home Phase 2), after the trades migration:
 `supabase/migrations/20261119120000_show_home.sql`. Until it runs, the Shows tab says it's being set up,
 and snapshots are written straight to `inventory_snapshots` from the phone's numbers.
+
+Required for the CardShow Marketplace (see that section below), after the Show Mode sales migration:
+`supabase/migrations/20261122120000_marketplace_listings.sql`. Nothing in the app uses it yet (Phase 0 is
+database only). Every existing card starts as `listing_status = 'draft'`; sales keep working unchanged.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -876,6 +883,7 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `FB_PAGE_ID` | CardShow Facebook Page ID (Phase 3 webhooks, not used yet) |
 | `META_APP_ID` / `META_APP_SECRET` | Meta app. The pair is the app token for the oEmbed fallback in `social-source-check.js`; the secret will also verify webhook signatures (Phase 3) |
 | `META_GRAPH_VERSION` | Graph API version, `v23.0` |
+| `MARKETPLACE_ENABLED` | Must be exactly `true` for the marketplace's scheduled jobs to run (Phase 0: `expire-listing-reservations`). Off by default |
 
 ### Credential Injection (no build step workaround)
 Supabase URL and anon key are **not** hardcoded in tracked files. `netlify.toml` has a `command` that runs `sed` to replace `SUPABASE_URL_PLACEHOLDER` / `SUPABASE_ANON_KEY_PLACEHOLDER` in all three HTML files at deploy time. `SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL,SUPABASE_ANON_KEY"` prevents Netlify's secrets scanner from blocking the build on the injected values (they are intentionally public publishable keys).
@@ -2610,6 +2618,11 @@ migration, no new external library.
 - **Quick bar (session 2026-11-21)** — one line on the Show Mode home: `S12 120` sells, `lot 120` saves a Snap & Sell
   lot, `T S12 for wemby psa 10 +20` trades, `B 50 charizard psa 9` buys; live preview, Undo toast, offline.
   No migration. See "Quick bar" under "Trades + Show Home".
+
+- **CardShow Marketplace, Phase 0 data model (session 2026-11-20)** — listing columns on `inventory`,
+  reservations and an event log, and the only functions allowed to change a listing's status
+  (publish / delist / reserve / release / mark sold / expire). Database only, no UI. 28 checks plus a
+  two-buyer race test. **Requires `20261122120000_marketplace_listings.sql`.** See "CardShow Marketplace".
 
 ### Tier 1 — Ship before beta show
 - **Tighten RLS policies** (urgent, high complexity) — replace `using (true)` with `auth.uid() = seller_id`
@@ -6378,6 +6391,78 @@ across a re-render, sale + sync + Undo, two cards offline, lot → Snap & Sell, 
 - Snap & Sell's `snap_resolve` still doesn't write `transaction_item_costs` for lot cards.
 - Questions for Tito from the import README (direction of the $20, Captain Pikachu $100, $25 on
   NOV7-09, which Glaceon, Slab 50, the 12 ungrouped trades, missing costs/asks).
+
+## CardShow Marketplace (Phase 0 started, session 2026-11-20)
+
+Spec: `docs/marketplace-plan-v3.md` (Strategy and Build Plan v3, 2026-11-19). A buyer marketplace on a
+**separate buyer site** sharing this Supabase database; the dealer app stays in `app.html`.
+**Built so far: Phase 0's listing data model and status functions (database only).** Phase 0's legal,
+Stripe, tax and InfernoRed security items are Stephen's; Phases 1–6 are not started.
+
+### Rules (from the spec, enforced here)
+- **One record per card:** listing fields are columns on `inventory`. Never copy inventory to another table.
+- **Only the status functions change a listing's status.** Trigger `inv_listing_a_guard` refuses any
+  write to `listing_status`, `reserved_until`, `reserved_by`, `reservation_id`, `sold_at`,
+  `sold_channel` or `listing_status_before_sale` from the API roles, including from other
+  SECURITY DEFINER functions (e.g. a `listing_status` key smuggled into `record_sale`'s `p_new_item`).
+  The functions set `cardshow.listing_fn = 'on'` for their own transaction. A direct SQL session as the
+  database owner (SQL editor) is also allowed. New cards always start `draft`.
+- **New money columns are integer cents.** `inventory.price` (dollars) stays the asking price;
+  `price_cents` is generated from it.
+- Every new table has RLS; clients can read their own rows and write nothing.
+- Every agent feature (Phase 6) must go through these same functions (agent rules 12–17 in the spec).
+
+### Schema (`20261122120000_marketplace_listings.sql`, re-runnable)
+- `inventory`: `listing_status` (`draft`/`active`/`reserved`/`sold`/`delisted`, default draft),
+  `price_cents` (generated), `comp_value_cents`, `min_offer_cents`, `auto_accept_cents`,
+  `accepts_offers`, `wholesale_eligible`, `sale_modes`, `shipping_options`, `location_type`,
+  `pickup_show_id` (text → `shows.id`), `shop_id`, `table_label`, `early_access_until`, `lot_id`,
+  `availability_confirmed_at`, `reserved_until`, `reserved_by`, `reservation_id`, `sold_at`,
+  `sold_channel`, `listing_status_before_sale`.
+- `listing_reservations`: one hold over one or more cards of **one dealer** (buyer, reason, expires_at,
+  status `active`/`released`/`expired`/`converted`/`broken`, actor type/id). Buyer and dealer can read it.
+- `listing_events`: append-only log of every listing status change and who did it. Dealer (and the actor)
+  can read their rows.
+- `marketplace_settings` (service only): `max_reserved_cards_per_buyer` (10), `max_hold_minutes` (10080).
+
+**Differences from the spec's sketch:** `shows.id` is text, so the pickup show is `pickup_show_id text`
+(named so it isn't confused with `show_inventory`, which is still how a card joins a show). Added
+`reserved_by` / `reservation_id`, the reservations table and the event log. `lot_id` / `shop_id` have no
+foreign key until those tables exist.
+
+### Functions
+| Function | Who | What |
+|---|---|---|
+| `publish_listings(ids[])` | dealer | draft/delisted → active. Skips (with a reason) sold, reserved, `trust_flag` flagged/disputed, Needs details (`identification_status = 'unidentified'`), no price, not yours |
+| `delist_listings(ids[])` | dealer | active → delisted; skips reserved and sold |
+| `reserve_listings(ids[], buyer, reason, minutes=15, actor)` / `reserve_listing(id, …)` | buyer for themselves; service role for anyone | All cards or none: locks rows in id order, needs every card active, one dealer, not the buyer's own, not early-access (service role excepted), within the per-buyer cap (advisory lock per buyer). Hold length clamped to 1 min – 7 days. Reasons: buy_now, offer_accepted, local_pickup, lot, wholesale, checkout |
+| `release_listing(reservation, reason)` | buyer, dealer, service role | Cards back to active (delisted if flagged meanwhile) |
+| `mark_sold(ids[], channel, reservation?)` | dealer or service role | With a reservation, only cards it holds (others in the hold go back on sale); without, only unreserved unsold cards. Refuses GTCR-flagged cards. Sets `status = 'Sold'` too. Channels: cardshow, ebay, shopify, in_person, partner, agent |
+| `expire_listing_reservations()` | service role | Releases expired holds; run every 5 min by `expire-listing-reservations.js` (needs `MARKETPLACE_ENABLED=true`) |
+
+Errors come back as `{error: 'unavailable'|'not_found'|'own_listing'|'multiple_dealers'|'early_access'|'reservation_limit'|…}`;
+authorization failures raise.
+
+### How existing app sales interact (trigger `inv_listing_b_sync`)
+- `inventory.status` → `'Sold'` by any existing path (Sell Drawer, Show Mode `record_sale`, trades,
+  imports): listing becomes `sold`, `sold_channel = 'in_person'`, and a buyer's hold on it is ended
+  (`broken`, logged `reservation_broken`). **The table sale wins.** Phase 2 must notify that buyer.
+- Undo (`Sold` → anything else): an in-person sale goes back to its earlier listing status (a broken hold
+  is not restored; reserved → active); a marketplace sale (`sold_channel` not in_person) becomes `delisted`.
+- `trust_flag` → `'flagged'` on an active listing → `delisted` (logged).
+- No app code writes the guarded columns; `cardToDbRow()` doesn't include them. **Never add them to it.**
+
+### Tests
+`tests/show-mode/marketplace-listings.test.sh` (as a Postgres superuser): 28 checks plus a race where two
+buyers reserve the same card at once and exactly one wins. API calls run as session `authenticator`, like
+PostgREST, so the guard's session check is exercised. Also checked: `trade-logging` (15/15),
+`show-log-import` (38/38) and `sales.test.sql` (same output) still pass with this migration loaded.
+
+### Next (Phase 1, needs decisions first)
+- Buyer site framework (Astro or Next.js) — open with InfernoRed.
+- Inventory RLS is still permissive (Tier 1): anyone can edit any card's non-guarded fields, and public
+  reads must filter `listing_status = 'active'` and `early_access_until` themselves. Fix before Phase 1 launches.
+- Dealer UI to publish/delist, search (full-text + `pg_trgm`), listing pages, the read-only MCP server.
 
 ## Show Configuration (Demo Data)
 - **MLP Card Show** — Oct 17-18, 2026 · Grand Hyatt Tampa Bay, FL · Code: MLPTPA (primary demo, shown to buyers without code)

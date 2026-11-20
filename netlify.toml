@@ -15,6 +15,10 @@
 [functions."expire-trade-posts"]
   schedule = "@hourly"
 
+# Marketplace: return expired listing holds to sale (no-op unless MARKETPLACE_ENABLED=true).
+[functions."expire-listing-reservations"]
+  schedule = "*/5 * * * *"
+
 # Show status follows the dates: Upcoming → Active (Live) → Past.
 [functions."refresh-show-statuses"]
   schedule = "@hourly"

@@ -49,6 +49,7 @@ psql -d cs_test -f show-directory-social.test.sql # runs 20261105120000_show_dir
 psql -d cs_cost -f cost-tracking.test.sql    # fresh db + supabase-stub.sql; runs 20261114120000_cost_tracking.sql itself (twice)
 psql -d cs_snap -f snap-sell.test.sql        # fresh db + supabase-stub.sql; seeds ledger rows, runs 20261115120000_snap_sell.sql itself (twice)
 ./show-log-import.test.sh                   # import_show_log(): synthetic log, hand-checked report, dedup, refusals (fresh db)
+./marketplace-listings.test.sh              # Marketplace Phase 0: listing guard, publish/reserve/release/mark_sold/expire, race (fresh db)
 ./trade-logging.test.sh                     # record_trade / update / delete: ids, idempotency, refusals, undo order (fresh db)
 TITO_FIXTURE_DIR=/path/to/csvs ./trades.test.sh # Trades + Show Home: Tito's Nov 7 Show Report via dealer_show_report(), then show-home.test.sql (fresh db, runs the migrations itself)
 ```
