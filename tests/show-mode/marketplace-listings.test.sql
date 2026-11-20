@@ -220,3 +220,40 @@ select public.reserve_listing('a0000000-0000-0000-0000-000000000002', 'cccccccc-
 select public.publish_listings(array['a0000000-0000-0000-0000-000000000002']::uuid[]);
 reset role; reset session authorization;
 select case when (select count(*) from listing_reservations) = 4 then 'PASS 23 anon refused (errors above expected)' else 'FAIL 23 ' || (select count(*) from listing_reservations)::text end;
+
+-- ── Follow-up 20261123120000_marketplace_sold_on_insert.sql ──
+-- A card created sold before the fix stays draft (the bug), then the migration backfills it.
+insert into inventory (id, seller_id, card_title, price, status) values
+  ('a0000000-0000-0000-0000-000000000009', 'aaaaaaaa-0000-0000-0000-000000000001', 'Old manual sale', 10, 'Sold');
+select case when (select listing_status from inventory where id = 'a0000000-0000-0000-0000-000000000009') = 'draft'
+  then 'PASS 25 before the fix, a card created sold stays draft' else 'FAIL 25' end;
+\i ../../supabase/migrations/20261123120000_marketplace_sold_on_insert.sql
+\i ../../supabase/migrations/20261123120000_marketplace_sold_on_insert.sql
+select case when (select listing_status || '/' || sold_channel || '/' || listing_status_before_sale
+                  from inventory where id = 'a0000000-0000-0000-0000-000000000009') = 'sold/in_person/draft'
+  and not exists (select 1 from inventory where status = 'Sold' and listing_status = 'draft')
+  then 'PASS 26 backfill marks every Sold card sold' else 'FAIL 26' end;
+
+set session authorization authenticator; set role authenticated;
+set request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+-- Log a Manual Sale path: insert with status Sold.
+insert into inventory (id, seller_id, card_title, price, status) values
+  ('a0000000-0000-0000-0000-000000000010', 'aaaaaaaa-0000-0000-0000-000000000001', 'Manual sale', 0, 'Sold');
+select case when (select listing_status || '/' || sold_channel from inventory where id = 'a0000000-0000-0000-0000-000000000010') = 'sold/in_person'
+  then 'PASS 27 manual sale (card inserted sold) is marked sold' else 'FAIL 27' end;
+-- Show Mode "Log a sale": record_sale with a new item.
+select public.record_sale('dddddddd-0000-0000-0000-000000000002', null,
+  '{"id":"a0000000-0000-0000-0000-000000000011","card_title":"Show Mode logged sale","price":25}'::jsonb,
+  'show_m', 25, 'Cash', null, '2026-11-28', '2:10 PM', null);
+select case when (select listing_status || '/' || status from inventory where id = 'a0000000-0000-0000-0000-000000000011') = 'sold/Sold'
+  then 'PASS 28 Show Mode logged sale (record_sale new item) is marked sold' else 'FAIL 28' end;
+-- Undo it: back to draft, never onto the marketplace.
+select public.void_sale('dddddddd-0000-0000-0000-000000000002');
+select case when (select listing_status || '/' || status from inventory where id = 'a0000000-0000-0000-0000-000000000011') = 'draft/Available'
+  then 'PASS 29 undoing a logged sale returns the card to draft' else 'FAIL 29' end;
+-- An ordinary unsold insert is still draft, and a client still can't insert as sold-listed.
+insert into inventory (seller_id, card_title, price, status, listing_status) values
+  ('aaaaaaaa-0000-0000-0000-000000000001', 'sneaky2', 5, 'Available', 'sold');
+select case when not exists (select 1 from inventory where card_title = 'sneaky2')
+  then 'PASS 30 guard still refuses a client-set listing_status (error above expected)' else 'FAIL 30' end;
+reset role; reset session authorization;

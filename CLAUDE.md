@@ -89,6 +89,7 @@ manifest.webmanifest              → Installable app manifest ("Add to Home Scr
 qrcode.min.js                     → Self-hosted qrcodejs 1.0.0 (all QR codes); cdnjs is only a backup — see "Seller QR blank"
 docs/marketplace-plan-v3.md       → CardShow Marketplace strategy + build plan v3 (the spec); progress and deviations are in "CardShow Marketplace" below
 supabase/migrations/20261122120000_marketplace_listings.sql → Marketplace Phase 0: listing columns on inventory, listing_reservations, listing_events, publish/delist/reserve/release/mark_sold/expire functions + guard triggers
+supabase/migrations/20261123120000_marketplace_sold_on_insert.sql → Follow-up: cards created already sold are marked sold; backfills Sold cards still draft
 netlify/functions/expire-listing-reservations.js → Scheduled (every 5 min): expire_listing_reservations(); no-op unless MARKETPLACE_ENABLED=true
 CLAUDE.md                         → This file
 ```
@@ -356,8 +357,9 @@ Required for Show Home (Trades + Show Home Phase 2), after the trades migration:
 and snapshots are written straight to `inventory_snapshots` from the phone's numbers.
 
 Required for the CardShow Marketplace (see that section below), after the Show Mode sales migration:
-`supabase/migrations/20261122120000_marketplace_listings.sql`. Nothing in the app uses it yet (Phase 0 is
-database only). Every existing card starts as `listing_status = 'draft'`; sales keep working unchanged.
+`supabase/migrations/20261122120000_marketplace_listings.sql` (run in production 2026-11-20), then
+`20261123120000_marketplace_sold_on_insert.sql`. Nothing in the app uses them yet (Phase 0 is database only).
+Unsold cards start as `listing_status = 'draft'`, sold cards are `sold`; sales keep working unchanged.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6450,10 +6452,16 @@ authorization failures raise.
 - Undo (`Sold` → anything else): an in-person sale goes back to its earlier listing status (a broken hold
   is not restored; reserved → active); a marketplace sale (`sold_channel` not in_person) becomes `delisted`.
 - `trust_flag` → `'flagged'` on an active listing → `delisted` (logged).
+- **A card created already sold** (Log a Manual Sale, Show Mode "Log a sale" via `record_sale`'s
+  `p_new_item`) is marked `sold` / `in_person` on insert. This was missed at first: the trigger only ran
+  on UPDATE, so such cards stayed `draft` (seen in production 2026-11-20 with a manual sale). Fixed by
+  `20261123120000_marketplace_sold_on_insert.sql`, which runs the trigger on INSERT too and backfills
+  every Sold card still `draft` (`sold_at` left empty, since the real sale time isn't known).
+  Undoing such a sale returns the card to `draft`.
 - No app code writes the guarded columns; `cardToDbRow()` doesn't include them. **Never add them to it.**
 
 ### Tests
-`tests/show-mode/marketplace-listings.test.sh` (as a Postgres superuser): 28 checks plus a race where two
+`tests/show-mode/marketplace-listings.test.sh` (as a Postgres superuser): 34 checks (incl. created-sold cards, backfill, undo) plus a race where two
 buyers reserve the same card at once and exactly one wins. API calls run as session `authenticator`, like
 PostgREST, so the guard's session check is exercised. Also checked: `trade-logging` (15/15),
 `show-log-import` (38/38) and `sales.test.sql` (same output) still pass with this migration loaded.
