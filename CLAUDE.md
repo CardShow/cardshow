@@ -362,7 +362,7 @@ and snapshots are written straight to `inventory_snapshots` from the phone's num
 
 Required to lock down `show_inventory` (see "show_inventory security"), after the inventory security migration:
 `supabase/migrations/20261125120000_show_inventory_rls.sql` (run in production 2026-11-20). Then
-`supabase/migrations/20261126120000_show_sellers_rls.sql` (see "show_sellers security"); it refuses to run before the
+`supabase/migrations/20261126120000_show_sellers_rls.sql` (see "show_sellers security"; run in production 2026-11-20); it refuses to run before the
 show_inventory one.
 
 Required for the CardShow Marketplace (see that section below), after the Show Mode sales migration:
@@ -6568,7 +6568,7 @@ show-log-import (38) and marketplace (33) with both RLS migrations loaded.
 ## show_sellers security (session 2026-11-20)
 
 `supabase/migrations/20261126120000_show_sellers_rls.sql` (run after the show_inventory one, whose
-`_show_inventory_is_organizer()` helper it uses; re-runnable). Closes the gap where anyone could add themselves (or
+`_show_inventory_is_organizer()` helper it uses; re-runnable; run in production 2026-11-20, four policies confirmed). Closes the gap where anyone could add themselves (or
 anyone) to any show, change table numbers or remove sellers, and so publish cards into any show.
 
 **Audit of writers:**
