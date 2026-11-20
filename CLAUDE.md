@@ -156,11 +156,11 @@ show_floor_transactions — id (uuid), created_at, sold_at (timestamptz),
 - **Current:** Supabase email + password auth via `supabase.auth.signUp()` / `signInWithPassword()`
 - **Session persistence:** sellers stay signed in across a refresh (session 2026-10-23). `initPage()` calls `_restoreSellerSession()`; admins and entry links (`?code=`, `?signup=`, `?buyer=`, auth-error links) still start from a clean sign-out. See "Show Mode v2".
 - **Seller records:** linked to `auth.uid()` in the sellers table
-- **RLS:** `inventory`, `show_inventory` and `show_sellers` are tightened (session 2026-11-20, see "Inventory security", "show_inventory security" and "show_sellers security"). `sellers` is written but not yet run (see "sellers security"). `shows` is still permissive.
+- **RLS:** `inventory`, `show_inventory` and `show_sellers` are tightened (session 2026-11-20, see "Inventory security", "show_inventory security" and "show_sellers security"). `sellers` is tightened too (see "sellers security"). `shows` is still permissive.
 
 ## Current RLS Policies (Needs Tightening)
 `inventory`, `show_inventory` and `show_sellers` are done (see "Inventory security", "show_inventory security" and
-"show_sellers security"). `sellers` has its migration written (see "sellers security"; deploy the app first, then run it). `shows` still uses
+"show_sellers security"). `sellers` is done (see "sellers security"). `shows` still uses
 permissive `using (true)` / `with check (true)`. Next: `shows` (organizer-only writes).
 
 ## Pending DB Migrations (run in Supabase SQL editor)
@@ -2652,7 +2652,7 @@ migration, no new external library.
   two-buyer race test. **Requires `20261122120000_marketplace_listings.sql`.** See "CardShow Marketplace".
 
 ### Tier 1 — Ship before beta show
-- **Tighten RLS policies** (urgent, high complexity) — `inventory`, `show_inventory`, `show_sellers` done 2026-11-20; `sellers` written (not yet run); still to do: `shows`
+- **Tighten RLS policies** (urgent, high complexity) — `inventory`, `show_inventory`, `show_sellers` done 2026-11-20; `sellers` done; still to do: `shows`
 - ~~**eBay comp lookup at card entry**~~ — replaced by PriceCharting + TCG API comp check (see Comp Pricing section)
 
 ### Tier 2 — First show retrospective
@@ -6596,7 +6596,7 @@ migrations.
 
 ## sellers security (session 2026-11-20)
 
-`supabase/migrations/20261127120000_sellers_rls.sql` (re-runnable). **Deploy the app change first, then run it**
+`supabase/migrations/20261127120000_sellers_rls.sql` (re-runnable; run in production 2026-11-20, three policies confirmed). **Deploy the app change first, then run it**
 (sign-up used to create the sellers row before the person was signed in, which the new rules refuse).
 
 **Audit of writers (all app.html):**
