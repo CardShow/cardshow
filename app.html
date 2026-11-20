@@ -8231,6 +8231,30 @@ function _setAuthError(msg) {
   _resetAuthSubmit();
 }
 
+// The signed-in user's seller handle. Creates the sellers row on first sign-in from the
+// handle saved on the login at sign-up (user_metadata.handle): sign-up can't create it
+// when email confirmation leaves no session, since sellers RLS only allows own-row inserts.
+// Returns { handle } or { error } (and dbError when the lookup itself failed).
+async function _ensureSellerRow(user) {
+  if (!user || !user.id) return { error: 'Not signed in.' };
+  const { data: seller, error } = await db.from('sellers').select('handle').eq('id', user.id).maybeSingle();
+  if (error) return { dbError: error, error: error.message };
+  if (seller) return { handle: seller.handle };
+  const handle = user.user_metadata && user.user_metadata.handle;
+  if (!handle) return { error: 'No seller account found. Please sign up first.' };
+  const { error: insErr } = await db.from('sellers').insert({ id: user.id, handle, email: user.email || null });
+  if (insErr) {
+    if (insErr.code === '23505') {
+      // Another tab got there first, or the handle was taken since sign-up.
+      const { data: again } = await db.from('sellers').select('handle').eq('id', user.id).maybeSingle();
+      if (again) return { handle: again.handle };
+      return { error: 'The handle "' + handle + '" was taken by someone else. Contact support to pick a new one.' };
+    }
+    return { error: insErr.message };
+  }
+  return { handle };
+}
+
 async function submitAuth() {
   const btn = document.getElementById('authSubmitBtn');
   if (btn && btn.disabled) return;   // already signing in (double tap / Enter key)
@@ -8246,16 +8270,20 @@ async function submitAuth() {
         if (!email || !pass || !handle) { _setAuthError('All fields are required.'); return; }
         if (pass.length < 6) { _setAuthError('Password must be at least 6 characters.'); return; }
 
-        const { data, error } = await db.auth.signUp({ email, password: pass });
+        // Handle taken? Say so before creating the login.
+        const { data: taken } = await db.from('sellers').select('id').eq('handle', handle).maybeSingle();
+        if (taken) { _setAuthError('That handle is taken — try another.'); return; }
+
+        // The handle rides on the login (user_metadata), so the sellers row can be
+        // created once the seller is signed in. sellers RLS only lets a signed-in user
+        // create their own row; with email confirmation on there is no session yet,
+        // and the first sign-in creates it (_ensureSellerRow).
+        const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { handle } } });
         if (error) { _setAuthError(error.message); return; }
 
-        const uid = data.user.id;
-        const { error: insertErr } = await db.from('sellers').insert({ id: uid, handle, email });
-        if (insertErr && insertErr.code !== '23505') {
-          // 23505 = unique violation — seller row already exists, safe to ignore
-          await db.auth.signOut();
-          _setAuthError(insertErr.message);
-          return;
+        if (data.session) {
+          const res = await _ensureSellerRow(data.user);
+          if (res.error) { await db.auth.signOut(); _setAuthError(res.error); return; }
         }
 
         if (!data.session) {
@@ -8279,14 +8307,13 @@ async function submitAuth() {
         const { data, error } = await db.auth.signInWithPassword({ email, password: pass });
         if (error) { _setAuthError(error.message); return; }
 
-        const uid = data.user.id;
-        const { data: seller, error: selErr } = await db.from('sellers').select('handle').eq('id', uid).maybeSingle();
-        if (selErr || !seller) {
+        const res = await _ensureSellerRow(data.user);
+        if (!res.handle) {
           await db.auth.signOut();
-          _setAuthError('No seller account found. Please sign up first.');
+          _setAuthError(res.error || 'No seller account found. Please sign up first.');
           return;
         }
-        loginAsSeller(seller.handle);
+        loginAsSeller(res.handle);
       }
     } catch(e) {
       _setAuthError(e.message || 'Something went wrong. Please try again.');
@@ -14279,11 +14306,12 @@ function initSidebarState() {
 async function _restoreSellerSession() {
   try {
     const { data } = await db.auth.getSession();
-    const uid = data && data.session && data.session.user && data.session.user.id;
+    const user = data && data.session && data.session.user;
+    const uid = user && user.id;
     if (!uid) return false;
     const cacheKey = 'sellerHandle:' + uid;
-    const { data: seller, error } = await db.from('sellers').select('handle').eq('id', uid).maybeSingle();
-    let handle = seller && seller.handle;
+    const { handle: found, dbError: error } = await _ensureSellerRow(user);
+    let handle = found;
     // No signal at the show: the lookup fails, so use the handle cached at the
     // last good restore rather than signing the seller out.
     if (error && !navigator.onLine) { try { handle = localStorage.getItem(cacheKey); } catch (_) {} }
@@ -21782,7 +21810,7 @@ function saveProfile() {
       db.from('sellers')
         .update(updates)
         .eq('handle', handle)
-        .select()
+        .select('handle')   // not select(): sellers.email isn't readable by the app
         .then(({ data, error }) => {
           if (error) {
             console.error('Profile save failed:', error.message, error.details);
@@ -24363,7 +24391,8 @@ async function submitPasswordReset() {
     if (error) throw error;
     // Recovery leaves a valid session — go straight into the app.
     const uid = data.user.id;
-    const { data: seller } = await db.from('sellers').select('handle').eq('id', uid).maybeSingle();
+    const ensured = await _ensureSellerRow(data.user);
+    const seller = ensured.handle ? { handle: ensured.handle } : null;
     let adminRow = null;
     if (!seller) ({ data: adminRow } = await db.from('admins').select('id').eq('id', uid).maybeSingle());
     const isReviewer = !seller && !adminRow && await _isSocialReviewer(uid);
