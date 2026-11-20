@@ -35,6 +35,15 @@ const CATALOG = [
   { id: 'b1111111-1111-4111-8111-111111111111', name: 'Joe Burrow', releaseName: 'Topps Chrome', setName: 'Base Set', releaseYear: 2025, number: '61' },
   { id: 'b2222222-2222-4222-8222-222222222222', name: 'Joe Burrow', releaseName: 'Topps Chrome', setName: 'Base Set', releaseYear: 2025, number: '61', variationOf: 'b1111111-1111-4111-8111-111111111111' },
   { id: 'b3333333-3333-4333-8333-333333333333', name: 'Joe Burrow', releaseName: 'Topps Cosmic Chrome', setName: 'Stars in the Night', releaseYear: 2025, number: 'STN-13' },
+  // Bobby Witt Jr. #7 exists in other 2025 releases, not in Topps Chrome
+  { id: 'c1111111-1111-4111-8111-111111111111', name: 'Bobby Witt Jr.', releaseName: 'Bowman', setName: 'Base Set', releaseYear: 2025, number: '7' },
+  { id: 'c2222222-2222-4222-8222-222222222222', name: 'Bobby Witt Jr.', releaseName: 'Panini Prizm', setName: 'Groovy', releaseYear: 2025, number: '7' },
+  // Catalog says "Stephen Curry", 2024-25 season filed under 2025; a "Scurryfoot" card also contains "curry"
+  { id: 'd1111111-1111-4111-8111-111111111111', name: 'Stephen Curry', releaseName: 'Panini Obsidian', setName: 'Base Set', releaseYear: 2025, number: '20',
+    parallels: [{ id: 'q1', name: 'Hot Shot', numberedTo: 125 }] },
+  { id: 'd2222222-2222-4222-8222-222222222222', name: 'Stampeding Scurryfoot', releaseName: 'Aetherdrift', releaseYear: 2025, number: '181' },
+  // Insert inside the flagship release: release "Topps", set "Home Field Advantage"
+  { id: 'e1111111-1111-4111-8111-111111111111', name: 'Elly De La Cruz', releaseName: 'Topps', setName: 'Home Field Advantage', releaseYear: 2026, number: 'HFA-20' },
 ];
 const calls = [];
 let mode = 'ok';
@@ -54,6 +63,7 @@ global.fetch = async (url, opts) => {
     && (!p.year || String(c.releaseYear) === p.year)
     && (!p.number || c.number === p.number)
     && (!p.releaseName || String(c.releaseName || '').toLowerCase().includes(p.releaseName.toLowerCase()))
+    && (!p.setName || String(c.setName || '').toLowerCase().includes(p.setName.toLowerCase()))
     && (!p.attributeShortName || JSON.stringify(c.attributes || []).includes(p.attributeShortName)))
     .slice(0, Number(p.take || 25)).map(({ _detailParallels, ...c }) => c);
   return { ok: true, status: 200, json: async () => ({ cards: rows }) };
@@ -115,6 +125,26 @@ check('Burrow: STN-13 found in Cosmic Chrome', JSON.stringify(ids(r.results)) ==
 check('Burrow: base #61 not a match', !ids(r.results).includes('b1111111-1111-4111-8111-111111111111'));
 r = await call({ player: 'Joe Burrow', year: '2025', cardSet: 'Topps Chrome', cardNumber: '61' });
 check('Burrow #61: base first, image variation flagged', ids(r.results)[0] === 'b1111111-1111-4111-8111-111111111111' && r.results[1] && r.results[1].variation === true, JSON.stringify(r.results));
+
+// 3c. Same number in another set is never a match
+r = await call({ player: 'Bobby Witt Jr.', year: '2025', cardSet: 'Topps Chrome', cardNumber: '7', parallel: '42/50', title: '2025-26 Topps Chrome Bobby Witt Jr. /50' });
+check('Witt: #7 in Bowman / Prizm is not a Topps Chrome match', r.results.length === 0 && ids(r.others).includes('c1111111-1111-4111-8111-111111111111'), JSON.stringify(r.results));
+// 3d. Nickname + season year
+calls.length = 0;
+r = await call({ player: 'Steph Curry', year: '2024', cardSet: 'Panini Obsidian', cardNumber: '20', parallel: 'Hot Shot 26/125', title: '2024-25 Panini Obsidian Steph Curry Hot Shot /125', debug: true });
+check('Curry: found as Stephen Curry in the 2025 catalog year, Hot Shot named', ids(r.results)[0] === 'd1111111-1111-4111-8111-111111111111' && r.results[0].parallel === 'Hot Shot', JSON.stringify(r));
+check('Curry: Scurryfoot filtered out', !ids(r.results).concat(ids(r.others)).includes('d2222222-2222-4222-8222-222222222222'));
+check('Curry: at most 7 searches', calls.filter(c => !/\/cards\/[0-9a-f-]{36}/.test(c.url)).length <= 7, String(calls.length));
+check('name matching', _test.nameMatches('Stephen Curry', 'Steph Curry') && _test.nameMatches('Bobby Witt', 'Bobby Witt Jr.')
+  && _test.nameMatches('Chase Burns / Elly De La Cruz', 'Elly De La Cruz') && !_test.nameMatches('Stampeding Scurryfoot', 'Steph Curry') && !_test.nameMatches('Seth Curry', 'Steph Curry'));
+// 3e. Insert named in the set field
+calls.length = 0;
+r = await call({ player: 'Elly De La Cruz', year: '2026', cardSet: 'Topps Home Field Advantage', cardNumber: 'HFA-20' });
+check('Elly: found by card number', ids(r.results)[0] === 'e1111111-1111-4111-8111-111111111111', JSON.stringify(r));
+
+calls.length = 0;
+r = await call({ player: 'Elly De La Cruz', year: '2026', cardSet: 'Topps Home Field Advantage' });
+check('Elly, no number: insert named in the Set field matches', ids(r.results)[0] === 'e1111111-1111-4111-8111-111111111111', JSON.stringify(r));
 
 // 4. Nothing exact: no results, other cards only
 r = await call({ player: 'Shohei Ohtani', year: '2018', cardSet: 'Leaf NSC', cardNumber: 'ROOKIE-02' });

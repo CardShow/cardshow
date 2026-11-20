@@ -6542,15 +6542,19 @@ card (not behind the marketplace switch).
   without dashes if nothing came back), name+year+release+manufacturer+`attributeShortName=AU` (autographs only),
   name+year+release+manufacturer, name+year. Release = the set name minus its year and a leading "Panini"
   (`setRelease()`); `inferManufacturer()` / `extractReleaseName()` are copied from comp-lookup.js.
-  **Exact match** (`judge()`), all of: same year; **card number**: when the card and the catalog card both have one it
-  must match (variants: as typed, no dashes, the letters after the last dash, e.g. RAU-CSK → CSK), else every release
-  word must be in the catalog card's release; among cards with the same number, ones in the card's release win (#42 in
-  Select beats #42 in Panini Black); an autograph only matches an autograph (AU attribute, or "auto"/"signature" in its
+  **Exact match** (`judge()`), all of: same year (either year of a season card, "2024-25"); **set**: every word of the
+  card's set (minus year and "Panini") must be in the catalog card's release + set name, whenever the card has a set —
+  a matching number in another set is never a match (Witt #7 in Bowman is not #7 in Topps Chrome); **card number**:
+  when both have one it must match (variants: as typed, no dashes, the letters after the last dash, e.g. RAU-CSK → CSK); an autograph only matches an autograph (AU attribute, or "auto"/"signature" in its
   set name) and a non-auto only a non-auto; insert/parallel words from the card ("cubic", "star gazing" — title +
   parallel minus player, set, year, number and generic words) must appear in the catalog card's set name **or name one
-  of its parallels**, and a card with none of those words doesn't match an insert set. An exact number match skips the
-  insert-word check (the number identifies the insert: STN-13 is Topps Cosmic Chrome Stars in the Night even when the
-  seller typed "Topps Chrome").
+  of its parallels**, and a card with none of those words doesn't match an insert set unless the Set field names it
+  ("Topps Home Field Advantage"). An exact number match skips the insert-word check.
+  **Names:** every result must be the card's player: last name equal, first names where one starts with the other
+  ("Steph" / "Stephen"), suffixes ignored ("Jr."), dual cards split on "/". This also drops partial-name noise
+  ("Curry" → "Scurryfoot").
+  **Fallbacks when nothing matched** (`MAX_CALLS` 7): release + `setName` for an insert named in the set field
+  ("Topps" + "Home Field Advantage"), the season's second year, and the last name alone.
   **Parallels:** CardSight only has images of base cards (`/v1/images/cards/{id}`; parallels have no images). A
   parallel is matched against the catalog card's parallel list (list rows may carry `parallels`; otherwise up to 2
   `GET /v1/catalog/cards/{id}` detail calls for the best near-misses), by name ("Cubic") or by print run ("17/49" or
@@ -6583,7 +6587,10 @@ card (not behind the marketplace switch).
   found nothing for 2025 Topps Chrome Black Skattebo RAU-CSK. Second round (live checks on the preview, same day): a
   matching release let other numbers through (Burrow STN-13 got base #61; Stroud #42 got #128/#233/#394 and #42 from
   other releases); "Cubic" on Trish Stratus is a parallel of Revolution WWE Autographs #AG-TSS, not a set; Skattebo's
-  RAU-CSK is found but CardSight has no image for it.
+  RAU-CSK is found but CardSight has no image for it. Third round: Witt #7 matched #7 cards from Bowman / Prizm /
+  Diamond Icons (number alone counted); "Steph Curry" found nothing (catalog name "Stephen Curry"; CardSight had no
+  2024-25 Obsidian Curry at all on 2026-11-20); Elly De La Cruz HA-20 (Topps Home Field Advantage) isn't in CardSight
+  under that number or set.
 - **CardSight image terms:** images may be cached only short-term and must not be stored to build a library.
   `card-image.js` caches 30 days at Netlify's CDN; confirm that's acceptable with CardSight or shorten it.
 - **Not built:** catalog images for lots/sealed, a back photo, deleting a photo, photos in Add Card (add one
