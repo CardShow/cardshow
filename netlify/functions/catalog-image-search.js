@@ -204,7 +204,7 @@ function judge(c, card) {
   const autoOk = card.isAuto ? c.auto : !c.auto;
   const strong = yearOk && identOk && insertOk && autoOk;
   // Worth fetching the card's parallel list: everything matches except insert words we haven't checked.
-  const needsParallels = yearOk && identOk && autoOk && !insertOk && !c.parallels;
+  const needsParallels = yearOk && identOk && autoOk && !insertOk && !c.parallelsRead && !(c.parallels && c.parallels.length);
   const score = (numOk ? 10 : 0) + (releaseOk ? 5 : 0) + hits * 2 + (parNames.length ? 2 : 0) + (card.isAuto && c.auto ? 2 : 0) + (yearOk ? 1 : 0) - (c.variation ? 1 : 0);
   return { strong, yearOk, numOk, releaseOk, needsParallels, parallel, score };
 }
@@ -306,13 +306,15 @@ exports.handler = async (event) => {
   // Parallel names ("Cubic") usually aren't in the set name. For the best near-misses, read the card's
   // parallel list and judge again.
   let detailCalls = 0;
-  const wantDetail = x => x.j.needsParallels || (x.j.strong && card.printRun && !x.c.parallels);
+  const wantDetail = x => !x.c.parallelsRead && (x.j.needsParallels
+    || (x.j.strong && (card.printRun || card.insertWords.length) && !x.j.parallel && !(x.c.parallels && x.c.parallels.length)));
   for (const x of [...seen.values()].filter(wantDetail).sort((a, b) => b.j.score - a.j.score)) {
     if (detailCalls >= MAX_DETAIL_CALLS) break;
     detailCalls++;
     const r = await search(null, key, x.c.id);
     if (r.stop) break;
     attemptsLog.push({ kind: 'detail', found: !!r.row });
+    x.c.parallelsRead = true;
     if (r.row) { x.c.parallels = parallelsOf(r.row) || []; x.j = judge(x.c, card); }
   }
   preferRelease();

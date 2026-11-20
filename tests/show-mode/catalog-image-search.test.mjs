@@ -28,6 +28,9 @@ const CATALOG = [
     parallels: [{ id: 'p1', name: 'Silver', numberedTo: null }, { id: 'p2', name: 'Tie-Dye', numberedTo: 49 }] },
   { id: 'a2222222-2222-4222-8222-222222222222', name: 'C.J. Stroud', releaseName: 'Panini Black', setName: 'Base Set', releaseYear: 2024, number: '42' },
   { id: 'a3333333-3333-4333-8333-333333333333', name: 'C.J. Stroud', releaseName: 'Panini Select', setName: 'Base Set', releaseYear: 2024, number: '128' },
+  // Same player 2023: parallels only on the detail, the list row has an empty list (seen live)
+  { id: 'a4444444-4444-4444-8444-444444444444', name: 'C.J. Stroud', releaseName: 'Panini Select', setName: 'Base Set', releaseYear: 2023, number: '7', parallels: [],
+    _detailParallels: [{ name: 'Zebra', numberedTo: null }, { name: 'Gold', numberedTo: 10 }] },
   // Joe Burrow 2025: base #61 (and an image variation) in Topps Chrome; STN-13 is in Cosmic Chrome
   { id: 'b1111111-1111-4111-8111-111111111111', name: 'Joe Burrow', releaseName: 'Topps Chrome', setName: 'Base Set', releaseYear: 2025, number: '61' },
   { id: 'b2222222-2222-4222-8222-222222222222', name: 'Joe Burrow', releaseName: 'Topps Chrome', setName: 'Base Set', releaseYear: 2025, number: '61', variationOf: 'b1111111-1111-4111-8111-111111111111' },
@@ -42,7 +45,7 @@ global.fetch = async (url, opts) => {
   const m = u.pathname.match(/\/v1\/catalog\/cards\/([^/]+)$/);
   if (m) {
     const c = CATALOG.find(x => x.id === decodeURIComponent(m[1]));
-    return c ? { ok: true, status: 200, json: async () => ({ ...c, parallels: c.parallels || c._detailParallels || [] }) }
+    return c ? { ok: true, status: 200, json: async () => ({ ...c, parallels: c._detailParallels || c.parallels || [] }) }
              : { ok: false, status: 404, json: async () => ({}) };
   }
   const p = Object.fromEntries(u.searchParams);
@@ -103,6 +106,10 @@ check('Stroud: only Select #42', JSON.stringify(ids(r.results)) === JSON.stringi
 check('Stroud: Panini Black #42 and Select #128 are in "others"', ids(r.others).includes('a2222222-2222-4222-8222-222222222222') && ids(r.others).includes('a3333333-3333-4333-8333-333333333333'));
 check('Stroud: /49 names the parallel', r.results[0] && r.results[0].parallel === 'Tie-Dye', JSON.stringify(r.results[0]));
 check('Stroud: parallels on the list row, no detail call', !calls.some(c => /\/v1\/catalog\/cards\/[0-9a-f-]{36}/.test(c.url)));
+calls.length = 0;
+r = await call({ player: 'C.J. Stroud', year: '2023', cardSet: 'Panini Select', cardNumber: '7', parallel: 'Gold /10' });
+check('empty parallel list on the row: detail read, /10 Gold named', r.results[0] && r.results[0].parallel === 'Gold'
+  && calls.some(c => c.url.includes('/cards/a4444444')), JSON.stringify(r.results));
 r = await call({ player: 'Joe Burrow', year: '2025', cardSet: 'Topps Chrome', cardNumber: 'STN-13', title: '2025 Topps Chrome Joe Burrow' });
 check('Burrow: STN-13 found in Cosmic Chrome', JSON.stringify(ids(r.results)) === JSON.stringify(['b3333333-3333-4333-8333-333333333333']), JSON.stringify(r.results));
 check('Burrow: base #61 not a match', !ids(r.results).includes('b1111111-1111-4111-8111-111111111111'));
