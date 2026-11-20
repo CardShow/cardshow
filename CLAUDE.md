@@ -94,6 +94,7 @@ supabase/migrations/20261124120000_inventory_rls.sql → Inventory security: pub
 supabase/migrations/20261125120000_show_inventory_rls.sql → show_inventory security: sellers publish only their own cards to shows they're in; organizers publish/remove in their own shows (see "show_inventory security")
 supabase/migrations/20261126120000_show_sellers_rls.sql → show_sellers security: public read, only the show's organizer adds/edits/removes sellers; sellers join/leave through the join/leave functions (see "show_sellers security")
 supabase/migrations/20261127120000_sellers_rls.sql → sellers security: own-row writes, handle locked, email unreadable by the app; deploy the app first (see "sellers security")
+supabase/migrations/20261128120000_shows_rls.sql → shows security: public read, organizers create, only the show's organizer or the platform owner edits/deletes, listing locked to the platform owner (see "shows security")
 netlify/functions/expire-listing-reservations.js → Scheduled (every 5 min): expire_listing_reservations(); no-op unless MARKETPLACE_ENABLED=true
 CLAUDE.md                         → This file
 ```
@@ -156,12 +157,11 @@ show_floor_transactions — id (uuid), created_at, sold_at (timestamptz),
 - **Current:** Supabase email + password auth via `supabase.auth.signUp()` / `signInWithPassword()`
 - **Session persistence:** sellers stay signed in across a refresh (session 2026-10-23). `initPage()` calls `_restoreSellerSession()`; admins and entry links (`?code=`, `?signup=`, `?buyer=`, auth-error links) still start from a clean sign-out. See "Show Mode v2".
 - **Seller records:** linked to `auth.uid()` in the sellers table
-- **RLS:** `inventory`, `show_inventory` and `show_sellers` are tightened (session 2026-11-20, see "Inventory security", "show_inventory security" and "show_sellers security"). `sellers` is tightened too (see "sellers security"). `shows` is still permissive.
+- **RLS:** `inventory`, `show_inventory` and `show_sellers` are tightened (session 2026-11-20, see "Inventory security", "show_inventory security" and "show_sellers security"). `sellers` is tightened too (see "sellers security"). `shows` is tightened too (see "shows security").
 
 ## Current RLS Policies (Needs Tightening)
 `inventory`, `show_inventory` and `show_sellers` are done (see "Inventory security", "show_inventory security" and
-"show_sellers security"). `sellers` is done (see "sellers security"). `shows` still uses
-permissive `using (true)` / `with check (true)`. Next: `shows` (organizer-only writes).
+"show_sellers security"). `sellers` is done (see "sellers security"). `shows` is done (see "shows security"). All five core tables are locked down.
 
 ## Pending DB Migrations (run in Supabase SQL editor)
 Required for sold tracking to persist:
@@ -465,7 +465,7 @@ Fonts: Bebas Neue (headlines), DM Sans (body), DM Mono (labels/badges), Barlow C
 4. **.maybeSingle() not .single()** — always use maybeSingle() for queries that might return 0 rows. .single() returns 406 on empty result.
 5. **No build step** — vanilla HTML only. No webpack, no npm, no compilation. Edit HTML files directly.
 6. **Domain** — all absolute URLs use getcardshow.com. The old card-show.netlify.app domain is fully deprecated.
-7. **RLS** — `show_sellers` writes are organizer-only; sellers join/leave through `join_show_as_seller()` / `leave_show_as_seller()` (see "show_sellers security"). `show_inventory` writes need the card's seller to be in the show (see "show_inventory security"). `inventory` writes are own-row only (`seller_id = auth.uid()`); every client write path was audited first (see "Inventory security"). Any new code that writes `inventory` from the browser must write the signed-in seller's own cards, or go through a SECURITY DEFINER function / the service key. `sellers` writes are own-row only and `email` isn't readable by the app (see "sellers security"); never `select('*')` sellers. `shows` is still permissive.
+7. **RLS** — `show_sellers` writes are organizer-only; sellers join/leave through `join_show_as_seller()` / `leave_show_as_seller()` (see "show_sellers security"). `show_inventory` writes need the card's seller to be in the show (see "show_inventory security"). `inventory` writes are own-row only (`seller_id = auth.uid()`); every client write path was audited first (see "Inventory security"). Any new code that writes `inventory` from the browser must write the signed-in seller's own cards, or go through a SECURITY DEFINER function / the service key. `sellers` writes are own-row only and `email` isn't readable by the app (see "sellers security"); never `select('*')` sellers. `shows` writes are organizer-only and listing is the platform owner's (see "shows security").
 8. **Seller handle in DB** — inventory rows store seller_id (UUID), not handle. Always look up seller UUID by handle before querying inventory.
 9. **switchView() is async-safe** — guards `event?.target` so it can be called from async functions without throwing. Previously calling it after any `await` would throw a TypeError and halt the calling function silently.
 10. **Seller session restore on page load (2026-10-23, user-approved)** — `initPage()` calls `_restoreSellerSession()`, which signs a saved seller back in via `loginAsSeller(handle, { restored: true })` (no welcome toast). Admin sessions, `?code=`/`?signup=`/`?buyer=` links and auth-error links still run `db.auth.signOut()` first, as before. Sign out is still explicit (`signOut()`).
@@ -2652,7 +2652,7 @@ migration, no new external library.
   two-buyer race test. **Requires `20261122120000_marketplace_listings.sql`.** See "CardShow Marketplace".
 
 ### Tier 1 — Ship before beta show
-- **Tighten RLS policies** (urgent, high complexity) — `inventory`, `show_inventory`, `show_sellers` done 2026-11-20; `sellers` done; still to do: `shows`
+- **Tighten RLS policies** (urgent, high complexity) — `inventory`, `show_inventory`, `show_sellers` done 2026-11-20; `sellers` done; `shows` done 2026-11-20
 - ~~**eBay comp lookup at card entry**~~ — replaced by PriceCharting + TCG API comp check (see Comp Pricing section)
 
 ### Tier 2 — First show retrospective
@@ -6629,6 +6629,35 @@ auth-signout, join-show, show-mode (52) pass.
 
 **Not covered:** `shows` is still permissive. Existing logins created after the migration but before the app deploy
 would have no sellers row and no saved handle (they'd see "No seller account found"), hence deploy first.
+
+## shows security (session 2026-11-20)
+
+`supabase/migrations/20261128120000_shows_rls.sql` (after the Show Directory migration; re-runnable; run in production 2026-11-20, four policies confirmed). No app change
+needed, so it can run any time. Closes the gap where anyone, signed out included, could create, rename, re-date,
+list or delete any show.
+
+**Audit of writers (all app.html):**
+- Organizer: `upsertShowToDB()` (Create/Edit Show, Publish Inventory's `published_at`; stamps `created_by` = self),
+  `deleteShowFromDB()`, `_floorUploadPlan()` (`floor_plan_url`).
+- Platform owner: Show Directory `saveDirEdit()` (insert / update), `_dirDeleteShowFallback()`.
+- Bypass RLS: `set_show_listed`, `merge_shows`, `delete_show`, `resolve_show_request`, join/leave (definer);
+  `refresh_show_statuses()` (service role). Social functions only read `shows`.
+
+**Rules now:**
+- Read: everyone. Unchanged (`access_code` stays readable; it's printed on signage anyway).
+- Create: an organizer (`admins`) or platform owner, with `created_by` = themselves (the platform owner may set
+  another organizer).
+- Edit / delete: the show's `created_by`, any organizer for a show with no `created_by` (older shows; saving one
+  stamps the editor as its organizer), or the platform owner. An organizer can't give a show away.
+- Trigger `shows_listing_guard`: from the app, only the platform owner can change `listed`, `listed_at`,
+  `listed_by`, `slug`, `merged_into` (so an organizer can't list their own show past the Directory).
+- Helpers `_shows_is_admin()`, `_shows_is_platform_admin()`, `_shows_can_edit(created_by)` (SECURITY DEFINER).
+
+**Tests:** `tests/show-mode/shows-rls.test.sh` — 11 checks, then self-join (12) and Show Directory (26) unchanged
+with all four lockdown migrations loaded.
+
+**Not covered:** the `floor-plans` storage bucket still lets any signed-in user upload into any show's folder;
+`show_events` stays insert/read-all by design.
 
 ## Show Configuration (Demo Data)
 - **MLP Card Show** — Oct 17-18, 2026 · Grand Hyatt Tampa Bay, FL · Code: MLPTPA (primary demo, shown to buyers without code)
