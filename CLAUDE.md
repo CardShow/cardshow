@@ -603,6 +603,21 @@ while one of these modals is open (needs iOS 15.4+). Checked in headless Chromiu
 size: the button is visible without scrolling, a tap lands on it, and the FAB is hidden while
 the modal is open and returns after it closes.
 
+### Keyboard covered the Edit Card field (session 2026-11-20)
+Seller report (Android phone, deploy preview): tapping Asking Price in Edit Card opened the keyboard,
+the screen jumped, and the field ended up hidden. With the keyboard open, the sticky Save/Cancel/Delete
+row (see above) filled most of the little space left. Fix, for all `.card-edit-overlay` modals (Add Card,
+Edit Card, Comp Results):
+- Viewport meta adds `interactive-widget=resizes-content` (Android Chrome shrinks the page for the keyboard).
+- A small script before `</body>` sets `--vv-h` / `--vv-top` from `visualViewport` and the body class
+  `kb-open` while a card modal is open and the keyboard is up (visual viewport 150px+ shorter than the
+  window, or a text field focused on a touch screen).
+- Under `body.kb-open` the overlay is sized to the visible area, and the action row stops being sticky
+  (it's at the end of the form). It's sticky again when the keyboard closes.
+- On focus inside the modal, the field is scrolled to the middle (300ms and 650ms later, after the keyboard opens).
+Checked in headless Chromium (Pixel 7, page shortened to 420px): price field centered, action row static,
+`kb-open` cleared on blur. Not checked on a real phone yet.
+
 ## Sport Classification — imported Sport field override (session 2026-09-14)
 
 Real bug report: several correctly-known baseball cards (Garrett Crochet, Kenny Lofton, Barry
