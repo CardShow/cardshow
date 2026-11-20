@@ -2,6 +2,7 @@
 //   node show-directory.e2e.mjs "iPhone 13"
 import { chromium, devices } from 'playwright';
 import fs from 'fs';
+const geocodeCalls = [];
 const mock = fs.readFileSync(new URL('./mock-supabase.js', import.meta.url), 'utf8');
 const legacy = fs.readFileSync(new URL('./mock-supabase-legacy.js', import.meta.url), 'utf8');
 const BASE = process.env.BASE_URL || 'http://localhost:8765';
@@ -19,7 +20,8 @@ async function setup(mockSrc, seed, asAdmin) {
   page.on('dialog', d => d.type() === 'prompt' ? d.accept('Not a card show') : d.accept());
   await ctx.route('**/supabase-js@2*', r => r.fulfill({ contentType: 'application/javascript', body: mockSrc }));
   await ctx.route('https://fonts.**', r => r.fulfill({ body: '' }));
-  await ctx.route('**/.netlify/functions/**', r => r.fulfill({ contentType: 'application/json', body: '{"success":false}' }));
+  await ctx.route('**/.netlify/functions/geocode-shows', r => { geocodeCalls.push(JSON.parse(r.request().postData() || '{}')); r.fulfill({ contentType: 'application/json', body: '{"ok":true}' }); });
+  await ctx.route('**/.netlify/functions/**', r => r.request().url().includes('geocode-shows') ? r.fallback() : r.fulfill({ contentType: 'application/json', body: '{"success":false}' }));
   await page.goto(BASE + '/app.html?show_mode=1');
   await page.waitForTimeout(400);
   await page.evaluate(seed, today);
@@ -86,6 +88,9 @@ const srv = page => page.evaluate(() => window.__srv);
   await page.click('.dir-filter:has-text("Needs info")'); await page.waitForTimeout(150);
   await page.click('[data-show-id="show_c"] button:has-text("Edit")'); await page.waitForTimeout(200);
   await page.fill('#dirStart', '2027-03-05'); await page.fill('#dirVenue', 'Reno Events Center');
+  check('edit form has street address + ZIP and explains the location',
+    await page.isVisible('#dirStreet') && await page.isVisible('#dirZip') && /street address/i.test(await page.textContent('#dirGeoNote')));
+  await page.fill('#dirStreet', '4590 S Virginia St'); await page.fill('#dirZip', '89502');
   await page.fill('#dirState', 'nv'); await page.dispatchEvent('#dirState', 'input');
   check('state is uppercased and fills the time zone', (await page.inputValue('#dirState')) === 'NV' && (await page.inputValue('#dirTimezone')) === 'America/Los_Angeles');
   await page.check('#dirListAfter');
@@ -94,6 +99,10 @@ const srv = page => page.evaluate(() => window.__srv);
   const c = s.shows.find(x => x.id === 'show_c');
   check('saved fields + generated display text, then listed',
     c.listed === true && c.location === 'Reno Events Center, Reno, NV' && c.date === 'Mar 5, 2027' && c.timezone === 'America/Los_Angeles', JSON.stringify(c));
+  check('street address and ZIP saved, show located right after the save',
+    c.street_address === '4590 S Virginia St' && c.postal_code === '89502' && geocodeCalls.some(g => g.show_id === 'show_c'), JSON.stringify(geocodeCalls));
+  check('location status text', await page.evaluate(() => _dirGeoText({ geo_source: 'census_address' }) === 'Located at its street address.'
+    && /city center/.test(_dirGeoText({ geo_source: 'census_place' })) && /Not located yet/.test(_dirGeoText({ city: 'Reno', state: 'NV' }))));
 
   // Requests: link, create & list, decline.
   await page.click('.dir-filter:has-text("Requests")'); await page.waitForTimeout(150);

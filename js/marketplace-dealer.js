@@ -366,6 +366,7 @@ function mkCemFill(card) {
     : why === 'no_photo' ? (cpIsGraded(card) ? 'Can\'t list yet: add a photo of the slab (Photo, at the top).'
                                              : 'Can\'t list yet: add a photo or pick a catalog image (Photo, at the top).')
     : why && why !== 'sold' ? `Can't list yet: ${MK_REASONS[why] || why}.` : s === 'sold' ? 'Sold.' : 'Not listed.';
+  mkCemComp(card);
   btn.style.display = (s === 'active' || (!why && s !== 'reserved')) ? '' : 'none';
   btn.textContent = s === 'active' ? 'Take off marketplace' : 'List on marketplace';
   btn.dataset.action = s === 'active' ? 'delist' : 'list';
@@ -380,6 +381,35 @@ function mkCemFill(card) {
   document.getElementById('cem_mk_err').textContent = '';
   box.querySelectorAll('input').forEach(i => { i.disabled = s === 'reserved' || s === 'sold'; });
   box.open = s === 'active';
+}
+
+// Online comp (Card Hedge, via the marketplace pricing service) and a one-tap suggested price.
+function mkCompAge(iso) {
+  if (!iso) return '';
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return days <= 0 ? 'updated today' : days === 1 ? 'updated yesterday' : `updated ${days} days ago`;
+}
+function mkCemComp(card) {
+  const el = document.getElementById('cem_mk_comp');
+  if (!el) return;
+  const comp = card.CompValueCents;
+  if (!comp) {
+    el.innerHTML = card.ListingStatus === 'active' || card.ListingStatus === 'reserved'
+      ? '<span class="mk-comp-muted">Online comp: not available yet</span>' : '';
+    return;
+  }
+  const price = Math.round((parseFloat(card.Price) || 0) * 100);
+  const pct = price > 0 ? Math.round((price / comp) * 100) : null;
+  const rel = pct == null ? '' : pct < 100 ? ` · your price is ${100 - pct}% under` : pct > 100 ? ` · your price is ${pct - 100}% over` : ' · your price matches';
+  el.innerHTML = `Online comp: <b>${_mkMoney(comp)}</b>${rel} <span class="mk-comp-muted">(${mkCompAge(card.CompRefreshedAt)})</span>`
+    + (Math.abs(price - comp) >= 100 ? ` <button type="button" class="mk-comp-use" onclick="mkUseComp(${comp})">Use ${_mkMoney(comp)}</button>` : '');
+}
+function mkUseComp(cents) {
+  const input = document.getElementById('cem_price');
+  if (!input) return;
+  input.value = (cents / 100).toFixed(2).replace(/\.00$/, '');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  showToast(`Price set to ${_mkMoney(cents)} — Save to keep it`);
 }
 
 function mkCemToggleOffers() {

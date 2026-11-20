@@ -19,6 +19,21 @@
 [functions."expire-listing-reservations"]
   schedule = "*/5 * * * *"
 
+# Marketplace Phase 1: card pricing (match new listings, refresh due values, on-demand first),
+# nightly refresh priorities, hourly saved-search emails. All no-ops unless MARKETPLACE_ENABLED=true.
+[functions."refresh-card-values"]
+  schedule = "*/5 * * * *"
+
+[functions."recalc-pricing-priorities"]
+  schedule = "17 9 * * *"
+
+[functions."saved-search-alerts"]
+  schedule = "@hourly"
+
+# Locate shows (US Census geocoder / Gazetteer) for "cards within X miles". Free, no key.
+[functions."geocode-shows"]
+  schedule = "@hourly"
+
 # Show status follows the dates: Upcoming → Active (Live) → Past.
 [functions."refresh-show-statuses"]
   schedule = "@hourly"

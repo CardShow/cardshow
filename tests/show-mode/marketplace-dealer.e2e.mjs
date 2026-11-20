@@ -164,6 +164,18 @@ S = await srv();
 check('Take off from Edit Card', row(S, 'c2').listing_status === 'delisted');
 await page.evaluate(() => closeCEM());
 
+// ── Online comp + suggested price (pricing service) ──
+await page.evaluate(() => { const c = inventory.find(x => x._dbId === 'c2'); c.CompValueCents = 21000;
+  c.CompRefreshedAt = new Date(Date.now() - 2 * 86400000).toISOString(); c.Price = 180; c.ListingStatus = 'active'; });
+await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c2'); await wait(200);
+await page.evaluate(() => { document.getElementById('cem_mk_details').open = true; });
+const compTxt = await page.textContent('#cem_mk_comp');
+check('Edit Card shows the online comp, % under and age', /Online comp: \$210/.test(compTxt) && /14% under/.test(compTxt) && /2 days ago/.test(compTxt), compTxt);
+await page.click('.mk-comp-use'); await wait(150);
+check('"Use $210" fills the asking price', await page.inputValue('#cem_price') === '210');
+await page.evaluate(() => { const c = inventory.find(x => x._dbId === 'c2'); c.CompValueCents = null; c.ListingStatus = 'delisted'; });
+await page.evaluate(() => closeCEM());
+
 await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c7'); await wait(200);
 check('blocked card says why and has no List button', /No asking price/.test(await page.textContent('#cem_mk_status')) && !(await page.isVisible('#cem_mk_btn')));
 await page.evaluate(() => closeCEM());

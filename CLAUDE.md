@@ -100,6 +100,15 @@ supabase/migrations/20261126120000_show_sellers_rls.sql → show_sellers securit
 supabase/migrations/20261127120000_sellers_rls.sql → sellers security: own-row writes, handle locked, email unreadable by the app; deploy the app first (see "sellers security")
 supabase/migrations/20261128120000_shows_rls.sql → shows security: public read, organizers create, only the show's organizer or the platform owner edits/deletes, listing locked to the platform owner (see "shows security")
 netlify/functions/expire-listing-reservations.js → Scheduled (every 5 min): expire_listing_reservations(); no-op unless MARKETPLACE_ENABLED=true
+supabase/migrations/20261130120000_marketplace_pricing_search.sql → Marketplace Phase 1: card_values / pricing_cards / pricing_api_usage, search_listings(), get_listing(), list_upcoming_shows(), saved_searches, agent_actions, rate limits — see "Phase 1: pricing, search, MCP"
+netlify/lib/card-values.js        → Card pricing service: Card Hedge match + all-grade values, daily budget (stop at 90%, alert at 80%)
+netlify/functions/refresh-card-values.js → Scheduled (every 5 min): match new listings, refresh due card values (on-demand first); admin POST runs it once
+netlify/functions/recalc-pricing-priorities.js → Scheduled (daily 09:17 UTC): high / normal / dormant refresh priority per card
+netlify/functions/saved-search-alerts.js → Scheduled (hourly): Loops email when a saved search has new listings
+netlify/functions/mcp.js          → Read-only MCP server at /mcp (search_cards, get_listing, list_upcoming_shows, get_show_inventory); off unless MARKETPLACE_MCP_ENABLED=true
+netlify/functions/geocode-shows.js → Scheduled (hourly) + admin POST {show_id}: sets shows.latitude/longitude from US Census data — see "Show geocoding"
+netlify/lib/geocode.js / us-places.js / us-places.json → Census Geocoder call (street addresses) + Census Gazetteer city points (32k places, built by scripts/build_us_places.py)
+supabase/migrations/20261201120000_show_geocoding.sql → shows.street_address/postal_code/geo_*; coordinates locked to the service role / platform owner, cleared on address change
 CLAUDE.md                         → This file
 ```
 
@@ -375,6 +384,9 @@ Required for the CardShow Marketplace (see that section below), after the Show M
 `20261123120000_marketplace_sold_on_insert.sql`. Unsold cards start as `listing_status = 'draft'`, sold cards
 are `sold`; sales keep working unchanged. Then `20261129120000_marketplace_listing_photos.sql` (photo requirement,
 see "Dealer listing controls"). Until it runs, the app still asks for a photo but the server doesn't enforce it.
+Then `20261130120000_marketplace_pricing_search.sql` (Phase 1: pricing, search, MCP data). Nothing in the dealer
+app needs it; until it runs Edit Card just shows no online comp. Then `20261201120000_show_geocoding.sql` (after the
+shows security migration). Until it runs, the Show Directory saves without the street address and ZIP.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -915,7 +927,14 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `FB_PAGE_ID` | CardShow Facebook Page ID (Phase 3 webhooks, not used yet) |
 | `META_APP_ID` / `META_APP_SECRET` | Meta app. The pair is the app token for the oEmbed fallback in `social-source-check.js`; the secret will also verify webhook signatures (Phase 3) |
 | `META_GRAPH_VERSION` | Graph API version, `v23.0` |
-| `MARKETPLACE_ENABLED` | Must be exactly `true` for the marketplace's scheduled jobs to run (Phase 0: `expire-listing-reservations`). Off by default |
+| `MARKETPLACE_ENABLED` | Must be exactly `true` for the marketplace's scheduled jobs to run (`expire-listing-reservations`, `refresh-card-values`, `recalc-pricing-priorities`, `saved-search-alerts`). Off by default |
+| `MARKETPLACE_MCP_ENABLED` | Must be exactly `true` for the read-only MCP server at `/mcp` to answer. Off by default |
+| `MARKETPLACE_SITE_URL` | Base for links in MCP results and alert emails (default `https://getcardshow.com`) |
+| `CARDHEDGE_DAILY_LIMIT` / `CARDHEDGE_PER_MINUTE` | Card Hedge plan limits for the pricing job (defaults 5000 / 60). The job stops at 90% of the daily limit |
+| `MCP_RATE_PER_MINUTE` / `MCP_RATE_PER_DAY` | MCP tool calls allowed per client IP (defaults 60 / 2000) |
+| `LOOPS_API_KEY` | Loops API key (pricing alert + saved-search emails) |
+| `LOOPS_PRICING_ALERT_ID` / `PRICING_ALERT_EMAIL` | Loops transactional email id and recipient for the 80%-of-daily-limit pricing alert |
+| `LOOPS_SAVED_SEARCH_ID` | Loops transactional email id for saved-search alerts (data variables: searchName, count, firstTitle, firstPrice, firstUrl, listText, searchUrl) |
 
 ### Credential Injection (no build step workaround)
 Supabase URL and anon key are **not** hardcoded in tracked files. `netlify.toml` has a `command` that runs `sed` to replace `SUPABASE_URL_PLACEHOLDER` / `SUPABASE_ANON_KEY_PLACEHOLDER` in all three HTML files at deploy time. `SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL,SUPABASE_ANON_KEY"` prevents Netlify's secrets scanner from blocking the build on the injected values (they are intentionally public publishable keys).
@@ -6424,7 +6443,7 @@ across a re-render, sale + sync + Undo, two cards offline, lot → Snap & Sell, 
 - Questions for Tito from the import README (direction of the $20, Captain Pikachu $100, $25 on
   NOV7-09, which Glaceon, Slab 50, the 12 ungrouped trades, missing costs/asks).
 
-## CardShow Marketplace (Phase 0 started, session 2026-11-20)
+## CardShow Marketplace (Phase 0 done, Phase 1 back end built, session 2026-11-20)
 
 Spec: `docs/marketplace-plan-v3.md` (Strategy and Build Plan v3, 2026-11-19). A buyer marketplace on a
 **separate buyer site** sharing this Supabase database; the dealer app stays in `app.html`.
@@ -6598,11 +6617,122 @@ card (not behind the marketplace switch).
   after saving), delisting a listed card that later loses its image, and whether CardSight's catalog search
   accepts every param here (`year=`, `releaseName=`) was taken from comp-lookup.js, not re-checked live.
 
-### Next (Phase 1)
-- Search function in the database (full-text + `pg_trgm`), only active, non-early-access listings.
-- Read-only MCP server and the `agent_actions` log.
-- Daily comp refresh into `comp_value_cents`.
-- Buyer site (framework, Astro or Next.js, still open with InfernoRed), then saved searches.
+### Phase 1: pricing, search, MCP (session 2026-11-20, plan v4)
+Plan v4 ("Strategy and Build Plan v4", 2026-11-20, given in chat; `docs/` still has v3) adds a card pricing
+service to Phase 1. **Built: the database side, the pricing job, saved-search emails, the read-only MCP server, and
+the comp line in Edit Card.** The buyer site isn't started (framework, Astro or Next.js, still to confirm with
+InfernoRed); everything it needs is in database functions so it only has to render.
+
+**Migration `20261130120000_marketplace_pricing_search.sql`** (after the Phase 0 + photo migrations; re-runnable):
+- `inventory`: `pricing_card_id` (Card Hedge card id), `pricing_match_status` (matched / no_match / error / manual),
+  `grade_key` (generated: 'PSA 10', 'BGS 9.5', 'Raw' — same labels Card Hedge returns), `pricing_identity`
+  (generated: player|year|set|number|parallel, so the same card typed the same way shares one match call),
+  `comp_refreshed_at`, `pct_of_comp` (generated: price ÷ comp), `listed_at` (set when a card goes active),
+  `search_text` / `search_doc` (generated, for search; GIN + trigram indexes).
+- Generated columns use `_grade_key()`, `_pricing_identity()` and `_imm_join()` (array_to_string is only STABLE).
+  BEFORE triggers see generated columns as null, so triggers call those functions directly.
+- `inv_pricing_a_guard`: only the service role / database functions set `pricing_card_id`, `pricing_match_status`,
+  `comp_value_cents`, `comp_refreshed_at`, `listed_at` (sellers could set `comp_value_cents` before this).
+  `inv_pricing_b_reset`: editing player/year/set/number/parallel/title clears the match and comp; editing the grade
+  switches the comp to that grade's stored value (or queues a refresh); sets `listed_at`.
+- `pricing_cards` (one row per Card Hedge card: query, priority, schedule, on-demand `requested_at`, claims),
+  `card_values` (the plan's table, per card and grade), `pricing_api_usage` (+ `alert_sent_at`), `saved_searches`
+  (own rows, max 50 per user), `agent_actions` (Phase 6 adds mandates and the FK), `api_rate_limits`,
+  `pricing_identity_claims`. `shows.latitude` / `longitude` (empty until geocoding exists).
+- Pricing tables are service-only (admins can read); **buyers never read `card_values` directly**, only through the
+  public functions (keeps the licensed data from being bulk-copied).
+- Public (anon) functions: `search_listings(p jsonb)` (filters, sorts best / price / deal / newest / distance,
+  paging; every query word must match as a word prefix or, 4+ letters, a close trigram match, so typos work),
+  `get_listing(id)` (active, reserved and sold open; drafts, delisted, early-access, flagged → not_found),
+  `get_dealer_storefront(handle)`, `list_upcoming_shows(p)`, `request_card_value_refresh(listing_id)`.
+  All return only active, non-early-access, unflagged listings (`_listing_is_public()`), shaped by `_listing_json()`:
+  price, comp {value, low, high, sales_30d, few_sales, refreshed_at}, pct_of_comp, deal (≤ `deal_max_pct`, 0.90),
+  grade/cert (graded only), GTCR clear, image (catalog image URL; `has_photo` for seller photos), dealer, next show
+  + table number, URL `/c/{id}-{slug}`. Never stock code, cost, seller id or email.
+- Service-only functions: `pricing_claim_work()`, `pricing_record_match()`, `pricing_apply_values()` (stores every
+  grade returned, copies onto listings; on error keeps the value and backs off), `pricing_bump_usage()`,
+  `pricing_mark_alert()`, `pricing_recalc_priorities()`, `rate_limit_hit()`, `saved_searches_due()`,
+  `saved_search_checked()`. Admin: `pricing_unmatched()`, `pricing_set_match(identity, card_id)`.
+- Settings in `marketplace_settings`: `deal_max_pct`, `few_sales_30d`, `pricing_high_value_cents`, `pricing_high_sales_30d`.
+
+**Pricing job** (`netlify/lib/card-values.js`, `refresh-card-values.js` every 5 min, needs `MARKETPLACE_ENABLED=true`
+and `CARDHEDGE_API_KEY`):
+- One Card Hedge `card-match` call per card: it returns the card id **and every grade's price**, so it both matches
+  and refreshes. No PSA/BGS-specific calls. Only confidence ≥ 0.9 counts as a match (same bar as comp-lookup.js);
+  otherwise `no_match` → admin queue, never a guessed value. A refresh that comes back as a different card keeps
+  the old value (`card_changed`).
+- Order per run: on-demand refreshes, new matches, then scheduled refreshes; paced by `CARDHEDGE_PER_MINUTE`;
+  stops at 90% of `CARDHEDGE_DAILY_LIMIT`; 80% sends one Loops email per day (or logs if not configured).
+  Every call counted in `pricing_api_usage`.
+- Priorities (`recalc-pricing-priorities`, daily): high = at a show starting within 7 days, $250+, or 10+ sales
+  in 30 days → daily; normal → 3 days ($50+) or 7 days; dormant (no active listings) → only when viewed.
+  Open offers, lots and buy orders join the high rule in Phases 2–3.
+- **Deviation from the plan:** the plan's `catalog_card_id` already holds CardSight ids (images), so Card Hedge's id
+  is `pricing_card_id`; scheduling lives on `pricing_cards` (one call refreshes all grades), while `card_values`
+  still carries priority / next_refresh_at per grade as in the plan.
+- **Not verified live:** Card Hedge's response fields beyond `match.card_id / confidence / prices[{grade, price}]`
+  (low/high/sales counts are read if present). Card Hedge's API docs weren't reachable; confirm with the commercial
+  license. PriceCharting is never used here (internal only).
+
+**MCP server** (`netlify/functions/mcp.js`, `/mcp`, needs `MARKETPLACE_MCP_ENABLED=true`, `SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_KEY`): Streamable HTTP, stateless JSON responses (no SSE, no sessions). Tools `search_cards`,
+`get_listing`, `list_upcoming_shows`, `get_show_inventory`, all read-only; data comes from the public functions
+with the anon key. Links absolute with `?ref=agent-{client}` (client = MCP clientInfo name / User-Agent). Rate
+limited per client IP (hashed); every tool call logged in `agent_actions` (`external_agent`). Location filters take
+lat/lng (no geocoding yet) or a state. Test with an MCP client pointed at
+`https://deploy-preview-<PR>--card-show.netlify.app/mcp` once the switch is on for previews.
+
+**Saved searches** (`saved-search-alerts.js`, hourly): searches with alerts on, checked ≥ 1 hour ago → listings with
+`listed_after` = last check → one Loops email (`LOOPS_SAVED_SEARCH_ID`). Not marked checked if email isn't set up
+or fails, so nothing is lost. There's no UI to save a search until the buyer site exists.
+
+**Dealer app:** Edit Card's Marketplace section shows "Online comp: $210 · your price is 14% under (updated 2 days
+ago)" with **Use $210** to fill the asking price (`mkCemComp()`, `mkUseComp()`); `dbRowToCard()` reads
+`CompValueCents` / `CompRefreshedAt`. Only cards that are listed get matched, so drafts show nothing yet.
+
+**Tests:** `tests/show-mode/marketplace-search.test.sh` (49 checks: generated columns, guard, one match per card,
+all-grade store, grade/identity edits, priorities, on-demand, usage + alert, search filters / typo / deals /
+distance / paging, listing page, shows, saved searches, rate limit, admin queue, 10k listings ~0.3s),
+`marketplace-pricing.test.mjs` (33 checks: pricing job with Card Hedge stubbed, MCP protocol + tools + rate limit +
+logging, saved-search emails), `marketplace-dealer.e2e.mjs` (comp line). Existing SQL suites give the same results
+with the migration loaded.
+
+**Next (Phase 1, not built):**
+- Buyer site (search page, listing pages with schema.org Product/Offer, storefronts, saved searches UI); needs the
+  framework decision. Seller photos are in a private bucket: the buyer site's server must sign them.
+- ~~Geocode shows~~: done, see "Show geocoding" below.
+- Admin screen for unmatched cards (`pricing_unmatched` / `pricing_set_match` exist).
+- Run the migration, add `CARDHEDGE_DAILY_LIMIT` from the license, Loops emails, then switch on.
+
+### Show geocoding (session 2026-11-20)
+"Cards at shows within X miles" needs coordinates on shows. Stephen chose the **US Census** (free, no key).
+- **The Census Geocoder only matches street addresses** (checked live: "1600 Exposition Blvd, Sacramento, CA" →
+  38.5954, -121.4343; "Sacramento, CA" and "Cal Expo, Sacramento, CA" → no match). Shows only had venue/city/state,
+  so there are two sources:
+  1. Street address (new, optional) → Census Geocoder (`onelineaddress`, benchmark `Public_AR_Current`) → `census_address`.
+  2. Otherwise, or no match → the city's point from the **Census Gazetteer** places file → `census_place`.
+     `netlify/lib/us-places.json` (32,057 places, ~1MB, bundled with the functions) is built by
+     `scripts/build_us_places.py` from `2024_Gaz_place_national.zip`. Keys: state + normalized name ("city"/"CDP"/
+     "metro government (balance)" stripped, Saint→st, Fort→ft, Mount→mt); a few aliases (Honolulu, NYC, DC).
+  - Census unreachable while a show has a street address → nothing saved, retried next run (never settles for the
+    city center because of an outage). Unknown city → `not_found` (fix the city/state; editing re-queues it).
+- **Migration `20261201120000_show_geocoding.sql`** (after shows security): `shows.street_address`, `postal_code`,
+  `geo_source` (census_address / census_place / manual / not_found / null = not tried), `geo_query`, `geo_error`,
+  `geocoded_at`. Trigger `shows_geo_a_guard`: only the service role, definer functions or the platform owner write
+  coordinates (`manual` = set by the platform owner). `shows_geo_b_reset`: changing street/ZIP/city/state clears them
+  unless the same update sets new ones.
+- **`geocode-shows.js`**: hourly, up to 40 shows that haven't ended and aren't located yet (upcoming first); and POST
+  `{show_id}` with an admin or platform-owner session, which the Show Directory calls right after a save
+  (`_dirGeocode()`).
+- **Show Directory:** Street address and ZIP fields in the edit form with a note on how the show is located; each row
+  shows 📍 status (`_dirGeoText()`). Saving before the migration drops the two fields and retries.
+- **MCP:** `near` takes `{city, state}` as well as `{lat, lng}` (`resolveNear()`); an unknown city is a tool error.
+- **Tests:** `show-geocoding.test.sh` (8 checks: service role writes, organizer can't, address change clears, same-update
+  coordinates kept, platform owner manual, range check), `show-geocoding.test.mjs` (21 checks: place lookups, Census
+  stubbed, batch + POST, MCP near a city; `LIVE=1` calls the real Census Geocoder), `show-directory.e2e.mjs` (fields,
+  save, geocode call).
+- **Not built:** no geocoding for organizer-created shows outside the Directory beyond the hourly job (which covers them
+  once they have a city and state); no way for the platform owner to drag a pin (manual coordinates only via SQL).
 
 ## Inventory security (session 2026-11-20)
 

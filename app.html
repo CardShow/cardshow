@@ -1862,6 +1862,7 @@
   .dir-row-name { font-weight: 700; color: var(--text); font-size: 0.95rem; }
   .dir-row-meta { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; overflow-wrap: anywhere; }
   .dir-row-meta a { color: var(--accent); }
+  .dir-geo-note { font-size: 0.78rem; color: var(--muted); }
   .dir-warn { font-size: 0.76rem; color: #f59e0b; margin-top: 0.3rem; }
   .dir-matches { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.45rem; font-size: 0.78rem; color: var(--muted); }
   .dir-row-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
@@ -2648,6 +2649,11 @@
   .mk-blocked-hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; line-height: 1.4; }
   .mk-actions .btn:disabled { opacity: 0.45; cursor: default; }
   .mk-cem-status { font-size: 0.82rem; color: var(--text); margin-bottom: 0.3rem; }
+  .mk-cem-comp { font-size: 0.8rem; color: var(--text); margin-bottom: 0.45rem; line-height: 1.5; }
+  .mk-cem-comp:empty { display: none; }
+  .mk-comp-muted { color: var(--muted); }
+  .mk-comp-use { margin-left: 0.3rem; padding: 0.15rem 0.55rem; border: 1px solid var(--accent); border-radius: 999px;
+                 background: transparent; color: var(--accent); font-size: 0.75rem; cursor: pointer; }
   .mk-cem-btn { margin-top: 0.5rem; min-height: 44px; width: 100%; }
   @media (max-width: 480px) { .mk-grid { grid-template-columns: 1fr; } }
 
@@ -6889,6 +6895,7 @@
           <summary>🛒 Marketplace <span class="cost-summary-val" id="cem_mk_summary"></span></summary>
           <div class="cost-private-body">
             <div class="mk-cem-status" id="cem_mk_status"></div>
+            <div class="mk-cem-comp" id="cem_mk_comp"></div>
             <label class="mk-check"><input type="checkbox" id="cem_mk_accept" onchange="mkCemToggleOffers()"> Accept offers</label>
             <div class="cost-grid" id="cem_mk_offer_rows">
               <div>
@@ -7934,9 +7941,12 @@
       <label class="req-field"><span>Start date</span><input class="show-input" id="dirStart" type="date"></label>
       <label class="req-field"><span>End date</span><input class="show-input" id="dirEnd" type="date"></label>
       <label class="req-field req-wide"><span>Venue</span><input class="show-input" id="dirVenue" maxlength="120"></label>
+      <label class="req-field req-wide"><span>Street address</span><input class="show-input" id="dirStreet" maxlength="160" placeholder="Optional, e.g. 1600 Exposition Blvd"></label>
       <label class="req-field"><span>City</span><input class="show-input" id="dirCity" maxlength="80"></label>
       <label class="req-field"><span>State</span><input class="show-input" id="dirState" maxlength="2" placeholder="CA" oninput="dirStateChanged(this)"></label>
-      <label class="req-field req-wide"><span>Time zone</span><select class="show-input" id="dirTimezone"></select></label>
+      <label class="req-field"><span>ZIP</span><input class="show-input" id="dirZip" maxlength="10" inputmode="numeric" placeholder="Optional"></label>
+      <label class="req-field"><span>Time zone</span><select class="show-input" id="dirTimezone"></select></label>
+      <div class="req-field req-wide dir-geo-note" id="dirGeoNote"></div>
       <label class="req-field req-wide"><span>Website</span><input class="show-input" id="dirWebsite" maxlength="300" placeholder="Optional"></label>
     </div>
     <label class="sm-selfjoin-toggle" style="margin-top:0.8rem">
@@ -8021,7 +8031,7 @@
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261120d"></script>
-<script src="/js/marketplace-dealer.js?v=20261120d"></script>
+<script src="/js/marketplace-dealer.js?v=20261120e"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -18878,6 +18888,29 @@ function renderShowDirectory() {
     : `<div class="dir-empty">${_dirFilter === 'needs' ? 'Every unlisted show has its details filled in.' : 'No shows here.'}</div>`;
 }
 
+// Where distance search places the show (geocode-shows.js, US Census data).
+function _dirGeoText(r) {
+  if (r.geo_source === 'census_address') return 'Located at its street address.';
+  if (r.geo_source === 'census_place') return r.street_address ? 'Street address not found; using the city center.' : 'Located at the city center.';
+  if (r.geo_source === 'manual') return 'Location set by hand.';
+  if (r.geo_source === 'not_found') return 'Couldn\'t locate this show. Check the city and state.';
+  return r.city && r.state ? 'Not located yet (within the hour).' : 'Needs a city and state to be located.';
+}
+
+// Locate a show right after a save, so distance search works without waiting for the hourly job.
+async function _dirGeocode(showId) {
+  try {
+    const { data } = await db.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token || !showId) return;
+    const res = await fetch('/.netlify/functions/geocode-shows', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ show_id: showId }),
+    });
+    if (res.ok) loadShowDirectory();
+  } catch (e) { console.warn('[geocode] show not located now; the hourly job will retry', e); }
+}
+
 function _dirShowHTML(r) {
   const bucket = _dirBucket(r);
   const miss = _dirMissing(r);
@@ -18893,6 +18926,7 @@ function _dirShowHTML(r) {
         <div class="dir-row-name">${_escHtml(r.name || 'Untitled show')} ${badge}</div>
         <div class="dir-row-meta">${_escHtml(_dirDates(r))}${_dirLocation(r) ? ' · ' + _escHtml(_dirLocation(r)) : ''}</div>
         <div class="dir-row-meta">${_dirSellerCounts[r.id] || 0} sellers · created by ${owner}${r.slug ? ' · ' + _escHtml(r.slug) : ''}</div>
+        ${bucket !== 'merged' && 'geo_source' in r ? `<div class="dir-row-meta">📍 ${_escHtml(_dirGeoText(r))}</div>` : ''}
         ${miss.length && bucket !== 'merged' ? `<div class="dir-warn">Needs: ${miss.join(', ')}</div>` : ''}
         ${dups.length ? `<div class="dir-warn">Possible duplicate of ${dups.map(d => _escHtml(d.name)).join(', ')} (same city, same dates)</div>` : ''}
         ${target ? `<div class="dir-row-meta">Merged into ${_escHtml(target.name)}</div>` : ''}
@@ -18957,6 +18991,9 @@ function openDirEdit(showId, requestId) {
   set('dirName', src.name); set('dirStart', src.start_date); set('dirEnd', src.end_date);
   set('dirVenue', src.venue); set('dirCity', src.city); set('dirState', src.state);
   set('dirWebsite', src.website);
+  set('dirStreet', showId ? r.street_address : ''); set('dirZip', showId ? r.postal_code : '');
+  const gn = document.getElementById('dirGeoNote');
+  gn.textContent = showId ? _dirGeoText(r) + ' A street address lets buyers search by distance more precisely.' : 'Add a street address to place the show exactly for distance search. Without one, the city center is used.';
   const tz = document.getElementById('dirTimezone');
   tz.innerHTML = '<option value="">Time zone…</option>' + DIR_TIMEZONES.map(([v, l]) => `<option value="${v}">${l} (${v})</option>`).join('')
     + (r.timezone && !DIR_TIMEZONES.some(([v]) => v === r.timezone) ? `<option value="${_escHtml(r.timezone)}">${_escHtml(r.timezone)}</option>` : '');
@@ -18988,6 +19025,7 @@ async function saveDirEdit() {
     name: v('dirName'), start_date: v('dirStart') || null, end_date: v('dirEnd') || null,
     venue: v('dirVenue'), city: v('dirCity'), state: v('dirState').toUpperCase(),
     timezone: v('dirTimezone') || null, website: v('dirWebsite') || null,
+    street_address: v('dirStreet') || null, postal_code: v('dirZip') || null,
   };
   if (!f.name) { showToast('Show name is required', '#ef4444'); return; }
   if (f.end_date && f.start_date && f.end_date < f.start_date) { showToast('End date must be on or after the start date', '#ef4444'); return; }
@@ -19012,14 +19050,20 @@ async function saveDirEdit() {
   const btn = document.getElementById('dirSaveBtn');
   btn.disabled = true;
   let id = _dirEditId, error;
-  if (id) {
-    ({ error } = await db.from('shows').update(row).eq('id', id));
-  } else {
-    id = genShowId();
-    ({ error } = await db.from('shows').insert({
-      id, status: 'upcoming', ...row, access_code: _dirGenAccessCode(),
+  const isNew = !id;
+  const writeShow = async (r) => {
+    if (!isNew) return (await db.from('shows').update(r).eq('id', id)).error;
+    return (await db.from('shows').insert({
+      id, status: 'upcoming', ...r, access_code: _dirGenAccessCode(),
       created_by: window._currentAdminUid || null, seller_self_join: true,
-    }));
+    })).error;
+  };
+  if (!id) id = genShowId();
+  error = await writeShow(row);
+  // Before the geocoding migration runs, the address columns don't exist: save without them.
+  if (error && /street_address|postal_code/.test(error.message || '') ) {
+    const { street_address, postal_code, ...rest } = row;
+    error = await writeShow(rest);
   }
   if (!error && listAfter) {
     const r = await db.rpc('set_show_listed', { p_show_id: id, p_listed: true });
@@ -19033,6 +19077,7 @@ async function saveDirEdit() {
   if (error) { showToast('Couldn\'t save: ' + error.message, '#ef4444'); return; }
   showToast(_dirEditRequestId ? `${f.name} is listed and the seller was added` : listAfter ? `${f.name} is listed` : `${f.name} saved`);
   closeDirEdit();
+  _dirGeocode(id);
   await loadShowDirectory();
   loadShowsFromDB().then(() => renderAdminShowsDashboard());
 }
@@ -22858,6 +22903,9 @@ function dbRowToCard(row) {
     MinOfferCents:      row.min_offer_cents      != null ? row.min_offer_cents : null,
     AutoAcceptCents:    row.auto_accept_cents    != null ? row.auto_accept_cents : null,
     SaleModes:          Array.isArray(row.sale_modes) ? row.sale_modes : null,
+    // Online comp from the marketplace pricing service (Card Hedge). Written only by CardShow's server.
+    CompValueCents:     row.comp_value_cents     != null ? row.comp_value_cents : null,
+    CompRefreshedAt:    row.comp_refreshed_at    || null,
     _shows:          new Set(),
   };
   if (row.sold_price     != null) card.SoldPrice     = row.sold_price;
