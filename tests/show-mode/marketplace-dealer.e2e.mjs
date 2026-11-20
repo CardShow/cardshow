@@ -31,11 +31,14 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const CAT = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'];
 let catalogQueries = [];
 let catalogNoMatch = false;
+let catalogMode = '';
 const catTile = (id, i) => ({ id, title: `2023 Topps Chrome Card ${i + 1}`, year: '2023', release: 'Topps Chrome', number: String(i + 1),
   imageUrl: '/.netlify/functions/card-image?id=' + id });
 await ctx.route('**/.netlify/functions/catalog-image-search', async r => {
   catalogQueries.push(JSON.parse(r.request().postData() || '{}'));
-  const body = catalogNoMatch ? { success: true, results: [], others: [catTile(CAT[3], 3)] }
+  const body = catalogMode === 'parallel' ? { success: true, results: [{ ...catTile(CAT[0], 0), parallel: 'Tie-Dye' }], others: [] }
+    : catalogMode === 'noimage' ? { success: true, results: [catTile(CAT[2], 2)], others: [] }
+    : catalogNoMatch ? { success: true, results: [], others: [catTile(CAT[3], 3)] }
     : { success: true, results: CAT.slice(0, 3).map(catTile), others: [catTile(CAT[3], 3)] };
   r.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
 });
@@ -229,6 +232,19 @@ await page.click('#cem_photo_stock'); await wait(1000);
 check('no exact match: says so, no match grid, others closed', await page.isVisible('#cem_photo_nomatch') && !(await page.isVisible('#cem_photo_grid'))
   && /No exact catalog match/.test(await page.textContent('#cem_photo_nomatch')) && await page.isVisible('#cem_photo_others'));
 catalogNoMatch = false;
+// Parallel: base image, labeled with the card's parallel
+catalogMode = 'parallel';
+await page.fill('#cem_parallel', '17/49');
+await page.click('#cem_photo_stock'); await wait(1000);
+check('parallel: tile says base image and names the parallel', /Base image · your parallel: Tie-Dye/.test(await page.textContent('#cem_photo_grid'))
+  && /base version/.test(await page.textContent('#cem_photo_options')));
+check('print run sent with the search', catalogQueries[catalogQueries.length - 1].parallel === '17/49');
+// Exact match whose image is missing: says the catalog has it
+catalogMode = 'noimage';
+await page.fill('#cem_parallel', '');
+await page.click('#cem_photo_stock'); await wait(1000);
+check('exact match with no image: names the card, asks for a photo', /catalog has this card \(2023 Topps Chrome Card 3\) but no image/.test(await page.textContent('#cem_photo_nomatch')));
+catalogMode = '';
 // A grader named in the title makes it a graded card
 await page.fill('#cem_title', '2018 Leaf NSC Shohei Ohtani Rookie TAG'); await wait(150);
 check('grader in the title: treated as graded, says so, no catalog option', /title says TAG/.test(await page.textContent('#cem_photo_status'))

@@ -6542,11 +6542,21 @@ card (not behind the marketplace switch).
   without dashes if nothing came back), name+year+release+manufacturer+`attributeShortName=AU` (autographs only),
   name+year+release+manufacturer, name+year. Release = the set name minus its year and a leading "Panini"
   (`setRelease()`); `inferManufacturer()` / `extractReleaseName()` are copied from comp-lookup.js.
-  **Exact match** (`judge()`), all of: same year; same card number (variants: as typed, no dashes, the letters after
-  the last dash, e.g. RAU-CSK → CSK) or every release word in the catalog card's release; an autograph only matches an
-  autograph (AU attribute, or "auto"/"signature" in its set name) and a non-auto only a non-auto; insert/parallel words
-  from the card ("cubic", "star gazing" — title + parallel minus player, set, year, number and generic words) must
-  appear in the catalog card's set name, and a card with none of those words doesn't match an insert set.
+  **Exact match** (`judge()`), all of: same year; **card number**: when the card and the catalog card both have one it
+  must match (variants: as typed, no dashes, the letters after the last dash, e.g. RAU-CSK → CSK), else every release
+  word must be in the catalog card's release; among cards with the same number, ones in the card's release win (#42 in
+  Select beats #42 in Panini Black); an autograph only matches an autograph (AU attribute, or "auto"/"signature" in its
+  set name) and a non-auto only a non-auto; insert/parallel words from the card ("cubic", "star gazing" — title +
+  parallel minus player, set, year, number and generic words) must appear in the catalog card's set name **or name one
+  of its parallels**, and a card with none of those words doesn't match an insert set. An exact number match skips the
+  insert-word check (the number identifies the insert: STN-13 is Topps Cosmic Chrome Stars in the Night even when the
+  seller typed "Topps Chrome").
+  **Parallels:** CardSight only has images of base cards (`/v1/images/cards/{id}`; parallels have no images). A
+  parallel is matched against the catalog card's parallel list (list rows may carry `parallels`; otherwise up to 2
+  `GET /v1/catalog/cards/{id}` detail calls for the best near-misses), by name ("Cubic") or by print run ("17/49" or
+  Print Run Size → the parallel numbered to 49). The result's `parallel` names it; the tile reads "Base image · your
+  parallel: Tie-Dye" and the note says the catalog shows the base version. `variation` marks image-variation cards.
+  When the only exact match has no image, the note names the card ("The catalog has this card (…) but no image of it").
   Response: `results` (exact, max 8) and `others` (same player and year, not a match, max 6; other years dropped).
   The app shows exact matches in a grid (or "No exact catalog match for this card. Take a photo instead"), and others
   in a closed `<details>` labeled "not an exact match". `debug: true` returns the release, insert words and attempt
@@ -6570,8 +6580,12 @@ card (not behind the marketplace switch).
   (15 checks, incl. "Rookie TAG" / "psa 10" titles and an ordinary "Tag").
 - **Why (2026-11-20):** on real cards the first version showed any card of the player and year as options (Ohtani
   2018 Leaf NSC got Diamond Kings / Archives / Heritage), ranked the base card above the Cubic Autograph insert, and
-  found nothing for 2025 Topps Chrome Black Skattebo RAU-CSK. Whether CardSight has Leaf NSC or 2025 Chrome Black at
-  all is unknown; run the search with `debug: true` on the deploy preview to see what each attempt returned.
+  found nothing for 2025 Topps Chrome Black Skattebo RAU-CSK. Second round (live checks on the preview, same day): a
+  matching release let other numbers through (Burrow STN-13 got base #61; Stroud #42 got #128/#233/#394 and #42 from
+  other releases); "Cubic" on Trish Stratus is a parallel of Revolution WWE Autographs #AG-TSS, not a set; Skattebo's
+  RAU-CSK is found but CardSight has no image for it.
+- **CardSight image terms:** images may be cached only short-term and must not be stored to build a library.
+  `card-image.js` caches 30 days at Netlify's CDN; confirm that's acceptable with CardSight or shorten it.
 - **Not built:** catalog images for lots/sealed, a back photo, deleting a photo, photos in Add Card (add one
   after saving), delisting a listed card that later loses its image, and whether CardSight's catalog search
   accepts every param here (`year=`, `releaseName=`) was taken from comp-lookup.js, not re-checked live.

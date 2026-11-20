@@ -5,22 +5,28 @@
 // photo must show the exact slab (buyers match the cert number).
 //
 // Response: { success, results: [...], others: [...] }, each { id, title, year, release, number,
-//   imageUrl, auto }. results = exact matches only; others = other cards of the same player and year
+//   imageUrl, auto, parallel, variation }. results = exact matches only; others = other cards of the same player and year
 //   that did NOT match (shown separately, labeled as not a match). Max 8 + 6.
 // A catalog card is an exact match when:
 //   - the year matches (when the card has one), and
-//   - the card number matches (also tried without the prefix / dashes) or the release matches, and
+//   - the card number matches (also tried without the prefix / dashes) when both have one, else the release
+//     matches; among same-number cards, ones in the card's release win, and
 //   - an autograph matches an autograph (attribute AU, or "auto"/"signature" in its set name), and
 //   - insert or parallel words from the card ("Cubic", "Star Gazing") appear in its set name; a card with
-//     none of those words doesn't match an insert set.
+//     none of those words doesn't match an insert set. A word can also name one of the catalog card's
+//     parallels ("Cubic"), read from its parallel list (GET /v1/catalog/cards/{id}, at most 2 calls).
+// CardSight only has images of base cards, not parallels. Each result says which parallel of it matched
+// the card (`parallel`, by name or by print run), and `variation` for an image-variation card.
 // CardSight catalog search: GET https://api.cardsight.ai/v1/catalog/cards with name=, year=, number=,
 // releaseName= (partial), manufacturer=, attributeShortName= (AU), take= (see comp-lookup.js). number= is
 // sent on its own, as in comp-lookup.js. Uses CARDSIGHT_API_KEY and its monthly quota (at most 5 calls).
 // extractReleaseName() / inferManufacturer() are copied from comp-lookup.js (no shared module); keep in sync.
 
 const BASE = 'https://api.cardsight.ai/v1/catalog/cards';
+const PRINT_RUN_RE = /\/\s*(\d{1,5})\b/;
 const TIMEOUT_MS = 4000;
 const MAX_CALLS = 5;
+const MAX_DETAIL_CALLS = 2;   // card detail (parallel list), only when needed
 const MAX_RESULTS = 8;
 const MAX_OTHERS = 6;
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -150,13 +156,27 @@ function toCandidate(c) {
   const attrs = attrCodes(c);
   return {
     id: String(id), year, release: release + setPart, number, name, insert,
+    parallels: parallelsOf(c), variation: !!c.variationOf,
     auto: attrs.some(a => /^au$/i.test(a) || AUTO_RE.test(a)) || AUTO_RE.test(insert),
     title: [year, release + setPart, name, number ? '#' + number : ''].filter(Boolean).join(' '),
     imageUrl: '/.netlify/functions/card-image?id=' + encodeURIComponent(String(id)),
   };
 }
 
-// { strong, score } for one catalog card.
+// Parallels on a catalog card: [{ name, numberedTo }] (list rows may include them; the card detail does).
+function parallelsOf(row) {
+  const list = Array.isArray(row && row.parallels) ? row.parallels : null;
+  if (!list) return null;
+  return list.map(p => ({ name: clean(p && p.name), numberedTo: Number(p && p.numberedTo) || null })).filter(p => p.name);
+}
+
+// { strong, score, ... } for one catalog card.
+//   - Card number: when both have one, it must match (a matching set alone never makes #61 a match for
+//     STN-13). With no number on either side, the release must match.
+//   - Insert / parallel words must be in the set name, or name one of the card's parallels ("Cubic").
+//     An exact number match is enough on its own (the number identifies the insert).
+//   - Autograph only matches autograph.
+// CardSight images are of the base version; a matched parallel is reported so the app can say so.
 function judge(c, card) {
   const yearOk = !card.year || !c.year || c.year === card.year;
   const nums = numberVariants(card.cardNumber).map(alnum);
@@ -165,23 +185,39 @@ function judge(c, card) {
   const relWords = words(card.release).filter(w => w.length > 2 && w !== 'the' && w !== 'and');
   const candRel = c.release.toLowerCase();
   const releaseOk = relWords.length > 0 && relWords.every(w => candRel.includes(w));
+  const identOk = nums.length && cn ? numOk : releaseOk;
   const text = (c.release + ' ' + c.insert + ' ' + c.name).toLowerCase();
   const hits = card.insertWords.filter(w => text.includes(w)).length;
-  const insertOk = card.insertWords.length ? hits > 0 : !c.insert || card.isAuto;
+  const pars = c.parallels || [];
+  const parNames = card.insertWords.length
+    ? pars.filter(p => card.insertWords.some(w => p.name.toLowerCase().split(/[^a-z0-9]+/).includes(w))).map(p => p.name)
+    : [];
+  let parallel = parNames[0] || null;
+  if (card.printRun && pars.length) {
+    const byRun = pars.filter(p => p.numberedTo === card.printRun);
+    const both = byRun.find(p => parNames.includes(p.name));
+    if (both) parallel = both.name;
+    else if (!parallel && byRun.length === 1) parallel = byRun[0].name;
+    else if (!parallel && byRun.length > 1) parallel = byRun.slice(0, 3).map(p => p.name).join(' / ');
+  }
+  const insertOk = numOk || (card.insertWords.length ? (hits > 0 || parNames.length > 0) : (!c.insert || card.isAuto));
   const autoOk = card.isAuto ? c.auto : !c.auto;
-  const strong = yearOk && (numOk || releaseOk) && insertOk && autoOk;
-  const score = (numOk ? 10 : 0) + (releaseOk ? 5 : 0) + hits * 2 + (card.isAuto && c.auto ? 2 : 0) + (yearOk ? 1 : 0);
-  return { strong, yearOk, score };
+  const strong = yearOk && identOk && insertOk && autoOk;
+  // Worth fetching the card's parallel list: everything matches except insert words we haven't checked.
+  const needsParallels = yearOk && identOk && autoOk && !insertOk && !c.parallels;
+  const score = (numOk ? 10 : 0) + (releaseOk ? 5 : 0) + hits * 2 + (parNames.length ? 2 : 0) + (card.isAuto && c.auto ? 2 : 0) + (yearOk ? 1 : 0) - (c.variation ? 1 : 0);
+  return { strong, yearOk, numOk, releaseOk, needsParallels, parallel, score };
 }
 
-async function search(params, key) {
+async function search(params, key, path) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(`${BASE}?${params}`, { headers: { 'X-API-Key': key }, signal: controller.signal });
+    const res = await fetch(path ? `${BASE}/${encodeURIComponent(path)}` : `${BASE}?${params}`, { headers: { 'X-API-Key': key }, signal: controller.signal });
     if (res.status === 401 || res.status === 429) return { stop: res.status };
     if (!res.ok) { console.warn('[catalog-image-search] CardSight', res.status, String(params)); return { rows: [] }; }
     const data = await res.json();
+    if (path) return { row: data?.card || data };
     return { rows: data?.cards || data?.data || [] };
   } catch (e) {
     console.warn('[catalog-image-search]', e.name === 'AbortError' ? 'timeout' : e.message);
@@ -205,6 +241,9 @@ exports.handler = async (event) => {
     parallel: clean(body.parallel).slice(0, 120),
     title: clean(body.title).slice(0, 200),
   };
+  // Print run: the form's Print Run Size, else "/49" in the parallel or title ("17/49").
+  card.printRun = parseInt(body.printRun, 10) > 0 ? parseInt(body.printRun, 10)
+    : Number(((card.parallel + ' ' + card.title).match(PRINT_RUN_RE) || [])[1]) || null;
   if (!card.player) return json(200, { success: false, error: 'player_required' });
   const features = Array.isArray(body.features) ? body.features.map(clean) : [];
   // Release to search and match on: the set name without its year or a leading "Panini" (CardSight names
@@ -254,15 +293,40 @@ exports.handler = async (event) => {
     }
   }
 
+  // Same number in several releases (#42 in Select, Black and Immaculate): keep the ones whose release
+  // matches when there are any. Run before and after reading parallel lists.
+  const preferRelease = () => {
+    const strongAll = [...seen.values()].filter(x => x.j.strong);
+    if (strongAll.some(x => x.j.numOk && x.j.releaseOk)) {
+      strongAll.filter(x => x.j.numOk && !x.j.releaseOk).forEach(x => { x.j = { ...x.j, strong: false }; });
+    }
+  };
+  preferRelease();
+
+  // Parallel names ("Cubic") usually aren't in the set name. For the best near-misses, read the card's
+  // parallel list and judge again.
+  let detailCalls = 0;
+  const wantDetail = x => x.j.needsParallels || (x.j.strong && card.printRun && !x.c.parallels);
+  for (const x of [...seen.values()].filter(wantDetail).sort((a, b) => b.j.score - a.j.score)) {
+    if (detailCalls >= MAX_DETAIL_CALLS) break;
+    detailCalls++;
+    const r = await search(null, key, x.c.id);
+    if (r.stop) break;
+    attemptsLog.push({ kind: 'detail', found: !!r.row });
+    if (r.row) { x.c.parallels = parallelsOf(r.row) || []; x.j = judge(x.c, card); }
+  }
+  preferRelease();
+
   const all = [...seen.values()].sort((a, b) => b.j.score - a.j.score);
-  const strip = ({ c }) => ({ id: c.id, title: c.title, year: c.year, release: c.release, number: c.number, imageUrl: c.imageUrl, auto: c.auto });
+  const strip = ({ c, j }) => ({ id: c.id, title: c.title, year: c.year, release: c.release, number: c.number,
+    imageUrl: c.imageUrl, auto: c.auto, parallel: j.parallel || null, variation: c.variation });
   const out = {
     success: true,
     results: all.filter(x => x.j.strong).slice(0, MAX_RESULTS).map(strip),
     others: all.filter(x => !x.j.strong && x.j.yearOk).slice(0, MAX_OTHERS).map(strip),
   };
-  if (body.debug) out.debug = { release: card.release, manufacturer: card.manufacturer, isAuto: card.isAuto, insertWords: card.insertWords, attempts: attemptsLog };
+  if (body.debug) out.debug = { release: card.release, manufacturer: card.manufacturer, isAuto: card.isAuto, insertWords: card.insertWords, printRun: card.printRun, attempts: attemptsLog };
   return json(200, out);
 };
 
-exports._test = { setRelease, extractReleaseName, inferManufacturer, numberVariants, insertWords, toCandidate, judge };
+exports._test = { parallelsOf, setRelease, extractReleaseName, inferManufacturer, numberVariants, insertWords, toCandidate, judge };

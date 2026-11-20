@@ -187,7 +187,8 @@ async function cpFindCatalog() {
   const q = { player: v('cem_player') || card.Player || '', year: v('cem_year') || card.Year || '',
               cardSet: v('cem_set') || card['Set '] || '', cardNumber: v('cem_number') || card.Number || '',
               parallel: v('cem_parallel') || card['Parallel/Variant'] || '',
-              title: v('cem_title') || card['Card Title'] || '', features };
+              title: v('cem_title') || card['Card Title'] || '', features,
+              printRun: v('cem_print_run') || card['Print Run'] || '' };
   if (!q.player) { box.innerHTML = '<div class="cp-note">Add the player or character name first.</div>'; return; }
   if (navigator.onLine === false) { box.innerHTML = '<div class="cp-note">Finding catalog images needs a signal.</div>'; return; }
   const seq = ++_cpSearchSeq;
@@ -200,13 +201,19 @@ async function cpFindCatalog() {
     if (data && data.success) { results = data.results || []; others = data.others || []; }
   } catch (e) { console.warn('[card-photo] catalog search failed', e); }
   if (seq !== _cpSearchSeq || _cpCard !== card) return;
+  const sub = r => r.parallel ? `<em>Base image · your parallel: ${_cpEsc(r.parallel)}</em>`
+    : (r.variation ? '<em>Image variation</em>' : '');
   const tile = r => `
-      <button type="button" class="cp-opt${r.id === card.StockImageId ? ' cp-opt--on' : ''}" onclick="cpChooseStock('${_cpEsc(r.id)}')" title="${_cpEsc(r.title)}">
+      <button type="button" class="cp-opt${r.id === card.StockImageId ? ' cp-opt--on' : ''}" onclick="cpChooseStock('${_cpEsc(r.id)}')" title="${_cpEsc(r.title)}" data-title="${_cpEsc(r.title)}">
         <img src="${_cpEsc(r.imageUrl)}" alt="" loading="lazy" onerror="cpOptionFailed(this)">
-        <span>${_cpEsc(r.title)}</span>
+        <span>${_cpEsc(r.title)}</span>${sub(r)}
       </button>`;
+  // CardSight only has images of the base card. Say so when the card is a parallel or numbered.
+  const isParallel = !!(q.parallel || q.printRun || /\/\s*\d+/.test(q.title));
+  const parNote = isParallel && results.length
+    ? ' Catalog images show the base version, so a color or numbered parallel looks different from your card.' : '';
   const head = results.length
-    ? `<div class="cp-note">Catalog images, not your card. Pick the one that matches exactly: same year, set, number and parallel.</div>
+    ? `<div class="cp-note">Catalog images, not your card. Pick the one that matches exactly: same year, set and number.${parNote}</div>
        <div class="cp-grid cp-grid--match" id="cem_photo_grid">${results.map(tile).join('')}</div>`
     : `<div class="cp-note" id="cem_photo_nomatch">No exact catalog match for this card. Take a photo instead${others.length ? ', or check the card details if one of the cards below is it' : ''}.</div>`;
   const rest = others.length ? `
@@ -225,7 +232,10 @@ function cpOptionFailed(img) {
   if (grid && !grid.children.length) {
     if (grid.id === 'cem_photo_grid') {
       const note = grid.previousElementSibling;
-      if (note) { note.id = 'cem_photo_nomatch'; note.textContent = 'No catalog image for this card. Take a photo instead.'; }
+      const name = opt && opt.dataset.title;
+      if (note) { note.id = 'cem_photo_nomatch'; note.textContent = name
+        ? `The catalog has this card (${name}) but no image of it. Take a photo instead.`
+        : 'No catalog image for this card. Take a photo instead.'; }
       grid.remove();
     } else {
       const det = grid.closest('details');
