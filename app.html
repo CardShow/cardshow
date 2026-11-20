@@ -2589,6 +2589,44 @@
     to   { transform: translateY(0); }
   }
 
+  /* ── Marketplace listing controls (js/marketplace-dealer.js) ── */
+  .mk-chip { display: inline-block; font-family: 'DM Mono', monospace; font-size: 0.58rem; letter-spacing: 0.05em;
+    font-weight: 600; border-radius: 4px; padding: 0.05rem 0.3rem; margin-right: 0.4rem; vertical-align: 1px; white-space: nowrap; }
+  .mk-chip--on { color: var(--black); background: var(--accent); }
+  .mk-chip--hold { color: var(--accent); border: 1px dashed var(--accent); }
+  .mk-modal { max-width: 520px; width: calc(100vw - 2rem); max-height: calc(100dvh - 2rem); overflow-y: auto; text-align: left; }
+  .mk-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .mk-head h3 { margin: 0; font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; letter-spacing: 0.04em; color: var(--text); }
+  .mk-x { background: none; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer; padding: 0.4rem; min-width: 44px; min-height: 44px; }
+  .mk-intro { color: var(--muted); font-size: 0.85rem; margin: 0.4rem 0 0.9rem; line-height: 1.45; }
+  .mk-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.9rem; }
+  .mk-stats div { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem; text-align: center; }
+  .mk-stats b { display: block; font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; color: var(--text); }
+  .mk-stats span { font-size: 0.72rem; color: var(--muted); }
+  .mk-scope { font-size: 0.82rem; color: var(--text); margin-bottom: 0.8rem; }
+  .mk-section { border-top: 1px solid var(--border); padding-top: 0.75rem; margin-top: 0.75rem; }
+  .mk-check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.86rem; color: var(--text); min-height: 44px; cursor: pointer; }
+  .mk-check input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .mk-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .mk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 0.3rem; }
+  .mk-grid label { font-size: 0.75rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.3rem; }
+  .mk-pct { display: flex; align-items: center; gap: 0.35rem; }
+  .mk-pct input { width: 4.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 0.45rem; font-size: 0.9rem; }
+  .mk-pct span { font-size: 0.72rem; color: var(--muted); }
+  .mk-blocked { margin: 0.45rem 0; }
+  .mk-blocked-head { font-size: 0.8rem; color: var(--text); font-weight: 600; }
+  .mk-blocked-cards { display: flex; flex-wrap: wrap; gap: 0.3rem 0.6rem; margin-top: 0.2rem; }
+  .mk-link { background: none; border: none; color: var(--accent); font-size: 0.78rem; padding: 0.2rem 0; cursor: pointer; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
+  .mk-more { font-size: 0.75rem; color: var(--muted); }
+  .mk-result { background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.84rem; color: var(--text); margin-bottom: 0.8rem; }
+  .mk-result--bad { border-color: var(--danger); }
+  .mk-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+  .mk-actions .btn { min-height: 44px; flex: 1 1 auto; }
+  .mk-actions .btn:disabled { opacity: 0.45; cursor: default; }
+  .mk-cem-status { font-size: 0.82rem; color: var(--text); margin-bottom: 0.3rem; }
+  .mk-cem-btn { margin-top: 0.5rem; min-height: 44px; width: 100%; }
+  @media (max-width: 480px) { .mk-grid { grid-template-columns: 1fr; } }
+
   /* ── Cost Tracking & Stock Codes (js/cost-tracking.js) — dealer-only UI ── */
   .stock-chip {
     display: inline-block; font-family: 'DM Mono', monospace; font-size: 0.62rem;
@@ -6012,6 +6050,7 @@
           <button class="btn btn-ghost" id="compCheckBtn" onclick="runCompCheck(getCompCheckCards())" style="display:none;font-size:0.8rem" title="Look up market prices for selected cards (or all available if none selected)">💲 Check Comps</button>
           <button class="btn btn-ghost" id="baselineBtn" onclick="shSetBaseline()" style="display:none;font-size:0.8rem" title="Record your inventory now; the strip below then shows growth since this point">📌 Set baseline</button>
           <button class="btn btn-ghost" id="assignCodesBtn" onclick="assignStockCodesBulk()" style="display:none;font-size:0.8rem" title="Give a stock code (S-1, R-1, B-1, L-1) to every unsold card that doesn't have one">🏷 Assign codes</button>
+          <button class="btn btn-ghost" id="mkBtn" onclick="openMarketplacePanel()" style="display:none;font-size:0.8rem" title="Choose which cards buyers can find on the CardShow marketplace">🛒 Marketplace</button>
           <button class="btn btn-ghost" id="sportValidateBtn" onclick="runSportValidation(getSportValidationCards())" style="display:none;font-size:0.8rem" title="Look up sport via PriceCharting for selected cards with no sport badge (or all such cards if none selected)">🏷️ Validate Sport</button>
           <div style="position:relative;display:none" id="exportInventoryWrap">
             <button class="btn btn-ghost" id="exportInventoryBtn" style="font-size:0.8rem" onclick="toggleExportInventoryMenu(event)" title="Export your inventory for Shopify, TCGplayer, Ludex, Flipwise, and other platforms">⬇ Export Inventory</button>
@@ -6801,6 +6840,31 @@
             </div>
             <div class="cost-hint" id="cem_cost_hint"></div>
             <div class="cost-private-note">Only you can see this. Buyers, organizers and share cards never show it.</div>
+          </div>
+        </details>
+
+        <!-- Marketplace listing (js/marketplace-dealer.js). Hidden unless the marketplace switch is on. -->
+        <details class="cost-private mk-cem" id="cem_mk_details" style="display:none">
+          <summary>🛒 Marketplace <span class="cost-summary-val" id="cem_mk_summary"></span></summary>
+          <div class="cost-private-body">
+            <div class="mk-cem-status" id="cem_mk_status"></div>
+            <label class="mk-check"><input type="checkbox" id="cem_mk_accept" onchange="mkCemToggleOffers()"> Accept offers</label>
+            <div class="cost-grid" id="cem_mk_offer_rows">
+              <div>
+                <div class="section-label" style="margin-bottom:0.3rem">Lowest offer <span class="cost-opt">optional</span></div>
+                <div class="cost-input-wrap"><span>$</span><input id="cem_mk_min" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Any"></div>
+              </div>
+              <div>
+                <div class="section-label" style="margin-bottom:0.3rem">Auto-accept at <span class="cost-opt">optional</span></div>
+                <div class="cost-input-wrap"><span>$</span><input id="cem_mk_auto" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Never"></div>
+              </div>
+            </div>
+            <div class="mk-row">
+              <label class="mk-check"><input type="checkbox" id="cem_mk_ship"> Ship to buyer</label>
+              <label class="mk-check"><input type="checkbox" id="cem_mk_pickup"> Pickup at a show</label>
+            </div>
+            <div class="cost-field-err" id="cem_mk_err"></div>
+            <button type="button" class="btn btn-ghost mk-cem-btn" id="cem_mk_btn" onclick="mkCemListToggle()">List on marketplace</button>
           </div>
         </details>
 
@@ -7915,6 +7979,7 @@
 <script src="/js/show-log-import.js?v=20261120a"></script>
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
+<script src="/js/marketplace-dealer.js?v=20261120a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -11277,7 +11342,7 @@ function renderSellerTable(rows) {
     <tr id="inv-row-${realIdx}">
       <td class="checkbox-cell"><input type="checkbox" class="card-check" data-idx="${realIdx}" ${status !== 'Sold' ? 'checked' : ''} onchange="updateBulkDeleteVisibility()"></td>
       <td>
-        <div class="card-title" style="${status === 'Sold' ? 'opacity:0.4;text-decoration:line-through' : ''}">${stockCodeChipHTML(r)}${r['Card Title'] || '—'}</div>
+        <div class="card-title" style="${status === 'Sold' ? 'opacity:0.4;text-decoration:line-through' : ''}">${stockCodeChipHTML(r)}${typeof mkChipHTML === 'function' ? mkChipHTML(r) : ''}${r['Card Title'] || '—'}</div>
         <div class="card-sub" style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--muted);margin-top:0.15rem">
           ${r.item_type === 'sealed' ? `<span style="background:#1e3a5f;color:#60a5fa;font-size:0.58rem;padding:0.1rem 0.35rem;border-radius:4px;margin-right:0.3rem;font-family:'DM Mono',monospace">📦 SEALED</span>` : r.item_type === 'lot' ? `<span style="background:#2d1b5e;color:#a78bfa;font-size:0.58rem;padding:0.1rem 0.35rem;border-radius:4px;margin-right:0.3rem;font-family:'DM Mono',monospace">📋 LOT</span>` : ''}${[r.Player, r.Year, getSet(r)].filter(Boolean).join(' · ')}
         </div>
@@ -14048,6 +14113,7 @@ function loginAsSeller(handle, opts) {
   if (sportValidateBtn) sportValidateBtn.style.display = '';
   const assignCodesBtn = document.getElementById('assignCodesBtn');
   if (assignCodesBtn) assignCodesBtn.style.display = '';
+  if (typeof mkUpdateEntry === 'function') mkUpdateEntry('inventory');
   const baselineBtn = document.getElementById('baselineBtn');
   if (baselineBtn) baselineBtn.style.display = '';
   const exportInvWrap = document.getElementById('exportInventoryWrap');
@@ -14239,6 +14305,7 @@ function loginAsAdmin(opts = {}) {
   if (sportValidateBtnAdm) sportValidateBtnAdm.style.display = 'none';
   const assignCodesBtnAdm = document.getElementById('assignCodesBtn');
   if (assignCodesBtnAdm) assignCodesBtnAdm.style.display = 'none';
+  { const mkb = document.getElementById('mkBtn'); if (mkb) mkb.style.display = 'none'; }
   const baselineBtnAdm = document.getElementById('baselineBtn'); if (baselineBtnAdm) baselineBtnAdm.style.display = 'none';
   const exportInvWrapAdm = document.getElementById('exportInventoryWrap');
   if (exportInvWrapAdm) { exportInvWrapAdm.style.display = 'none'; closeExportInventoryMenu(); }
@@ -14388,6 +14455,8 @@ async function signOut() {
   if (sportValidateBtnSO) sportValidateBtnSO.style.display = 'none';
   const assignCodesBtnSO = document.getElementById('assignCodesBtn');
   if (assignCodesBtnSO) assignCodesBtnSO.style.display = 'none';
+  { const mkb = document.getElementById('mkBtn'); if (mkb) mkb.style.display = 'none'; }
+  if (typeof closeMarketplacePanel === 'function') closeMarketplacePanel();
   const baselineBtnSO = document.getElementById('baselineBtn'); if (baselineBtnSO) baselineBtnSO.style.display = 'none';
   const exportInvWrapSO = document.getElementById('exportInventoryWrap');
   if (exportInvWrapSO) { exportInvWrapSO.style.display = 'none'; closeExportInventoryMenu(); }
@@ -18533,6 +18602,7 @@ function switchSellerTab(tab) {
     if (compCheckBtn) compCheckBtn.style.display = 'none';
     if (sportValidateBtn) sportValidateBtn.style.display = 'none';
     const acb = document.getElementById('assignCodesBtn'); if (acb) acb.style.display = 'none';
+    if (typeof mkUpdateEntry === 'function') mkUpdateEntry(tab);
     if (exportInvWrap) { exportInvWrap.style.display = 'none'; closeExportInventoryMenu(); }
     if (tab === 'shows') { if (typeof shOpenTab === 'function') shOpenTab(); }
     else {
@@ -18550,6 +18620,7 @@ function switchSellerTab(tab) {
     if (compCheckBtn) compCheckBtn.style.display = '';
     if (sportValidateBtn) sportValidateBtn.style.display = '';
     const acb = document.getElementById('assignCodesBtn'); if (acb) acb.style.display = '';
+    if (typeof mkUpdateEntry === 'function') mkUpdateEntry(tab);
     if (exportInvWrap) exportInvWrap.style.display = '';
     if (typeof shRenderBaseline === 'function') shRenderBaseline();
   }
@@ -21737,6 +21808,7 @@ const FEATURE_GUIDE = [
   { group: 'Price and manage', items: [
     { icon: '💲', name: 'Check comps', desc: 'Look up recent market prices for the cards you select (or all unsold cards) and update your prices.', action: () => _helpPoint('compCheckBtn') },
     { icon: '🏷️', name: 'Validate sport', desc: 'Fills in the sport for cards that show no sport badge.', action: () => _helpPoint('sportValidateBtn') },
+    { icon: '🛒', name: 'Marketplace listings', desc: 'Choose which cards buyers can find on the CardShow marketplace, whether you take offers (and your lowest and auto-accept prices), and ship or pickup. A card sold at your table comes off by itself.', action: () => openMarketplacePanel(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
     { icon: '🏷', name: 'Stock codes', desc: 'Short codes like S-12 (slabs), R-40 (raw), B-3 (sealed), L-1 (lots). New cards get one automatically; "Assign codes" numbers the rest. Search "slab 12" to find a card fast.', action: () => _helpPoint('assignCodesBtn') },
     { icon: '🔒', name: 'Cost & profit', desc: 'Add what you paid under "Cost (private)" when adding or editing a card. Sales then show your profit. Only you can see it.', action: () => openAddCard() },
     { icon: '⬇', name: 'Export inventory', desc: 'Download your unsold cards as CSV or Excel to list them on other platforms.', action: () => _helpPoint('exportInventoryBtn') },
@@ -22310,6 +22382,7 @@ function openCEM(idx) {
   document.getElementById('cem_status').value    = card.Status              || 'Available';
   document.getElementById('cem_location').value  = card.Location            || '';
   costFormFill('cem', card);
+  if (typeof mkCemFill === 'function') mkCemFill(card);
 
   cemToggle();
   document.getElementById('cardEditOverlay').classList.add('open');
@@ -22523,6 +22596,8 @@ function saveCEM() {
   if (!title) { showToast('Card Title is required', 'var(--danger)'); return; }
   const costForm = costFormRead('cem', card);
   if (!costForm) return;   // duplicate stock code — inline error shown
+  const mkForm = typeof mkCemRead === 'function' ? mkCemRead(card) : null;
+  if (mkForm === false) return;   // marketplace offer settings invalid — inline error shown
 
   const grader = _resolveGraderValue('cem_grader', 'cem_grader_other');
   const category = document.getElementById('cem_category').value || null;
@@ -22546,6 +22621,7 @@ function saveCEM() {
   card.Status              = document.getElementById('cem_status').value || 'Available';
   card.Location            = document.getElementById('cem_location').value.trim() || null;
   costFormApply(card, costForm);   // its own owner-only writes; never part of updateCardInDB()
+  if (mkForm) mkCemApply(card, mkForm);   // marketplace offer settings; never part of updateCardInDB()
 
   closeCEM();
   renderSellerTable(getSellerInventory());
@@ -22731,6 +22807,12 @@ function dbRowToCard(row) {
     TrustClearAt:       row.trust_clear_at       || null,
     StockCode:          row.stock_code           || '',     // dealer's code (S-12) — written only by set/assign_stock_code RPCs
     IdentificationStatus: row.identification_status || null, // 'unidentified' = from a show-log import, needs details
+    // Marketplace (js/marketplace-dealer.js). Read-only here: listing_status only changes through publish/delist functions.
+    ListingStatus:      row.listing_status       || 'draft',
+    AcceptsOffers:      row.accepts_offers !== false,
+    MinOfferCents:      row.min_offer_cents      != null ? row.min_offer_cents : null,
+    AutoAcceptCents:    row.auto_accept_cents    != null ? row.auto_accept_cents : null,
+    SaleModes:          Array.isArray(row.sale_modes) ? row.sale_modes : null,
     _shows:          new Set(),
   };
   if (row.sold_price     != null) card.SoldPrice     = row.sold_price;

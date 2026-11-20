@@ -72,6 +72,7 @@ js/show-home.js                   → Seller "Shows" tab: show list with P/L, Sh
 js/show-log-import.js             → Show Home → "Import show log": read a CSV/Excel/pasted log, review, import_show_log() — loaded after js/show-home.js; see "Phase 3" under "Trades + Show Home"
 supabase/migrations/20261120120000_show_log_import.sql → inventory.identification_status, import_show_log(), show_log_imported_keys() (Trades + Show Home Phase 3)
 js/trade-log.js                   → Show Mode "Log a trade or buy" (#/sm/<show>/trade, /buy): cards out, cards in, cash, balance; offline outbox ops trade_save / trade_delete — loaded after js/show-log-import.js; see "Phase 4" under "Trades + Show Home"
+js/marketplace-dealer.js          → Marketplace dealer listing controls: Marketplace panel, Edit Card section, LISTED chips (switch MARKETPLACE_UI_LAUNCHED, off; test with ?marketplace=1) — loaded after js/quick-bar.js; see "Dealer listing controls" under "CardShow Marketplace"
 js/quick-bar.js                   → Show Mode home quick bar: "S12 120", "lot 120", "T S12 for … +20", "B 50 …" in one line — loaded after js/trade-log.js; see "Quick bar" under "Trades + Show Home"
 supabase/migrations/20261121120000_trade_logging.sql → record_trade() (idempotent), update_dealer_trade(), delete_dealer_trade() (Trades + Show Home Phase 4)
 netlify/functions/close-show-snapshots.js → Scheduled (hourly): close_ended_show_snapshots() writes show_end snapshots once a show's last day is over
@@ -6491,12 +6492,37 @@ buyers reserve the same card at once and exactly one wins. API calls run as sess
 PostgREST, so the guard's session check is exercised. Also checked: `trade-logging` (15/15),
 `show-log-import` (38/38) and `sales.test.sql` (same output) still pass with this migration loaded.
 
-### Next (Phase 1, needs decisions first)
-- Buyer site framework (Astro or Next.js) — open with InfernoRed.
-- Inventory writes are own-row only since 2026-11-20 (see "Inventory security"). Reads stay public, so
-  buyer-facing marketplace reads must filter `listing_status = 'active'` and `early_access_until` themselves
-  (or go through a search function). `show_inventory` is still permissive.
-- Dealer UI to publish/delist, search (full-text + `pg_trgm`), listing pages, the read-only MCP server.
+### Dealer listing controls (Phase 1, step 1, session 2026-11-20)
+`js/marketplace-dealer.js` (mk*). **Off** behind `MARKETPLACE_UI_LAUNCHED = false`; test on one browser with
+`?marketplace=1` (`=0` clears; localStorage `marketplaceTest`). No migration (uses the Phase 0 columns and functions).
+- **🛒 Marketplace** toolbar button (seller, My Inventory tab; `mkUpdateEntry()`) opens `#mkOverlay`:
+  - Counts (Listed / On hold / Not listed), and which cards it acts on: checked rows, else every unsold card
+    (same rule as Check Comps).
+  - Offer and delivery settings for the cards being listed: accept offers, lowest offer and auto-accept as a % of
+    each card's asking price (stored as cents per card), ship and/or pickup at a show. Remembered per seller on
+    the device (`mkDefaults:<handle>`).
+  - "Can't list yet" grouped by reason (no asking price, stolen/lost report, needs details, on hold, not saved
+    yet), same order as `publish_listings()`; each card opens Edit Card.
+  - **List N cards** writes the offer settings first (20 at a time), then calls `publish_listings()` (500 per call)
+    and shows what was listed and what the server skipped. **Take N off** calls `delist_listings()`.
+- **Edit Card → 🛒 Marketplace** (`#cem_mk_details`, `mkCemFill/Read/Apply`): status and why it can't be listed,
+  accept offers, lowest offer $, auto-accept $, ship / pickup, and List / Take off. Saved with the card (own
+  write, never in `cardToDbRow()`); invalid settings block Save. Locked while a buyer holds the card.
+- Rules: lowest offer and auto-accept above $0 and at most the asking price; auto-accept ≥ lowest offer; at least
+  one delivery mode. Listing needs a signal (nothing queued offline).
+- **LISTED** / **ON HOLD** chips on table rows (`mkChipHTML()`); `dbRowToCard()` reads `ListingStatus`,
+  `AcceptsOffers`, `MinOfferCents`, `AutoAcceptCents`, `SaleModes` (read only).
+- Feature guide entry "Marketplace listings" (shown only with the switch on).
+- **Tests:** `tests/show-mode/marketplace-dealer.e2e.mjs` (iPhone 13 + Pixel 7). The mock gained
+  `publish_listings` / `delist_listings` with the SQL's checks.
+- **Not built:** a photo requirement for listing, shipping costs (`shipping_options`), wholesale settings,
+  pickup show choice (`pickup_show_id`), and turning the switch on (wait for the buyer site).
+
+### Next (Phase 1)
+- Search function in the database (full-text + `pg_trgm`), only active, non-early-access listings.
+- Read-only MCP server and the `agent_actions` log.
+- Daily comp refresh into `comp_value_cents`.
+- Buyer site (framework, Astro or Next.js, still open with InfernoRed), then saved searches.
 
 ## Inventory security (session 2026-11-20)
 

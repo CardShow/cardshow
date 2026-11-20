@@ -53,8 +53,10 @@ psql -d cs_snap -f snap-sell.test.sql        # fresh db + supabase-stub.sql; see
 ./show-inventory-rls.test.sh                # show_inventory security: who can publish/remove cards, then 3 suites re-run with it (fresh db)
 ./show-sellers-rls.test.sh                  # show_sellers security: organizer-only writes, join/leave via functions, then self-join + directory re-run
 ./shows-rls.test.sh                         # shows security: organizer-only writes, listing locked, then self-join + directory re-run
+node marketplace-dealer.e2e.mjs "iPhone 13"   # marketplace listing controls (panel, Edit Card, chips); also "Pixel 7"
 ./sellers-rls.test.sh                       # sellers security: own-row writes, email hidden, handle locked, then self-join + directory re-run
 ./shows-rls.test.sh                         # shows security: organizer-only writes, listing locked, then self-join + directory re-run
+node marketplace-dealer.e2e.mjs "iPhone 13"   # marketplace listing controls (panel, Edit Card, chips); also "Pixel 7"
 ./marketplace-listings.test.sh              # Marketplace Phase 0: listing guard, publish/reserve/release/mark_sold/expire, race (fresh db)
 ./trade-logging.test.sh                     # record_trade / update / delete: ids, idempotency, refusals, undo order (fresh db)
 TITO_FIXTURE_DIR=/path/to/csvs ./trades.test.sh # Trades + Show Home: Tito's Nov 7 Show Report via dealer_show_report(), then show-home.test.sql (fresh db, runs the migrations itself)
