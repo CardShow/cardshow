@@ -15849,8 +15849,9 @@ async function loadMyShowRequests() {
     </div>`).join('');
 }
 
-// Before the self-join migration runs: plain insert (show_sellers RLS is
-// still permissive). No organizer switch or end-date check on this path.
+// Before the self-join migration runs: plain insert. No organizer switch or
+// end-date check on this path. Refused once show_sellers RLS is on
+// (20261126120000_show_sellers_rls.sql); join_show_as_seller() exists by then.
 async function _joinShowFallback(showId) {
   const { data: seller } = await db.from('sellers').select('id').eq('handle', currentSeller).maybeSingle();
   if (!seller) return { error: 'no_seller' };
@@ -18948,7 +18949,7 @@ async function dirDeleteShow(showId) {
   loadShowDirectory();
 }
 // Before 20261031120000_delete_show.sql: the same checks and deletes from the
-// client (RLS is still permissive).
+// client. The platform owner passes the show_inventory / show_sellers rules.
 async function _dirDeleteShowFallback(showId) {
   const { count, error: cErr } = await db.from('show_floor_transactions').select('id', { count: 'exact', head: true }).eq('show_id', showId);
   if (cErr) return { data: null, error: cErr };
