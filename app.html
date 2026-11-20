@@ -2619,6 +2619,28 @@
   .mk-result--bad { border-color: var(--danger); }
   .mk-actions { flex-wrap: wrap; }
   .mk-actions .btn { min-height: 44px; flex: 1 1 auto; }
+  .cp-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem; }
+  .cp-row { display: flex; gap: 0.75rem; align-items: flex-start; }
+  .cp-thumb { position: relative; flex: 0 0 auto; width: 84px; height: 117px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .cp-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .cp-thumb--stock img { object-fit: contain; }
+  .cp-tag { position: absolute; left: 4px; bottom: 4px; font-family: 'DM Mono', monospace; font-size: 0.55rem; letter-spacing: 0.05em;
+    text-transform: uppercase; background: rgba(0,0,0,0.75); color: var(--text); padding: 1px 5px; border-radius: 4px; }
+  .cp-empty { font-size: 0.7rem; color: var(--muted); text-align: center; padding: 0 0.3rem; }
+  .cp-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+  .cp-status { font-size: 0.8rem; color: var(--text); line-height: 1.4; }
+  .cp-btns { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+  .cp-btn { min-height: 40px; font-size: 0.8rem; }
+  .cp-btn:disabled { opacity: 0.5; }
+  .cp-note { font-size: 0.75rem; color: var(--muted); margin-top: 0.6rem; line-height: 1.4; }
+  .cp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 0.5rem; margin-top: 0.5rem; }
+  .cp-opt { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem; cursor: pointer;
+    display: flex; flex-direction: column; gap: 0.3rem; text-align: left; color: var(--text); min-width: 0; }
+  .cp-opt:hover, .cp-opt--on { border-color: var(--accent); }
+  .cp-opt img { width: 100%; aspect-ratio: 5 / 7; object-fit: contain; background: #0003; border-radius: 4px; }
+  .cp-opt span { font-size: 0.65rem; line-height: 1.3; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .cp-none { margin-top: 0.4rem; }
   .mk-blocked-hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; line-height: 1.4; }
   .mk-actions .btn:disabled { opacity: 0.45; cursor: default; }
   .mk-cem-status { font-size: 0.82rem; color: var(--text); margin-bottom: 0.3rem; }
@@ -6685,6 +6707,23 @@
 
       <div class="modal-body" style="display:flex;flex-direction:column;gap:0.55rem">
 
+        <div class="cp-box" id="cem_photo_box" style="display:none">
+          <div class="cp-row">
+            <div class="cp-thumb" id="cem_photo_thumb"></div>
+            <div class="cp-side">
+              <div class="section-label">Photo</div>
+              <div class="cp-status" id="cem_photo_status"></div>
+              <div class="cp-btns">
+                <button type="button" class="btn btn-ghost cp-btn" id="cem_photo_take" onclick="cpTakePhoto()">📷 Take or choose a photo</button>
+                <button type="button" class="btn btn-ghost cp-btn" id="cem_photo_stock" onclick="cpFindCatalog()">Use a catalog image</button>
+                <button type="button" class="mk-link" id="cem_photo_stock_remove" style="display:none" onclick="cpRemoveStock()">Remove catalog image</button>
+              </div>
+            </div>
+          </div>
+          <div id="cem_photo_options"></div>
+          <input type="file" id="cem_photo_input" accept="image/*" hidden onchange="cpPhotoPicked(this)">
+        </div>
+
         <div>
           <div class="section-label" style="margin-bottom:0.3rem">Card Title *</div>
           <input class="show-input" id="cem_title" placeholder="e.g. 2025-26 Topps Chrome Cooper Flagg RC Auto" style="margin:0">
@@ -6765,7 +6804,7 @@
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.55rem">
           <div>
             <div class="section-label" style="margin-bottom:0.3rem">Grader</div>
-            <select class="show-input" id="cem_grader" style="margin:0" onchange="cemToggle(); _graderOtherToggle(this,'cem_grader_other_wrap')">
+            <select class="show-input" id="cem_grader" style="margin:0" onchange="cemToggle(); _graderOtherToggle(this,'cem_grader_other_wrap'); cpCemFormChanged()">
               <option value="">Raw</option>
               <option value="PSA">PSA</option>
               <option value="BGS">BGS</option>
@@ -6784,13 +6823,13 @@
           </div>
           <div>
             <div class="section-label" style="margin-bottom:0.3rem">Cert #</div>
-            <input class="show-input" id="cem_cert" placeholder="Cert #" style="margin:0">
+            <input class="show-input" id="cem_cert" placeholder="Cert #" style="margin:0" oninput="cpCemFormChanged()">
           </div>
         </div>
 
         <div id="cem_grader_other_wrap" style="display:none">
           <div class="section-label" style="margin-bottom:0.3rem">Grading Company Name</div>
-          <input class="show-input" id="cem_grader_other" placeholder="e.g. Rare Edge, ISA…" style="margin:0">
+          <input class="show-input" id="cem_grader_other" placeholder="e.g. Rare Edge, ISA…" style="margin:0" oninput="cpCemFormChanged()">
         </div>
 
         <div id="cem_cond_row">
@@ -6846,8 +6885,6 @@
           <summary>🛒 Marketplace <span class="cost-summary-val" id="cem_mk_summary"></span></summary>
           <div class="cost-private-body">
             <div class="mk-cem-status" id="cem_mk_status"></div>
-            <button type="button" class="btn btn-ghost mk-cem-btn" id="cem_mk_photo_btn" style="display:none;margin:0.2rem 0 0.5rem" onclick="document.getElementById('cem_mk_photo_input').click()">📷 Add a photo of this card</button>
-            <input type="file" id="cem_mk_photo_input" accept="image/*" hidden onchange="mkPhotoPicked(this)">
             <label class="mk-check"><input type="checkbox" id="cem_mk_accept" onchange="mkCemToggleOffers()"> Accept offers</label>
             <div class="cost-grid" id="cem_mk_offer_rows">
               <div>
@@ -7971,7 +8008,7 @@
 </div>
 
 <!-- Show Mode v2 (flag show_mode_v2). Bump ?v= when it changes: the service worker caches by URL. -->
-<script src="/js/show-mode.js?v=20261121b"></script>
+<script src="/js/show-mode.js?v=20261120p"></script>
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
 <script src="/js/cost-tracking.js?v=20261114a"></script>
 <script src="/js/snap-sell.js?v=20261121a"></script>
@@ -7979,7 +8016,8 @@
 <script src="/js/show-log-import.js?v=20261120a"></script>
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
-<script src="/js/marketplace-dealer.js?v=20261120b"></script>
+<script src="/js/card-photo.js?v=20261120a"></script>
+<script src="/js/marketplace-dealer.js?v=20261120c"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -22382,9 +22420,11 @@ function openCEM(idx) {
   document.getElementById('cem_status').value    = card.Status              || 'Available';
   document.getElementById('cem_location').value  = card.Location            || '';
   costFormFill('cem', card);
+  if (typeof cpCemFill === 'function') cpCemFill(card);
   if (typeof mkCemFill === 'function') mkCemFill(card);
 
   cemToggle();
+  document.querySelectorAll('#cardEditOverlay .card-edit-modal, #cardEditOverlay .modal-body').forEach(el => { el.scrollTop = 0; });
   document.getElementById('cardEditOverlay').classList.add('open');
 }
 
@@ -22802,6 +22842,7 @@ function dbRowToCard(row) {
     Subcategory:         row.subcategory          || '',
     _trustFlag:         row.trust_flag           || null,
     CatalogCardId:      row.catalog_card_id      || null,   // CardSight id → stock image (Show Mode)
+    StockImageId:       row.stock_image_id       || null,   // catalog image the seller picked (js/card-photo.js)
     _primaryCaptureId:  row.primary_capture_id   || null,   // seller photo (card_captures)
     _imageSource:       row.image_source         || null,
     TrustClearAt:       row.trust_clear_at       || null,

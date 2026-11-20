@@ -25,7 +25,7 @@ const MK_REASONS = {
   trust_flag: 'Stolen / lost report',
   needs_details: 'Needs details',
   no_price: 'No asking price',
-  no_photo: 'No photo of the card',
+  no_photo: 'No photo',
   photo_uploading: 'Photo still uploading',
   not_synced: 'Not saved yet',
   not_found: 'Not found',
@@ -37,14 +37,14 @@ let _mkBusy = false;
 // ── Reading a card ──
 function mkListing(card) { return (card && card.ListingStatus) || 'draft'; }
 
-// Every listing needs a seller photo of the actual card (a catalog image never counts).
-// Sealed product is exempt: every box looks the same. Same rule as publish_listings().
-function mkNeedsPhoto(card) { return (card && card.item_type) !== 'sealed'; }
-function mkHasPhoto(card) {
+// Every listing needs an image (same rule as publish_listings(); see js/card-photo.js):
+// sealed product needs none; graded cards need the seller's photo of the slab; raw cards and lots
+// need the seller's photo or a catalog image the seller picked (StockImageId).
+function mkImageOk(card) {
   if (!card) return false;
-  if (card._primaryCaptureId || card._captureId) return true;
-  try { return !!(card._dbId && typeof _smCaptureIndex !== 'undefined' && _smCaptureIndex.get(card._dbId)); }
-  catch (_) { return false; }
+  if (cpItemType(card) === 'sealed') return true;
+  if (cpSellerPhotoId(card)) return true;
+  return !cpIsGraded(card) && !!card.StockImageId;
 }
 
 // Why this card can't be listed right now (same order as publish_listings()), or null.
@@ -55,7 +55,7 @@ function mkCantList(card) {
   if (card._trustFlag === 'flagged' || card._trustFlag === 'disputed') return 'trust_flag';
   if (card.IdentificationStatus === 'unidentified') return 'needs_details';
   if (!(Number(card.Price) > 0)) return 'no_price';
-  if (mkNeedsPhoto(card) && !mkHasPhoto(card)) return 'no_photo';
+  if (!mkImageOk(card)) return 'no_photo';
   if (!card._dbId) return 'not_synced';
   return null;
 }
@@ -146,7 +146,7 @@ function _mkRenderPanel(result) {
       ${Object.entries(blocked).map(([why, cards]) => `
         <div class="mk-blocked">
           <div class="mk-blocked-head">${_mkEsc(MK_REASONS[why] || why)} · ${cards.length}</div>
-          ${why === 'no_photo' ? '<div class="mk-blocked-hint">Buyers need to see the actual card. Open a card to add a photo, or scan your case in Show Mode. Sealed product doesn\'t need one.</div>' : ''}
+          ${why === 'no_photo' ? '<div class="mk-blocked-hint">Open a card to add a photo. Raw cards can use a catalog image instead; graded cards need a photo of the slab. Sealed product doesn\'t need one.</div>' : ''}
           <div class="mk-blocked-cards">${cards.slice(0, 5).map(c =>
             `<button type="button" class="mk-link" onclick="closeMarketplacePanel();openCEM(${inventory.indexOf(c)})">${_mkEsc(c['Card Title'] || c.Player || 'Card')}</button>`).join('')}
             ${cards.length > 5 ? `<span class="mk-more">+${cards.length - 5} more</span>` : ''}</div>
@@ -363,11 +363,10 @@ function mkCemFill(card) {
   sum.textContent = label;
   status.textContent = s === 'active' ? 'Listed on the marketplace.'
     : s === 'reserved' ? 'A buyer is holding this card. It can\'t be changed until the hold ends.'
-    : why === 'no_photo' ? 'Can\'t list yet: add a photo of the card. Buyers need to see the actual card.'
+    : why === 'no_photo' ? (cpIsGraded(card) ? 'Can\'t list yet: add a photo of the slab (Photo, at the top).'
+                                             : 'Can\'t list yet: add a photo or pick a catalog image (Photo, at the top).')
     : why && why !== 'sold' ? `Can't list yet: ${MK_REASONS[why] || why}.` : s === 'sold' ? 'Sold.' : 'Not listed.';
   btn.style.display = (s === 'active' || (!why && s !== 'reserved')) ? '' : 'none';
-  const photoBtn = document.getElementById('cem_mk_photo_btn');
-  if (photoBtn) { photoBtn.style.display = why === 'no_photo' ? '' : 'none'; photoBtn.disabled = false; photoBtn.textContent = '📷 Add a photo of this card'; }
   btn.textContent = s === 'active' ? 'Take off marketplace' : 'List on marketplace';
   btn.dataset.action = s === 'active' ? 'delist' : 'list';
   const accepts = card.AcceptsOffers !== false;
@@ -440,41 +439,5 @@ async function mkCemListToggle() {
   } finally {
     _mkBusy = false; btn.disabled = false;
     mkCemFill(card);
-  }
-}
-
-// ── Add a photo to a card (Edit Card) ──
-// Saved like any Show Mode photo: kept on the phone, uploaded by the outbox, then linked as the
-// card's primary photo (attach_capture). Works offline; listing waits until the upload finishes.
-async function mkPhotoPicked(input) {
-  const file = input.files && input.files[0];
-  input.value = '';
-  const card = inventory.find(c => c._dbId && c._dbId === document.getElementById('cem_mk_details').dataset.dbid);
-  if (!file || !card) return;
-  if (typeof smSaveCapture !== 'function' || typeof smEnqueue !== 'function') {
-    showToast('Photos can\'t be saved on this device', '#ef4444'); return;
-  }
-  const btn = document.getElementById('cem_mk_photo_btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Saving photo…'; }
-  try {
-    let bmp;
-    try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
-    catch (_) { bmp = await createImageBitmap(file); }
-    const crop = await _smCanvasBlob(_smDrawScaled(bmp, 0, 0, bmp.width, bmp.height, 1400));
-    if (bmp.close) bmp.close();
-    const cap = await smSaveCapture({ crop, original: null, entryPoint: 'case_scan' });
-    await smUpdateCapture(cap.id, { attachedTo: card._dbId });
-    smThumbUrl(cap.id, crop);
-    _smCaptureIndex.set(card._dbId, cap.id);
-    card._captureId = cap.id;
-    await smEnqueue({ type: 'attach_capture', captureId: cap.id, inventoryId: card._dbId });
-    showToast('Photo added');
-  } catch (e) {
-    console.warn('[marketplace] photo not saved', e);
-    showToast('Couldn\'t save the photo — try again', '#ef4444');
-  } finally {
-    mkCemFill(card);
-    const box = document.getElementById('cem_mk_details'); if (box) box.open = true;
-    _mkAfterChange();
   }
 }

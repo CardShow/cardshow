@@ -27,6 +27,12 @@ insert into inventory (id, seller_id, card_title, price, status, item_type, prim
   ('a0000000-0000-0000-0000-000000000005', 'aaaaaaaa-0000-0000-0000-000000000001', 'sealed box', 100, 'Available', 'sealed', null),
   ('a0000000-0000-0000-0000-000000000006', 'aaaaaaaa-0000-0000-0000-000000000001', 'lot', 100, 'Available', 'lot', null),
   ('a0000000-0000-0000-0000-000000000007', 'aaaaaaaa-0000-0000-0000-000000000001', 'no photo, no price', 0, 'Available', 'card', null);
+insert into inventory (id, seller_id, card_title, price, status, item_type, grader, grade, cert_number, stock_image_id, primary_capture_id) values
+  ('a0000000-0000-0000-0000-000000000011', 'aaaaaaaa-0000-0000-0000-000000000001', 'raw + catalog image', 50, 'Available', 'card', null, null, null, 'd0000000-0000-0000-0000-000000000001', null),
+  ('a0000000-0000-0000-0000-000000000012', 'aaaaaaaa-0000-0000-0000-000000000001', 'slab + catalog image only', 500, 'Available', 'card', 'PSA', 10, '12345', 'd0000000-0000-0000-0000-000000000002', null),
+  ('a0000000-0000-0000-0000-000000000013', 'aaaaaaaa-0000-0000-0000-000000000001', 'cert, no grader + catalog', 500, 'Available', 'card', '', null, '999', 'd0000000-0000-0000-0000-000000000003', null),
+  ('a0000000-0000-0000-0000-000000000014', 'aaaaaaaa-0000-0000-0000-000000000001', 'raw (grader Raw) + catalog', 20, 'Available', 'card', 'Raw', null, null, 'd0000000-0000-0000-0000-000000000004', null),
+  ('a0000000-0000-0000-0000-000000000015', 'aaaaaaaa-0000-0000-0000-000000000001', 'slab + photo uploaded', 300, 'Available', 'card', 'BGS', 9.5, '777', null, 'c0000000-0000-0000-0000-000000000001');
 \set ON_ERROR_STOP 0
 
 set session authorization authenticator;
@@ -35,7 +41,8 @@ set request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
 create temp table p as select public.publish_listings(array[
   'a0000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000003',
   'a0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005','a0000000-0000-0000-0000-000000000006',
-  'a0000000-0000-0000-0000-000000000007']::uuid[]) j;
+  'a0000000-0000-0000-0000-000000000007','a0000000-0000-0000-0000-000000000011','a0000000-0000-0000-0000-000000000012',
+  'a0000000-0000-0000-0000-000000000013','a0000000-0000-0000-0000-000000000014','a0000000-0000-0000-0000-000000000015']::uuid[]) j;
 create temp view sk as select e->>'id' id, e->>'reason' reason from p, jsonb_array_elements(p.j->'skipped') e;
 
 select case when (select j->'published' from p) @> '["a0000000-0000-0000-0000-000000000001"]'
@@ -56,6 +63,16 @@ select case when (select reason from sk where id = 'a0000000-0000-0000-0000-0000
   then 'PASS 7 price is checked before the photo' else 'FAIL 7' end;
 select case when not has_function_privilege('authenticated', 'public._listing_photo_state(text)', 'execute')
   then 'PASS 8 photo helper not callable from the app' else 'FAIL 8' end;
+
+select case when (select j->'published' from p) @> '["a0000000-0000-0000-0000-000000000011","a0000000-0000-0000-0000-000000000014"]'
+  then 'PASS 10 raw card lists with a catalog image the seller picked' else 'FAIL 10' end;
+select case when (select reason from sk where id = 'a0000000-0000-0000-0000-000000000012') = 'no_photo'
+  and (select reason from sk where id = 'a0000000-0000-0000-0000-000000000013') = 'no_photo'
+  then 'PASS 11 graded card (grader or cert #) needs a photo of the slab; catalog image does not count' else 'FAIL 11' end;
+select case when (select j->'published' from p) @> '["a0000000-0000-0000-0000-000000000015"]'
+  then 'PASS 12 graded card with its own photo lists' else 'FAIL 12' end;
+select case when not has_function_privilege('authenticated', 'public._listing_image_state(jsonb)', 'execute')
+  then 'PASS 13 image helper not callable from the app' else 'FAIL 13' end;
 
 -- 9. Once the photo finishes uploading, the card lists.
 reset role; reset session authorization;

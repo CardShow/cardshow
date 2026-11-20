@@ -1,15 +1,24 @@
--- Marketplace: every listing needs a photo of the actual card. Re-runnable.
+-- Marketplace: every listing needs an image. Re-runnable.
 -- Run after 20261122120000_marketplace_listings.sql (and the Show Mode sales migration, which created
--- card_captures and inventory.primary_capture_id). See CLAUDE.md "Dealer listing controls".
+-- card_captures and inventory.primary_capture_id). See CLAUDE.md "Card photos".
 --
--- publish_listings() now also skips:
---   no_photo        the card has no seller photo (inventory.primary_capture_id empty, or that photo deleted)
---   photo_uploading the photo exists but hasn't finished uploading from the phone yet
--- Sealed product (item_type = 'sealed') is exempt: every box looks the same, so a catalog image is enough.
--- Lots and single cards always need a photo. A catalog (CardSight) image never counts as the photo.
+-- What counts:
+--   * Graded cards (a grader other than Raw, or a cert #): only the seller's photo of the exact slab,
+--     because buyers match the cert number. A catalog image never counts.
+--   * Raw cards and lots: the seller's photo, or a catalog image the seller picked as the
+--     representative image (inventory.stock_image_id, set from Edit Card → "Use a catalog image").
+--     Lots are never offered catalog images in the app, so in practice they need a photo.
+--   * Sealed product (item_type = 'sealed'): no image needed.
+-- publish_listings() skips:
+--   no_photo        nothing that counts (no photo, photo deleted, or a graded card with only a catalog image)
+--   photo_uploading the only qualifying image is a seller photo that hasn't finished uploading yet
 -- Cards already listed stay listed; the check runs when a card is listed.
 
 begin;
+
+-- The catalog (CardSight) card id the seller picked as this card's representative image. Only set by
+-- the seller's own choice, unlike catalog_card_id, which identification and comp checks also fill in.
+alter table public.inventory add column if not exists stock_image_id text;
 
 create or replace function public._listing_photo_state(p_capture_id text) returns text
 language plpgsql stable security definer set search_path = public as $$
@@ -24,6 +33,22 @@ begin
   return null;
 end $$;
 revoke all on function public._listing_photo_state(text) from public, anon, authenticated;
+
+-- null when the card has an image that counts for listing, else 'no_photo' / 'photo_uploading'.
+create or replace function public._listing_image_state(p_card jsonb) returns text
+language plpgsql stable security definer set search_path = public as $$
+declare v_photo text; v_graded boolean;
+begin
+  if coalesce(p_card->>'item_type', 'card') = 'sealed' then return null; end if;
+  v_photo := public._listing_photo_state(p_card->>'primary_capture_id');
+  if v_photo is null then return null; end if;
+  v_graded := (nullif(trim(coalesce(p_card->>'grader', '')), '') is not null
+               and lower(trim(p_card->>'grader')) <> 'raw')
+              or nullif(trim(coalesce(p_card->>'cert_number', '')), '') is not null;
+  if not v_graded and nullif(trim(coalesce(p_card->>'stock_image_id', '')), '') is not null then return null; end if;
+  return v_photo;
+end $$;
+revoke all on function public._listing_image_state(jsonb) from public, anon, authenticated;
 
 create or replace function public.publish_listings(p_ids uuid[])
 returns jsonb language plpgsql security definer set search_path = public as $$
@@ -43,8 +68,7 @@ begin
       when r.j->>'trust_flag' in ('flagged','disputed') then 'trust_flag'
       when r.j->>'identification_status' = 'unidentified' then 'needs_details'
       when coalesce(r.price, 0) <= 0 then 'no_price'
-      when coalesce(r.j->>'item_type', 'card') = 'sealed' then null
-      else public._listing_photo_state(r.j->>'primary_capture_id') end;
+      else public._listing_image_state(r.j) end;
     if v_why is not null then
       v_skip := v_skip || jsonb_build_object('id', r.id, 'reason', v_why);
     else
@@ -66,5 +90,5 @@ grant execute on function public.publish_listings(uuid[]) to authenticated;
 
 commit;
 
--- Check (run after): a card with no photo is skipped with reason no_photo.
+-- Check (run after): a card with no image is skipped with reason no_photo.
 --   select public.publish_listings(array['<a card id with no photo>'::uuid]);   -- as that seller

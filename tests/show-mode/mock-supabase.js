@@ -249,7 +249,11 @@
             : !(Number(r.price) > 0) ? 'no_price'
             : (r.item_type || 'card') === 'sealed' ? null
             : (() => { const c = r.primary_capture_id && S.card_captures.find(x => x.id === r.primary_capture_id);
-                       return !c || c.deleted_at || !c.crop_key ? 'no_photo' : !c.uploaded_at ? 'photo_uploading' : null; })();
+                       const photo = !c || c.deleted_at || !c.crop_key ? 'no_photo' : !c.uploaded_at ? 'photo_uploading' : null;
+                       if (!photo) return null;
+                       const g = String(r.grader || '').trim();
+                       const graded = (g && g.toLowerCase() !== 'raw') || String(r.cert_number || '').trim();
+                       return !graded && r.stock_image_id ? null : photo; })();
           if (why) skipped.push({ id, reason: why }); else { r.listing_status = 'active'; ok.push(id); }
         } else {
           if (ls === 'reserved' || ls === 'sold') skipped.push({ id, reason: ls });

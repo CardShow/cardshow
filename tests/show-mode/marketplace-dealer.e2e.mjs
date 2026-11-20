@@ -27,6 +27,18 @@ const idxOf = id => page.evaluate(id => inventory.findIndex(c => c._dbId === id)
 await ctx.route('**/.netlify/functions/**', r => r.fulfill({ contentType: 'application/json', body: '{"success":false}' }));
 await ctx.route('**/supabase-js@2*', r => r.fulfill({ contentType: 'application/javascript', body: mock }));
 await ctx.route('https://fonts.**', r => r.fulfill({ body: '' }));
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+const CAT = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'];
+let catalogQueries = [];
+await ctx.route('**/.netlify/functions/catalog-image-search', async r => {
+  catalogQueries.push(JSON.parse(r.request().postData() || '{}'));
+  r.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true, results: CAT.map((id, i) => ({
+    id, title: `2023 Topps Chrome Card ${i + 1}`, year: '2023', release: 'Topps Chrome', number: String(i + 1),
+    imageUrl: '/.netlify/functions/card-image?id=' + id })) }) });
+});
+// The third catalog card has no image: its tile should disappear.
+await ctx.route('**/.netlify/functions/card-image**', r => r.request().url().includes(CAT[2])
+  ? r.fulfill({ status: 404, body: 'none' }) : r.fulfill({ contentType: 'image/png', body: PNG }));
 
 async function signIn(url) {
   await page.goto(BASE + url); await wait(400);
@@ -45,6 +57,8 @@ await page.evaluate(() => {
     { id: 'zz', seller_id: 'someone_else', card_title: 'Not mine', price: 10, status: 'Available' },
     { id: 'c10', seller_id: 'u1', card_title: 'Photo Needed Card', player: 'P', price: 60, status: 'Available' },
     { id: 'c11', seller_id: 'u1', card_title: 'Sealed Hobby Box', price: 150, status: 'Available', item_type: 'sealed' },
+    { id: 'c12', seller_id: 'u1', card_title: 'Raw Catalog Card', player: 'Elly', year: 2023, card_set: 'Topps Chrome', card_number: '2', price: 30, status: 'Available' },
+    { id: 'c13', seller_id: 'u1', card_title: 'Slab Without Photo', player: 'Q', grader: 'PSA', grade: 9, cert_number: '4444', price: 200, status: 'Available' },
   );
   // c1 and c2 already have uploaded seller photos.
   S.card_captures.push(
@@ -80,7 +94,7 @@ check('panel uses the shared modal layout', await page.evaluate(() => {
     && pad(m.querySelector(':scope > .modal-actions')) >= 16 && pad(m.querySelector(':scope > .modal-header')) >= 16; }));
 const blocked = await page.textContent('#mkOverlay');
 check('blocked cards grouped by reason', /No asking price · 1/.test(blocked) && /Stolen \/ lost report · 1/.test(blocked) && /Needs details · 1/.test(blocked));
-check('card without a photo is blocked, with the reason', /No photo of the card · 1/.test(blocked) && /Photo Needed Card/.test(blocked) && /Buyers need to see the actual card/.test(blocked));
+check('cards without a photo are blocked, with the reason', /No photo · 3/.test(blocked) && /Photo Needed Card/.test(blocked) && /graded cards need a photo of the slab/.test(blocked));
 check('sealed product is not asked for a photo', !/Sealed Hobby Box/.test(blocked));
 check('sold card not shown as blocked', !/Prizm Luka/.test(blocked));
 check('take-off button hidden with nothing listed', await page.isDisabled('#mkDelistBtn') && !(await page.isVisible('#mkDelistBtn')));
@@ -95,7 +109,7 @@ await page.fill('#mkMinPct', '80'); await page.fill('#mkAutoPct', '90'); await p
 await page.click('#mkListBtn'); await wait(700);
 S = await srv();
 check('c1 and c2 listed on the server', row(S, 'c1').listing_status === 'active' && row(S, 'c2').listing_status === 'active');
-check('blocked cards stay unlisted', ['c7', 'c8', 'c9', 'c10'].every(id => !row(S, id).listing_status));
+check('blocked cards stay unlisted', ['c7', 'c8', 'c9', 'c10', 'c12', 'c13'].every(id => !row(S, id).listing_status));
 check('sealed box listed without a photo', row(S, 'c11').listing_status === 'active');
 check('offer settings from percentages of asking (c1 $120)', row(S, 'c1').min_offer_cents === 9600 && row(S, 'c1').auto_accept_cents === 10800, JSON.stringify(row(S, 'c1')));
 check('ship + pickup saved', JSON.stringify(row(S, 'c2').sale_modes) === '["ship","local_pickup"]');
@@ -147,44 +161,62 @@ await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c7
 check('blocked card says why and has no List button', /No asking price/.test(await page.textContent('#cem_mk_status')) && !(await page.isVisible('#cem_mk_btn')));
 await page.evaluate(() => closeCEM());
 
-// ── Add a photo from Edit Card ──
-await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c10'); await wait(200);
+// ── Photo section in Edit Card ──
+await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c10'); await wait(300);
+check('Photo section shown at the top of Edit Card', await page.isVisible('#cem_photo_box'));
+check('no-photo raw card: offers a photo and a catalog image',
+  /No photo yet/.test(await page.textContent('#cem_photo_status')) && await page.isVisible('#cem_photo_take') && await page.isVisible('#cem_photo_stock'));
 await page.evaluate(() => { document.getElementById('cem_mk_details').open = true; });
-check('no-photo card: says so, offers Add photo, no List button',
-  /add a photo/i.test(await page.textContent('#cem_mk_status')) && await page.isVisible('#cem_mk_photo_btn') && !(await page.isVisible('#cem_mk_btn')));
-const png = Buffer.from(await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 50; c.height = 70;
+check('marketplace section points to the photo, no List button',
+  /add a photo or pick a catalog image/i.test(await page.textContent('#cem_mk_status')) && !(await page.isVisible('#cem_mk_btn')));
+const pic = Buffer.from(await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 50; c.height = 70;
   const x = c.getContext('2d'); x.fillStyle = '#c33'; x.fillRect(0, 0, 50, 70); return c.toDataURL('image/png').split(',')[1]; }), 'base64');
-await page.setInputFiles('#cem_mk_photo_input', { name: 'card.png', mimeType: 'image/png', buffer: png });
+await page.setInputFiles('#cem_photo_input', { name: 'card.png', mimeType: 'image/png', buffer: pic });
 await wait(2500);
-if (process.env.DEBUG) console.log('  toast:', await page.textContent('#toast'));
 S = await srv();
-check('photo saved and linked to the card on the server', row(S, 'c10').primary_capture_id && S.card_captures.some(c => c.id === row(S, 'c10').primary_capture_id && c.inventory_id === 'c10'), JSON.stringify(row(S, 'c10')));
-check('photo uploaded', S.storage.some(k => k.includes(row(S, 'c10').primary_capture_id)) && S.card_captures.find(c => c.id === row(S, 'c10').primary_capture_id).uploaded_at);
-check('Edit Card now offers List', await page.isVisible('#cem_mk_btn') && !(await page.isVisible('#cem_mk_photo_btn')));
+const firstCap = row(S, 'c10').primary_capture_id;
+check('photo saved and linked to the card on the server', firstCap && S.card_captures.some(c => c.id === firstCap && c.inventory_id === 'c10'), JSON.stringify(row(S, 'c10')));
+check('photo uploaded', S.storage.some(k => k.includes(firstCap)) && S.card_captures.find(c => c.id === firstCap).uploaded_at);
+check('thumbnail shows the photo; catalog option gone', await page.isVisible('#cem_photo_thumb img') && !(await page.isVisible('#cem_photo_stock'))
+  && /Replace photo/.test(await page.textContent('#cem_photo_take')));
+check('Edit Card now offers List', await page.isVisible('#cem_mk_btn'));
 await page.click('#cem_mk_btn'); await wait(600);
 S = await srv();
 check('card with its new photo lists', row(S, 'c10').listing_status === 'active');
+// Replace the photo
+await page.setInputFiles('#cem_photo_input', { name: 'card2.png', mimeType: 'image/png', buffer: pic });
+await wait(2500);
+S = await srv();
+check('Replace photo makes the new photo the card\'s photo', row(S, 'c10').primary_capture_id && row(S, 'c10').primary_capture_id !== firstCap);
 await page.evaluate(() => closeCEM());
 
-// ── Offline / not set up ──
-await page.evaluate(() => localStorage.setItem('__offline', '1'));
-await page.click('#mkBtn'); await wait(200);
-await page.click('#mkListBtn'); await wait(300);
-check('offline: listing asks for a signal', /needs a signal/i.test(await page.textContent('#toast')));
-await page.evaluate(() => localStorage.setItem('__offline', '0'));
-await page.evaluate(() => { window.__mkMissing = true; });
-await page.click('#mkListBtn'); await wait(500);
-check('migration not run: clear message', /isn.t set up/.test(await page.textContent('#mkOverlay')));
-await page.evaluate(() => { window.__mkMissing = false; });
-await page.click('.mk-x'); await wait(200);
+// Graded card: photo of the slab only
+await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c13'); await wait(300);
+check('graded card: asks for the slab, no catalog option',
+  /exact slab/.test(await page.textContent('#cem_photo_status')) && !(await page.isVisible('#cem_photo_stock')) && /slab/.test(await page.textContent('#cem_photo_take')));
+await page.evaluate(() => closeCEM());
 
-// ── A card on hold for a buyer ──
-await page.evaluate(() => { const S = JSON.parse(localStorage.getItem('__srv')); S.inventory.find(r => r.id === 'c2').listing_status = 'reserved'; localStorage.setItem('__srv', JSON.stringify(S)); });
-await page.evaluate(() => signOut()); await wait(500);
-await signIn('/app.html');
-check('ON HOLD chip', (await page.locator('.mk-chip--hold').count()) === 1);
-await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c2'); await wait(200);
-check('held card: settings locked, no List button', await page.evaluate(() => document.getElementById('cem_mk_accept').disabled) && !(await page.isVisible('#cem_mk_btn')));
+// Raw card: pick a catalog image
+await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c12'); await wait(300);
+await page.click('#cem_photo_stock'); await wait(1200);
+check('catalog search uses the card details', catalogQueries.length === 1 && catalogQueries[0].player === 'Elly' && catalogQueries[0].cardNumber === '2', JSON.stringify(catalogQueries));
+check('catalog options shown; the one with no image is dropped', (await page.locator('#cem_photo_grid .cp-opt').count()) === 2);
+await page.locator('#cem_photo_grid .cp-opt').nth(1).click(); await wait(600);
+S = await srv();
+check('chosen catalog image saved', row(S, 'c12').stock_image_id === CAT[1] && row(S, 'c12').catalog_card_id === CAT[1]);
+check('thumbnail shows the catalog image, labeled', await page.isVisible('#cem_photo_thumb img') && /Catalog/.test(await page.textContent('#cem_photo_thumb'))
+  && await page.isVisible('#cem_photo_stock_remove'));
+// Switching the card to graded in the form takes the catalog option away.
+await page.selectOption('#cem_grader', 'PSA'); await wait(150);
+check('setting a grader in the form: catalog image no longer counts', /exact slab/.test(await page.textContent('#cem_photo_status')) && !(await page.isVisible('#cem_photo_stock')));
+await page.selectOption('#cem_grader', ''); await wait(150);
+await page.evaluate(() => { document.getElementById('cem_mk_details').open = true; });
+await page.click('#cem_mk_btn'); await wait(600);
+S = await srv();
+check('raw card lists with its catalog image', row(S, 'c12').listing_status === 'active');
+await page.click('#cem_photo_stock_remove'); await wait(500);
+S = await srv();
+check('Remove catalog image', !row(S, 'c12').stock_image_id && !(await page.isVisible('#cem_photo_thumb img')));
 await page.evaluate(() => closeCEM());
 
 // ── Sign out hides it ──

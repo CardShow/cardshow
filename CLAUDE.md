@@ -91,7 +91,9 @@ qrcode.min.js                     → Self-hosted qrcodejs 1.0.0 (all QR codes);
 docs/marketplace-plan-v3.md       → CardShow Marketplace strategy + build plan v3 (the spec); progress and deviations are in "CardShow Marketplace" below
 supabase/migrations/20261122120000_marketplace_listings.sql → Marketplace Phase 0: listing columns on inventory, listing_reservations, listing_events, publish/delist/reserve/release/mark_sold/expire functions + guard triggers
 supabase/migrations/20261123120000_marketplace_sold_on_insert.sql → Follow-up: cards created already sold are marked sold; backfills Sold cards still draft
-supabase/migrations/20261129120000_marketplace_listing_photos.sql → publish_listings() requires a seller photo (sealed product exempt): skips no_photo / photo_uploading
+supabase/migrations/20261129120000_marketplace_listing_photos.sql → inventory.stock_image_id; publish_listings() requires an image (graded: slab photo; raw: photo or picked catalog image; sealed exempt)
+js/card-photo.js                  → Edit Card "Photo" section: take/replace a photo, or (raw cards) pick a CardSight catalog image — loaded after js/quick-bar.js; see "Card photos"
+netlify/functions/catalog-image-search.js → Serverless: POST {player, year, cardSet, cardNumber} → up to 8 CardSight catalog cards (id, title, imageUrl) for "Use a catalog image"
 supabase/migrations/20261124120000_inventory_rls.sql → Inventory security: public read, sellers write only their own cards, GTCR trust fields locked (see "Inventory security")
 supabase/migrations/20261125120000_show_inventory_rls.sql → show_inventory security: sellers publish only their own cards to shows they're in; organizers publish/remove in their own shows (see "show_inventory security")
 supabase/migrations/20261126120000_show_sellers_rls.sql → show_sellers security: public read, only the show's organizer adds/edits/removes sellers; sellers join/leave through the join/leave functions (see "show_sellers security")
@@ -6522,21 +6524,38 @@ PostgREST, so the guard's session check is exercised. Also checked: `trade-loggi
 - **Tests:** `tests/show-mode/marketplace-dealer.e2e.mjs` (iPhone 13 + Pixel 7; layout padding, photo rule,
   sealed exemption, Add photo → upload → list). The mock gained `publish_listings` / `delist_listings` with the
   SQL's checks, including the photo rule. `marketplace-photos.test.sh` (Postgres, 9 checks).
-- **Photo requirement (decided 2026-11-20, from a competitor review):** every listing needs a seller photo of the
-  actual card; a CardSight catalog image never counts. **Sealed product (`item_type = 'sealed'`) is exempt**; lots
-  and single cards are not.
-  - Server: `publish_listings()` skips `no_photo` (no `primary_capture_id`, or that capture deleted / without a
-    crop) and `photo_uploading` (capture not `uploaded_at` yet), checked after `no_price`. Helper
-    `_listing_photo_state()` (definer, not callable from the app). Cards already listed stay listed.
-  - App: `mkNeedsPhoto()` / `mkHasPhoto()` (`_primaryCaptureId`, `_captureId`, or a photo on this phone in
-    `_smCaptureIndex`); reason "No photo of the card" with a hint (open a card, or scan the case in Show Mode).
-  - **Edit Card → "📷 Add a photo of this card"** (`#cem_mk_photo_btn`, `mkPhotoPicked()`): any photo (camera or
-    library, not cropped), saved through Show Mode's capture path (`smSaveCapture`, entry point `case_scan`) and
-    linked with an `attach_capture` op (sets `primary_capture_id` when empty). Works offline; listing waits for
-    the upload ("Photo still uploading").
-  - Not built: replacing a photo, a back photo, delisting a card whose photo is later deleted, bulk photo add.
+- **Image requirement** (decided 2026-11-20 after a competitor review; refined the same day): see "Card photos" below.
+  `mkImageOk()` mirrors the server rule; the blocked reason is "No photo" and Edit Card's Marketplace status
+  points to the Photo section.
 - **Not built:** shipping costs (`shipping_options`), wholesale settings,
   pickup show choice (`pickup_show_id`), and turning the switch on (wait for the buyer site).
+
+### Card photos (session 2026-11-20)
+Edit Card has a **Photo** section at the top (`#cem_photo_box`, `js/card-photo.js`, cp*), shown for every seller
+card (not behind the marketplace switch).
+- **Take or choose a photo** (`cpTakePhoto()` / `cpPhotoPicked()`): any image from the camera or library, not
+  cropped, saved through Show Mode's capture path (`smSaveCapture`, entry point `case_scan`) and linked with an
+  `attach_capture` outbox op. **Replace photo** sends `replace: true`, which makes `_smOpAttachCapture()` overwrite
+  `primary_capture_id` (otherwise it only fills an empty one). Works offline; the photo uploads later.
+- **Use a catalog image** (raw single cards only, `cpFindCatalog()`): POSTs the card's live form fields to
+  `catalog-image-search.js` (CardSight catalog: name+year+number, then +releaseName, then name+year; max 3 calls,
+  8 results, exact number/year first). Tiles show through `card-image.js`; a tile whose image 404s is removed. The
+  note says these are catalog images, not the seller's card. Picking one (`cpChooseStock()`) writes
+  `inventory.stock_image_id` and `catalog_card_id` (needs a signal); **Remove catalog image** clears it. The
+  thumbnail shows a CATALOG tag. A seller photo always wins over a catalog image.
+- **Never for graded cards** (`cpIsGraded()`: a grader other than Raw, or a cert #, read live from the form):
+  their photo must be the exact slab, because buyers match the cert number. Changing the grader/cert in the form
+  updates the section. Not offered for lots or sealed product.
+- **Listing rule** (`publish_listings()` via `_listing_image_state()`, and `mkImageOk()` in the app): sealed → no
+  image needed; seller photo uploaded → OK (`photo_uploading` until then); graded → only a seller photo; raw / lot →
+  seller photo or `stock_image_id`. `stock_image_id` is only ever set by the seller's choice, unlike
+  `catalog_card_id` (identification and comp checks fill that in).
+- `dbRowToCard()` reads `StockImageId`. `openCEM()` now scrolls the modal back to the top.
+- **Tests:** `marketplace-dealer.e2e.mjs` (photo add/replace, graded slab, catalog pick/remove, grader change,
+  listing), `catalog-image-search.test.mjs` (CardSight stubbed), `marketplace-photos.test.sh` (13 checks).
+- **Not built:** catalog images for lots/sealed, a back photo, deleting a photo, photos in Add Card (add one
+  after saving), delisting a listed card that later loses its image, and whether CardSight's catalog search
+  accepts every param here (`year=`, `releaseName=`) was taken from comp-lookup.js, not re-checked live.
 
 ### Next (Phase 1)
 - Search function in the database (full-text + `pg_trgm`), only active, non-early-access listings.
