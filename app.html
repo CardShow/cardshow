@@ -1866,6 +1866,21 @@
   .dir-warn { font-size: 0.76rem; color: #f59e0b; margin-top: 0.3rem; }
   .dir-matches { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-top: 0.45rem; font-size: 0.78rem; color: var(--muted); }
   .dir-row-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+  /* Pricing admin (js/pricing-admin.js) */
+  .pa-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem; margin-bottom: 0.8rem; }
+  .pa-stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem; min-width: 0; }
+  .pa-stat-val { font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; color: var(--text); line-height: 1.1; }
+  .pa-stat-val.warn { color: var(--accent); }
+  .pa-stat-label { font-size: 0.72rem; color: var(--muted); }
+  .pa-note { font-size: 0.78rem; color: var(--muted); margin: -0.3rem 0 0.8rem; }
+  .pa-note.warn { color: var(--accent); }
+  .pa-find { width: 100%; margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--border); }
+  .pa-find-row { display: flex; gap: 0.4rem; }
+  .pa-find-row input { flex: 1; min-width: 0; margin: 0; }
+  .pa-result { margin-top: 0.55rem; font-size: 0.82rem; color: var(--text); overflow-wrap: anywhere; }
+  .pa-result .pa-conf { font-family: 'DM Mono', monospace; font-size: 0.72rem; margin-left: 0.3rem; }
+  .pa-result .pa-conf.low { color: var(--accent); }
+  .pa-grades { color: var(--muted); font-size: 0.78rem; margin: 0.25rem 0 0.45rem; }
   .dir-btn { width: auto !important; min-height: 40px; padding: 0 0.8rem; font-size: 0.8rem; }
   .dir-btn-danger { color: #ef4444 !important; border-color: rgba(239,68,68,0.45) !important; }
   .dir-badge {
@@ -5577,6 +5592,9 @@
           <button class="admin-tab" id="adminTabDirectory" onclick="switchAdminTab('directory')" style="display:none">
             🗂 Show Directory <span id="dirTabBadge" class="dir-tab-badge" style="display:none"></span>
           </button>
+          <button class="admin-tab" id="adminTabPricing" onclick="switchAdminTab('pricing')" style="display:none">
+            💲 Pricing <span id="paTabBadge" class="dir-tab-badge" style="display:none"></span>
+          </button>
           <button class="admin-tab" id="adminTabSocial" onclick="switchAdminTab('social')">
             📥 Social Sales
           </button>
@@ -5601,6 +5619,23 @@
         <div class="dir-filters" id="dirFilters"></div>
         <input class="show-input" id="dirSearch" type="search" placeholder="Search by name, city or state" oninput="renderShowDirectory()" autocomplete="off">
         <div id="dirList" class="dir-list"></div>
+      </div>
+
+      <!-- Platform owner: marketplace pricing (js/pricing-admin.js, see "Pricing admin" in CLAUDE.md) -->
+      <div id="pricingAdminPanel" style="display:none">
+        <div class="dir-head">
+          <div style="min-width:0">
+            <h2 class="dir-title">Pricing</h2>
+            <div class="dir-sub">Online comps for marketplace listings (Card Hedge). Fix the cards that couldn't be matched.</div>
+          </div>
+          <div class="dir-head-actions">
+            <button class="btn btn-ghost" onclick="paLoad()">↻ Refresh</button>
+          </div>
+        </div>
+        <div id="paSummary" class="pa-summary"></div>
+        <div class="dir-filters" id="paFilters"></div>
+        <input class="show-input" id="paSearch" type="search" placeholder="Search by player, set or title" oninput="paRender()" autocomplete="off">
+        <div id="paList" class="dir-list"></div>
       </div>
 
       <!-- ═══════════════════════════════════════════════
@@ -8032,6 +8067,7 @@
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261120d"></script>
 <script src="/js/marketplace-dealer.js?v=20261120e"></script>
+<script src="/js/pricing-admin.js?v=20261121a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -14474,6 +14510,9 @@ async function signOut() {
   _isPlatformAdmin = false;
   const dirTabOut = document.getElementById('adminTabDirectory');
   if (dirTabOut) dirTabOut.style.display = 'none';
+  const paTabOut = document.getElementById('adminTabPricing');
+  if (paTabOut) paTabOut.style.display = 'none';
+  if (typeof paReset === 'function') paReset();
 
   document.getElementById('navTabSeller').style.display = '';
   document.getElementById('navTabSeller').textContent   = '⬡ Seller';
@@ -18709,10 +18748,19 @@ function switchAdminTab(tab) {
   [showsTab, reportTab, socialTab].forEach(t => t && t.classList.remove('active'));
   [dashboard, invPanel, reportPanel, socialPanel].forEach(p => p && (p.style.display = 'none'));
 
+  const paTab   = document.getElementById('adminTabPricing');
+  const paPanel = document.getElementById('pricingAdminPanel');
+  if (paTab) paTab.classList.remove('active');
+  if (paPanel) paPanel.style.display = 'none';
+
   if (tab === 'directory') {
     dirTab && dirTab.classList.add('active');
     if (dirPanel) dirPanel.style.display = 'block';
     loadShowDirectory();
+  } else if (tab === 'pricing' && _isPlatformAdmin) {
+    paTab && paTab.classList.add('active');
+    if (paPanel) paPanel.style.display = 'block';
+    paLoad();
   } else if (tab === 'social') {
     socialTab && socialTab.classList.add('active');
     if (socialPanel) socialPanel.style.display = 'block';
@@ -18778,6 +18826,8 @@ async function checkPlatformAdmin() {
   _isPlatformAdmin = false;
   const tab = document.getElementById('adminTabDirectory');
   if (tab) tab.style.display = 'none';
+  const paTab0 = document.getElementById('adminTabPricing');
+  if (paTab0) paTab0.style.display = 'none';
   if (typeof db === 'undefined') return;
   try {
     const { data, error } = await db.rpc('is_platform_admin');
@@ -18785,6 +18835,9 @@ async function checkPlatformAdmin() {
     _isPlatformAdmin = true;
     if (tab) tab.style.display = '';
     _dirRefreshBadge();
+    const paTab = document.getElementById('adminTabPricing');
+    if (paTab) paTab.style.display = '';
+    if (typeof paRefreshBadge === 'function') paRefreshBadge();
   } catch (_) { /* migration not run: no directory */ }
 }
 

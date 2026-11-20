@@ -230,6 +230,6 @@ async function runRefresh(db, { budgetMs = 20000, fetchImpl = fetch, now = () =>
 }
 
 module.exports = {
-  normalizeGrade, pricesToValues, buildMatchQuery, cardHedgeMatch, runRefresh, maybeAlert, dailyLimit,
+  normalizeGrade, pricesToValues, buildMatchQuery, cardHedgeMatch, runRefresh, maybeAlert, dailyLimit, bumpUsage,
   MATCH_MIN_CONFIDENCE, STOP_AT_PCT, ALERT_AT_PCT,
 };
