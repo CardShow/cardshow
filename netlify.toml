@@ -30,6 +30,10 @@
 [functions."saved-search-alerts"]
   schedule = "@hourly"
 
+# Locate shows (US Census geocoder / Gazetteer) for "cards within X miles". Free, no key.
+[functions."geocode-shows"]
+  schedule = "@hourly"
+
 # Show status follows the dates: Upcoming → Active (Live) → Past.
 [functions."refresh-show-statuses"]
   schedule = "@hourly"

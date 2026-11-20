@@ -16,6 +16,7 @@
 
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+const { lookupPlace } = require('../lib/us-places');
 
 const SERVER = { name: 'cardshow', title: 'CardShow', version: '1.0.0' };
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -44,8 +45,9 @@ const FILTER_PROPS = {
   deals_only: { type: 'boolean', description: 'Only listings priced 10%+ under their online comp' },
   sale_mode: { type: 'string', enum: ['ship', 'local_pickup'] },
   state: { type: 'string', description: 'Two-letter US state of the show the card is at' },
-  near: { type: 'object', description: 'Cards at shows near a point', properties: {
-    lat: { type: 'number' }, lng: { type: 'number' }, miles: { type: 'number', description: 'Default 25' } }, required: ['lat', 'lng'] },
+  near: { type: 'object', description: 'Cards at shows near a place: a US city and state, or lat/lng', properties: {
+    city: { type: 'string', description: 'e.g. Anaheim' }, state: { type: 'string', description: 'Two-letter state, e.g. CA' },
+    lat: { type: 'number' }, lng: { type: 'number' }, miles: { type: 'number', description: 'Default 25' } } },
   date_from: { type: 'string', description: 'YYYY-MM-DD: show runs on or after' },
   date_to: { type: 'string', description: 'YYYY-MM-DD: show starts on or before' },
   dealer: { type: 'string', description: 'Dealer handle' },
@@ -129,8 +131,24 @@ function searchParams(args) {
   const p = {};
   for (const k of Object.keys(FILTER_PROPS)) if (args[k] !== undefined && args[k] !== null && args[k] !== '') p[k] = args[k];
   if (args.query) p.q = String(args.query).slice(0, 200);
+  if (args.near) p.near = resolveNear(args.near);
   p.limit = Math.min(Math.max(parseInt(args.limit ?? 20, 10) || 20, 1), 50);
   return p;
+}
+
+// near: {city, state} → {lat, lng} from the Census Gazetteer. Throws a tool error for an unknown place.
+function resolveNear(near) {
+  if (!near || typeof near !== 'object') return undefined;
+  const miles = near.miles;
+  if (Number.isFinite(Number(near.lat)) && Number.isFinite(Number(near.lng)) && near.lat !== '' && near.lng !== '') {
+    return { lat: Number(near.lat), lng: Number(near.lng), ...(miles != null ? { miles } : {}) };
+  }
+  if (near.city && near.state) {
+    const p = lookupPlace(near.city, near.state);
+    if (!p) throw toolError(`Couldn't find ${near.city}, ${near.state}. Use a US city and its two-letter state.`);
+    return { lat: p.lat, lng: p.lng, ...(miles != null ? { miles } : {}) };
+  }
+  throw toolError('near needs a city and state, or lat and lng');
 }
 
 // ── tool calls ─────────────────────────────────────────────────────────────
@@ -156,7 +174,8 @@ async function callTool(name, args, { data, client }) {
   }
   if (name === 'list_upcoming_shows') {
     const p = {};
-    for (const k of ['near', 'state', 'date_from', 'date_to', 'limit']) if (args[k] !== undefined) p[k] = args[k];
+    for (const k of ['state', 'date_from', 'date_to', 'limit']) if (args[k] !== undefined) p[k] = args[k];
+    if (args.near) p.near = resolveNear(args.near);
     const { data: res, error } = await data.rpc('list_upcoming_shows', { p });
     if (error) throw new Error(error.message);
     return { result: { shows: (res || []).map(s => ({ ...s, url: linkify(s.url, client) })) }, ids: [] };

@@ -106,6 +106,9 @@ netlify/functions/refresh-card-values.js → Scheduled (every 5 min): match new 
 netlify/functions/recalc-pricing-priorities.js → Scheduled (daily 09:17 UTC): high / normal / dormant refresh priority per card
 netlify/functions/saved-search-alerts.js → Scheduled (hourly): Loops email when a saved search has new listings
 netlify/functions/mcp.js          → Read-only MCP server at /mcp (search_cards, get_listing, list_upcoming_shows, get_show_inventory); off unless MARKETPLACE_MCP_ENABLED=true
+netlify/functions/geocode-shows.js → Scheduled (hourly) + admin POST {show_id}: sets shows.latitude/longitude from US Census data — see "Show geocoding"
+netlify/lib/geocode.js / us-places.js / us-places.json → Census Geocoder call (street addresses) + Census Gazetteer city points (32k places, built by scripts/build_us_places.py)
+supabase/migrations/20261201120000_show_geocoding.sql → shows.street_address/postal_code/geo_*; coordinates locked to the service role / platform owner, cleared on address change
 CLAUDE.md                         → This file
 ```
 
@@ -382,7 +385,8 @@ Required for the CardShow Marketplace (see that section below), after the Show M
 are `sold`; sales keep working unchanged. Then `20261129120000_marketplace_listing_photos.sql` (photo requirement,
 see "Dealer listing controls"). Until it runs, the app still asks for a photo but the server doesn't enforce it.
 Then `20261130120000_marketplace_pricing_search.sql` (Phase 1: pricing, search, MCP data). Nothing in the dealer
-app needs it; until it runs Edit Card just shows no online comp.
+app needs it; until it runs Edit Card just shows no online comp. Then `20261201120000_show_geocoding.sql` (after the
+shows security migration). Until it runs, the Show Directory saves without the street address and ZIP.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6696,9 +6700,39 @@ with the migration loaded.
 **Next (Phase 1, not built):**
 - Buyer site (search page, listing pages with schema.org Product/Offer, storefronts, saved searches UI); needs the
   framework decision. Seller photos are in a private bucket: the buyer site's server must sign them.
-- Geocode shows (fills `shows.latitude/longitude`) so "within X miles" works; provider to choose.
+- ~~Geocode shows~~: done, see "Show geocoding" below.
 - Admin screen for unmatched cards (`pricing_unmatched` / `pricing_set_match` exist).
 - Run the migration, add `CARDHEDGE_DAILY_LIMIT` from the license, Loops emails, then switch on.
+
+### Show geocoding (session 2026-11-20)
+"Cards at shows within X miles" needs coordinates on shows. Stephen chose the **US Census** (free, no key).
+- **The Census Geocoder only matches street addresses** (checked live: "1600 Exposition Blvd, Sacramento, CA" →
+  38.5954, -121.4343; "Sacramento, CA" and "Cal Expo, Sacramento, CA" → no match). Shows only had venue/city/state,
+  so there are two sources:
+  1. Street address (new, optional) → Census Geocoder (`onelineaddress`, benchmark `Public_AR_Current`) → `census_address`.
+  2. Otherwise, or no match → the city's point from the **Census Gazetteer** places file → `census_place`.
+     `netlify/lib/us-places.json` (32,057 places, ~1MB, bundled with the functions) is built by
+     `scripts/build_us_places.py` from `2024_Gaz_place_national.zip`. Keys: state + normalized name ("city"/"CDP"/
+     "metro government (balance)" stripped, Saint→st, Fort→ft, Mount→mt); a few aliases (Honolulu, NYC, DC).
+  - Census unreachable while a show has a street address → nothing saved, retried next run (never settles for the
+    city center because of an outage). Unknown city → `not_found` (fix the city/state; editing re-queues it).
+- **Migration `20261201120000_show_geocoding.sql`** (after shows security): `shows.street_address`, `postal_code`,
+  `geo_source` (census_address / census_place / manual / not_found / null = not tried), `geo_query`, `geo_error`,
+  `geocoded_at`. Trigger `shows_geo_a_guard`: only the service role, definer functions or the platform owner write
+  coordinates (`manual` = set by the platform owner). `shows_geo_b_reset`: changing street/ZIP/city/state clears them
+  unless the same update sets new ones.
+- **`geocode-shows.js`**: hourly, up to 40 shows that haven't ended and aren't located yet (upcoming first); and POST
+  `{show_id}` with an admin or platform-owner session, which the Show Directory calls right after a save
+  (`_dirGeocode()`).
+- **Show Directory:** Street address and ZIP fields in the edit form with a note on how the show is located; each row
+  shows 📍 status (`_dirGeoText()`). Saving before the migration drops the two fields and retries.
+- **MCP:** `near` takes `{city, state}` as well as `{lat, lng}` (`resolveNear()`); an unknown city is a tool error.
+- **Tests:** `show-geocoding.test.sh` (8 checks: service role writes, organizer can't, address change clears, same-update
+  coordinates kept, platform owner manual, range check), `show-geocoding.test.mjs` (21 checks: place lookups, Census
+  stubbed, batch + POST, MCP near a city; `LIVE=1` calls the real Census Geocoder), `show-directory.e2e.mjs` (fields,
+  save, geocode call).
+- **Not built:** no geocoding for organizer-created shows outside the Directory beyond the hourly job (which covers them
+  once they have a city and state); no way for the platform owner to drag a pin (manual coordinates only via SQL).
 
 ## Inventory security (session 2026-11-20)
 
