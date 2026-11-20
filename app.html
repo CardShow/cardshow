@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <title>CardShow — Unified Inventory Platform</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,300&display=swap" rel="stylesheet">
 <!-- Show Mode v2 fonts (scoped to #showModeRoot) -->
@@ -2527,6 +2527,16 @@
     background: var(--card); border-top: 1px solid var(--border);
     padding-top: 0.9rem; margin-top: 0.5rem;
   }
+  /* Phone keyboard open (body.kb-open, set by the visualViewport script near </body>):
+     fit the overlay to the part of the screen above the keyboard, and stop pinning the
+     Save/Cancel/Delete row, which otherwise fills the small space left and hides the
+     field being typed in. */
+  body.kb-open .card-edit-overlay.open {
+    top: var(--vv-top, 0px); bottom: auto; height: var(--vv-h, 100%);
+    padding: 0.5rem 0.5rem;
+  }
+  body.kb-open .card-edit-modal { max-height: calc(var(--vv-h, 100vh) - 1rem); }
+  body.kb-open .card-edit-modal > .modal-actions { position: static; }
   @keyframes cemIn {
     from { opacity:0; transform: translateY(-12px); }
     to   { opacity:1; transform: translateY(0); }
@@ -24885,5 +24895,39 @@ async function submitPasswordReset() {
   </div><!-- /manualSaleDrawer -->
 </div><!-- /manualSaleOverlay -->
 
+<script>
+// Keep the field being typed in visible above the phone keyboard in the card modals
+// (Add Card, Edit Card, Comp Results). See CLAUDE.md "Keyboard covered the Edit Card field".
+(function () {
+  var vv = window.visualViewport;
+  function update() {
+    if (!vv) return;
+    var root = document.documentElement;
+    root.style.setProperty('--vv-h', vv.height + 'px');
+    root.style.setProperty('--vv-top', vv.offsetTop + 'px');
+    // On Android with interactive-widget=resizes-content the page itself shrinks, so the
+    // height difference is 0: also count a focused text field on a touch screen.
+    var ae = document.activeElement;
+    var typing = ae && /^(INPUT|TEXTAREA)$/.test(ae.tagName) && !/^(checkbox|radio|file|button|submit|date)$/i.test(ae.type || '');
+    var touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    var kb = (window.innerHeight - vv.height) > 150 || (typing && touch);
+    document.body.classList.toggle('kb-open', !!kb && !!document.querySelector('.card-edit-overlay.open'));
+  }
+  function revealFocused() {
+    var el = document.activeElement;
+    if (!el || !el.closest || !el.closest('.card-edit-overlay.open')) return;
+    if (!/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    update();
+    try { el.scrollIntoView({ block: 'center', behavior: 'auto' }); } catch (e) { el.scrollIntoView(); }
+  }
+  if (vv) { vv.addEventListener('resize', function () { update(); revealFocused(); }); vv.addEventListener('scroll', update); }
+  document.addEventListener('focusin', function (e) {
+    if (!e.target.closest || !e.target.closest('.card-edit-overlay.open')) return;
+    setTimeout(revealFocused, 300);
+    setTimeout(revealFocused, 650);
+  });
+  document.addEventListener('focusout', function () { setTimeout(update, 100); });
+})();
+</script>
 </body>
 </html>
