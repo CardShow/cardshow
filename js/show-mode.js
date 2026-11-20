@@ -425,14 +425,21 @@ async function _smOpAddItem(op) {
 }
 
 // A capture for a card that's already in inventory (a case-scan slab whose
-// cert matched): link it, and make it the card's image if it has none.
+// cert matched, or Edit Card's photo): link it, and make it the card's image
+// if it has none (or always, with op.replace).
 async function _smOpAttachCapture(op) {
   if (_smCapturesMissing) return 'done';
   let res = await db.from('card_captures').update({ inventory_id: op.inventoryId, status: 'attached' }).eq('id', op.captureId);
   if (res.error && _smIsNetworkError(res)) return 'retry';
-  res = await db.from('inventory').update({ primary_capture_id: op.captureId, image_source: 'seller' })
-    .eq('id', op.inventoryId).is('primary_capture_id', null);
+  // replace: the seller chose a new photo in Edit Card (js/card-photo.js).
+  let q = db.from('inventory').update({ primary_capture_id: op.captureId, image_source: 'seller' }).eq('id', op.inventoryId);
+  if (!op.replace) q = q.is('primary_capture_id', null);
+  res = await q;
   if (res.error && _smIsNetworkError(res)) return 'retry';
+  if (!res.error && op.replace) {
+    const card = inventory.find(c => c._dbId === op.inventoryId);
+    if (card) card._primaryCaptureId = op.captureId;
+  }
   return 'done';
 }
 

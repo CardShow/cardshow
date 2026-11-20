@@ -72,6 +72,7 @@ js/show-home.js                   → Seller "Shows" tab: show list with P/L, Sh
 js/show-log-import.js             → Show Home → "Import show log": read a CSV/Excel/pasted log, review, import_show_log() — loaded after js/show-home.js; see "Phase 3" under "Trades + Show Home"
 supabase/migrations/20261120120000_show_log_import.sql → inventory.identification_status, import_show_log(), show_log_imported_keys() (Trades + Show Home Phase 3)
 js/trade-log.js                   → Show Mode "Log a trade or buy" (#/sm/<show>/trade, /buy): cards out, cards in, cash, balance; offline outbox ops trade_save / trade_delete — loaded after js/show-log-import.js; see "Phase 4" under "Trades + Show Home"
+js/marketplace-dealer.js          → Marketplace dealer listing controls: Marketplace panel, Edit Card section, LISTED chips (switch MARKETPLACE_UI_LAUNCHED, off; test with ?marketplace=1) — loaded after js/quick-bar.js; see "Dealer listing controls" under "CardShow Marketplace"
 js/quick-bar.js                   → Show Mode home quick bar: "S12 120", "lot 120", "T S12 for … +20", "B 50 …" in one line — loaded after js/trade-log.js; see "Quick bar" under "Trades + Show Home"
 supabase/migrations/20261121120000_trade_logging.sql → record_trade() (idempotent), update_dealer_trade(), delete_dealer_trade() (Trades + Show Home Phase 4)
 netlify/functions/close-show-snapshots.js → Scheduled (hourly): close_ended_show_snapshots() writes show_end snapshots once a show's last day is over
@@ -90,6 +91,9 @@ qrcode.min.js                     → Self-hosted qrcodejs 1.0.0 (all QR codes);
 docs/marketplace-plan-v3.md       → CardShow Marketplace strategy + build plan v3 (the spec); progress and deviations are in "CardShow Marketplace" below
 supabase/migrations/20261122120000_marketplace_listings.sql → Marketplace Phase 0: listing columns on inventory, listing_reservations, listing_events, publish/delist/reserve/release/mark_sold/expire functions + guard triggers
 supabase/migrations/20261123120000_marketplace_sold_on_insert.sql → Follow-up: cards created already sold are marked sold; backfills Sold cards still draft
+supabase/migrations/20261129120000_marketplace_listing_photos.sql → inventory.stock_image_id; publish_listings() requires an image (graded: slab photo; raw: photo or picked catalog image; sealed exempt)
+js/card-photo.js                  → Edit Card "Photo" section: take/replace a photo, or (raw cards) pick a CardSight catalog image — loaded after js/quick-bar.js; see "Card photos"
+netlify/functions/catalog-image-search.js → Serverless: POST {player, year, cardSet, cardNumber, parallel, title, features} → CardSight catalog exact matches (results) + same player/year non-matches (others) for "Use a catalog image"
 supabase/migrations/20261124120000_inventory_rls.sql → Inventory security: public read, sellers write only their own cards, GTCR trust fields locked (see "Inventory security")
 supabase/migrations/20261125120000_show_inventory_rls.sql → show_inventory security: sellers publish only their own cards to shows they're in; organizers publish/remove in their own shows (see "show_inventory security")
 supabase/migrations/20261126120000_show_sellers_rls.sql → show_sellers security: public read, only the show's organizer adds/edits/removes sellers; sellers join/leave through the join/leave functions (see "show_sellers security")
@@ -368,8 +372,9 @@ show_inventory one.
 
 Required for the CardShow Marketplace (see that section below), after the Show Mode sales migration:
 `supabase/migrations/20261122120000_marketplace_listings.sql` (run in production 2026-11-20), then
-`20261123120000_marketplace_sold_on_insert.sql`. Nothing in the app uses them yet (Phase 0 is database only).
-Unsold cards start as `listing_status = 'draft'`, sold cards are `sold`; sales keep working unchanged.
+`20261123120000_marketplace_sold_on_insert.sql`. Unsold cards start as `listing_status = 'draft'`, sold cards
+are `sold`; sales keep working unchanged. Then `20261129120000_marketplace_listing_photos.sql` (photo requirement,
+see "Dealer listing controls"). Until it runs, the app still asks for a photo but the server doesn't enforce it.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6491,12 +6496,113 @@ buyers reserve the same card at once and exactly one wins. API calls run as sess
 PostgREST, so the guard's session check is exercised. Also checked: `trade-logging` (15/15),
 `show-log-import` (38/38) and `sales.test.sql` (same output) still pass with this migration loaded.
 
-### Next (Phase 1, needs decisions first)
-- Buyer site framework (Astro or Next.js) — open with InfernoRed.
-- Inventory writes are own-row only since 2026-11-20 (see "Inventory security"). Reads stay public, so
-  buyer-facing marketplace reads must filter `listing_status = 'active'` and `early_access_until` themselves
-  (or go through a search function). `show_inventory` is still permissive.
-- Dealer UI to publish/delist, search (full-text + `pg_trgm`), listing pages, the read-only MCP server.
+### Dealer listing controls (Phase 1, step 1, session 2026-11-20)
+`js/marketplace-dealer.js` (mk*). **Off** behind `MARKETPLACE_UI_LAUNCHED = false`; test on one browser with
+`?marketplace=1` (`=0` clears; localStorage `marketplaceTest`). Uses the Phase 0 columns and functions, plus
+`20261129120000_marketplace_listing_photos.sql` for the photo rule.
+- **Panel layout** uses the shared modal structure (`.modal` > `.modal-header` with `.modal-player` title and
+  `.modal-close`, `.modal-body`, `.modal-actions`), same padding as the other modals. "Take N off" only shows
+  when something is listed.
+- **🛒 Marketplace** toolbar button (seller, My Inventory tab; `mkUpdateEntry()`) opens `#mkOverlay`:
+  - Counts (Listed / On hold / Not listed), and which cards it acts on: checked rows, else every unsold card
+    (same rule as Check Comps).
+  - Offer and delivery settings for the cards being listed: accept offers, lowest offer and auto-accept as a % of
+    each card's asking price (stored as cents per card), ship and/or pickup at a show. Remembered per seller on
+    the device (`mkDefaults:<handle>`).
+  - "Can't list yet" grouped by reason (no asking price, no photo, stolen/lost report, needs details, on hold, not
+    saved yet), same order as `publish_listings()`; each card opens Edit Card.
+  - **List N cards** writes the offer settings first (20 at a time), then calls `publish_listings()` (500 per call)
+    and shows what was listed and what the server skipped. **Take N off** calls `delist_listings()`.
+- **Edit Card → 🛒 Marketplace** (`#cem_mk_details`, `mkCemFill/Read/Apply`): status and why it can't be listed,
+  accept offers, lowest offer $, auto-accept $, ship / pickup, and List / Take off. Saved with the card (own
+  write, never in `cardToDbRow()`); invalid settings block Save. Locked while a buyer holds the card.
+- Rules: lowest offer and auto-accept above $0 and at most the asking price; auto-accept ≥ lowest offer; at least
+  one delivery mode. Listing needs a signal (nothing queued offline).
+- **LISTED** / **ON HOLD** chips on table rows (`mkChipHTML()`); `dbRowToCard()` reads `ListingStatus`,
+  `AcceptsOffers`, `MinOfferCents`, `AutoAcceptCents`, `SaleModes` (read only).
+- Feature guide entry "Marketplace listings" (shown only with the switch on).
+- **Tests:** `tests/show-mode/marketplace-dealer.e2e.mjs` (iPhone 13 + Pixel 7; layout padding, photo rule,
+  sealed exemption, Add photo → upload → list). The mock gained `publish_listings` / `delist_listings` with the
+  SQL's checks, including the photo rule. `marketplace-photos.test.sh` (Postgres, 9 checks).
+- **Image requirement** (decided 2026-11-20 after a competitor review; refined the same day): see "Card photos" below.
+  `mkImageOk()` mirrors the server rule; the blocked reason is "No photo" and Edit Card's Marketplace status
+  points to the Photo section.
+- **Not built:** shipping costs (`shipping_options`), wholesale settings,
+  pickup show choice (`pickup_show_id`), and turning the switch on (wait for the buyer site).
+
+### Card photos (session 2026-11-20)
+Edit Card has a **Photo** section at the top (`#cem_photo_box`, `js/card-photo.js`, cp*), shown for every seller
+card (not behind the marketplace switch).
+- **Take or choose a photo** (`cpTakePhoto()` / `cpPhotoPicked()`): any image from the camera or library, not
+  cropped, saved through Show Mode's capture path (`smSaveCapture`, entry point `case_scan`) and linked with an
+  `attach_capture` outbox op. **Replace photo** sends `replace: true`, which makes `_smOpAttachCapture()` overwrite
+  `primary_capture_id` (otherwise it only fills an empty one). Works offline; the photo uploads later.
+- **Use a catalog image** (raw single cards only, `cpFindCatalog()`): POSTs the card's live form fields (incl. title,
+  parallel, Features) to `catalog-image-search.js`. Searches, max 5 CardSight calls: name+year+number (then the number
+  without dashes if nothing came back), name+year+release+manufacturer+`attributeShortName=AU` (autographs only),
+  name+year+release+manufacturer, name+year. Release = the set name minus its year and a leading "Panini"
+  (`setRelease()`); `inferManufacturer()` / `extractReleaseName()` are copied from comp-lookup.js.
+  **Exact match** (`judge()`), all of: same year (either year of a season card, "2024-25"); **set**: every word of the
+  card's set (minus year and "Panini") must be in the catalog card's release + set name, whenever the card has a set —
+  a matching number in another set is never a match (Witt #7 in Bowman is not #7 in Topps Chrome); **card number**:
+  when both have one it must match (variants: as typed, no dashes, the letters after the last dash, e.g. RAU-CSK → CSK); an autograph only matches an autograph (AU attribute, or "auto"/"signature" in its
+  set name) and a non-auto only a non-auto; insert/parallel words from the card ("cubic", "star gazing" — title +
+  parallel minus player, set, year, number and generic words) must appear in the catalog card's set name **or name one
+  of its parallels**, and a card with none of those words doesn't match an insert set unless the Set field names it
+  ("Topps Home Field Advantage"). An exact number match skips the insert-word check.
+  **Names:** every result must be the card's player: last name equal, first names where one starts with the other
+  ("Steph" / "Stephen"), suffixes ignored ("Jr."), dual cards split on "/". This also drops partial-name noise
+  ("Curry" → "Scurryfoot").
+  **Fallbacks when nothing matched** (`MAX_CALLS` 7): release + `setName` for an insert named in the set field
+  ("Topps" + "Home Field Advantage"), the season's second year, and the last name alone.
+  **Parallels:** CardSight only has images of base cards (`/v1/images/cards/{id}`; parallels have no images). A
+  parallel is matched against the catalog card's parallel list (list rows may carry `parallels`; otherwise up to 2
+  `GET /v1/catalog/cards/{id}` detail calls for the best near-misses), by name ("Cubic") or by print run ("17/49" or
+  Print Run Size → the parallel numbered to 49). The result's `parallel` names it; the tile reads "Base image · your
+  parallel: Tie-Dye" and the note says the catalog shows the base version. `variation` marks image-variation cards.
+  When the only exact match has no image, the note names the card ("The catalog has this card (…) but no image of it").
+  Response: `results` (exact, max 8) and `others` (same player and year, not a match, max 6; other years dropped).
+  The app shows exact matches in a grid (or "No exact catalog match for this card. Take a photo instead"), and others
+  in a closed `<details>` labeled "not an exact match". `debug: true` returns the release, insert words and attempt
+  counts. Tiles show through `card-image.js`; a tile whose image 404s is removed. The
+  note says these are catalog images, not the seller's card. Picking one (`cpChooseStock()`) writes
+  `inventory.stock_image_id` and `catalog_card_id` (needs a signal); **Remove catalog image** clears it. The
+  thumbnail shows a CATALOG tag. A seller photo always wins over a catalog image.
+- **Never for graded cards** (`cpIsGraded()`: a grader other than Raw, a cert #, or a grader named in the title —
+  `cpTitleGrader()`: PSA/BGS/BVG/SGC/CGC/TAG/HGA/GMA/CSG/AGS/ISA in capitals, or a grader + grade in any case like
+  "psa 10"; read live from the form): their photo must be the exact slab, because buyers match the cert number. When
+  only the title names a grader, the section says "The title says TAG… Set the Grader field if it is". Changing the grader/cert in the form
+  updates the section. Not offered for lots or sealed product.
+- **Listing rule** (`publish_listings()` via `_listing_image_state()`, and `mkImageOk()` in the app; both use the same
+  title regexes): sealed → no image needed; seller photo uploaded → OK (`photo_uploading` until then); graded → only a seller photo; raw / lot →
+  seller photo or `stock_image_id`. `stock_image_id` is only ever set by the seller's choice, unlike
+  `catalog_card_id` (identification and comp checks fill that in).
+- `dbRowToCard()` reads `StockImageId`. `openCEM()` now scrolls the modal back to the top.
+- **Tests:** `marketplace-dealer.e2e.mjs` (photo add/replace, graded slab, catalog pick/remove, others group, no
+  exact match, grader in the title, grader change, listing), `catalog-image-search.test.mjs` (CardSight stubbed;
+  insert auto, auto with prefixed number, base vs insert, other years, AU 500, debug), `marketplace-photos.test.sh`
+  (15 checks, incl. "Rookie TAG" / "psa 10" titles and an ordinary "Tag").
+- **Why (2026-11-20):** on real cards the first version showed any card of the player and year as options (Ohtani
+  2018 Leaf NSC got Diamond Kings / Archives / Heritage), ranked the base card above the Cubic Autograph insert, and
+  found nothing for 2025 Topps Chrome Black Skattebo RAU-CSK. Second round (live checks on the preview, same day): a
+  matching release let other numbers through (Burrow STN-13 got base #61; Stroud #42 got #128/#233/#394 and #42 from
+  other releases); "Cubic" on Trish Stratus is a parallel of Revolution WWE Autographs #AG-TSS, not a set; Skattebo's
+  RAU-CSK is found but CardSight has no image for it. Third round: Witt #7 matched #7 cards from Bowman / Prizm /
+  Diamond Icons (number alone counted); "Steph Curry" found nothing (catalog name "Stephen Curry"; CardSight had no
+  2024-25 Obsidian Curry at all on 2026-11-20); Elly De La Cruz HA-20 (Topps Home Field Advantage) isn't in CardSight
+  under that number or set (release "Topps" + setName "Home Field Advantage" also returned nothing). When the search
+  fails (CardSight 429 / network), the panel says "The catalog is busy…" with Try again, not "No exact match".
+- **CardSight image terms:** images may be cached only short-term and must not be stored to build a library.
+  `card-image.js` caches 30 days at Netlify's CDN; confirm that's acceptable with CardSight or shorten it.
+- **Not built:** catalog images for lots/sealed, a back photo, deleting a photo, photos in Add Card (add one
+  after saving), delisting a listed card that later loses its image, and whether CardSight's catalog search
+  accepts every param here (`year=`, `releaseName=`) was taken from comp-lookup.js, not re-checked live.
+
+### Next (Phase 1)
+- Search function in the database (full-text + `pg_trgm`), only active, non-early-access listings.
+- Read-only MCP server and the `agent_actions` log.
+- Daily comp refresh into `comp_value_cents`.
+- Buyer site (framework, Astro or Next.js, still open with InfernoRed), then saved searches.
 
 ## Inventory security (session 2026-11-20)
 

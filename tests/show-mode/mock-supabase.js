@@ -235,6 +235,34 @@
         imported++;
       }
       data = { imported, duplicates: dups, created };
+    } else if (name === 'publish_listings' || name === 'delist_listings') {
+      // Same checks as the SQL (20261122120000_marketplace_listings.sql). __mkMissing simulates the migration not run.
+      if (window.__mkMissing) return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + name } });
+      const ok = [], skipped = [];
+      for (const id of a.p_ids) {
+        const r = S.inventory.find(x => x.id === id && x.seller_id === UID);
+        if (!r) { skipped.push({ id, reason: 'not_found' }); continue; }
+        const ls = r.listing_status || 'draft';
+        if (name === 'publish_listings') {
+          const why = (r.status === 'Sold' || ls === 'sold') ? 'sold' : ls === 'reserved' ? 'reserved'
+            : ['flagged','disputed'].includes(r.trust_flag) ? 'trust_flag' : r.identification_status === 'unidentified' ? 'needs_details'
+            : !(Number(r.price) > 0) ? 'no_price'
+            : (r.item_type || 'card') === 'sealed' ? null
+            : (() => { const c = r.primary_capture_id && S.card_captures.find(x => x.id === r.primary_capture_id);
+                       const photo = !c || c.deleted_at || !c.crop_key ? 'no_photo' : !c.uploaded_at ? 'photo_uploading' : null;
+                       if (!photo) return null;
+                       const g = String(r.grader || '').trim();
+                       const t = String(r.card_title || '');
+                       const graded = (g && g.toLowerCase() !== 'raw') || String(r.cert_number || '').trim()
+                         || /\b(PSA|BGS|BVG|SGC|CGC|TAG|HGA|GMA|CSG|AGS|ISA)\b/.test(t) || /\b(psa|bgs|bvg|sgc|cgc|tag|hga|gma|csg)\s?(10|[1-9](\.5)?)\b/i.test(t);
+                       return !graded && r.stock_image_id ? null : photo; })();
+          if (why) skipped.push({ id, reason: why }); else { r.listing_status = 'active'; ok.push(id); }
+        } else {
+          if (ls === 'reserved' || ls === 'sold') skipped.push({ id, reason: ls });
+          else { if (ls === 'active') r.listing_status = 'delisted'; ok.push(id); }
+        }
+      }
+      data = name === 'publish_listings' ? { ok: true, published: ok, skipped } : { ok: true, delisted: ok, skipped };
     } else if (name === 'record_trade') {
       // Enough of 20261121120000_trade_logging.sql: idempotent on client id, refuses a sold card,
       // new cards keep the phone's id and get a code, outs Sold as Trade and off the show.

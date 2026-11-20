@@ -1,0 +1,392 @@
+// netlify/functions/catalog-image-search.js
+// POST { player, year, cardSet, cardNumber, parallel, title, features[] } → CardSight catalog cards
+// that could be this card, as candidate stock images for Edit Card's "Use a catalog image".
+// See CLAUDE.md "Card photos". Raw cards only: the app never offers this for a graded card, whose
+// photo must show the exact slab (buyers match the cert number).
+//
+// Response: { success, results: [...], others: [...] }, each { id, title, year, release, number,
+//   imageUrl, auto, parallel, variation }. results = exact matches only; others = other cards of the same player and year
+//   that did NOT match (shown separately, labeled as not a match). Max 8 + 6.
+// A catalog card is an exact match when:
+//   - the year matches (when the card has one), and
+//   - the release matches the card's set (when it has one), and the card number matches (also tried without
+//     the prefix / dashes) when both have one, and
+//   - an autograph matches an autograph (attribute AU, or "auto"/"signature" in its set name), and
+//   - insert or parallel words from the card ("Cubic", "Star Gazing") appear in its set name; a card with
+//     none of those words doesn't match an insert set. A word can also name one of the catalog card's
+//     parallels ("Cubic"), read from its parallel list (GET /v1/catalog/cards/{id}, at most 2 calls).
+// CardSight only has images of base cards, not parallels. Each result says which parallel of it matched
+// the card (`parallel`, by name or by print run), and `variation` for an image-variation card.
+// CardSight catalog search: GET https://api.cardsight.ai/v1/catalog/cards with name=, year=, number=,
+// releaseName= (partial), manufacturer=, attributeShortName= (AU), take= (see comp-lookup.js). number= is
+// sent on its own, as in comp-lookup.js. Uses CARDSIGHT_API_KEY and its monthly quota (at most 7 search calls +
+// 2 detail calls). Fallbacks when nothing matches: release + setName for an insert named in the set, the
+// other year of a season card (2024-25), and the last name alone ("Steph" vs "Stephen").
+// extractReleaseName() / inferManufacturer() are copied from comp-lookup.js (no shared module); keep in sync.
+
+const BASE = 'https://api.cardsight.ai/v1/catalog/cards';
+const PRINT_RUN_RE = /\/\s*(\d{1,5})\b/;
+const TIMEOUT_MS = 4000;
+const MAX_CALLS = 7;
+const MAX_DETAIL_CALLS = 2;   // card detail (parallel list), only when needed
+const MAX_RESULTS = 8;
+const MAX_OTHERS = 6;
+const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function json(statusCode, body) {
+  return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+}
+const clean = v => String(v == null ? '' : v).trim();
+const alnum = v => clean(v).toLowerCase().replace(/[^a-z0-9]/g, '');
+const words = v => clean(v).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+
+function extractReleaseName(cardSet) {
+  const s = (cardSet || '').toLowerCase().replace(/^\d{4}[-\s]*/, '');
+  const signatures = [
+    // Topps Chrome variants — most specific first
+    ['topps chrome update sapphire', 'Topps Chrome Update Sapphire Edition'],
+    ['chrome update sapphire',       'Topps Chrome Update Sapphire Edition'],
+    ['topps chrome update',          'Topps Chrome Update'],
+    ['chrome update',                'Topps Chrome Update'],
+    // Bowman Chrome before bare Bowman
+    ['bowman chrome draft',          'Bowman Chrome Draft'],
+    ['bowman chrome',                'Bowman Chrome'],
+    ['topps chrome',                 'Topps Chrome'],
+    ['chrome',                       'Topps Chrome'],  // fallback for bare "Chrome"
+    // Bowman variants
+    ['bowman platinum',              'Bowman Platinum'],
+    ['bowman sterling',              'Bowman Sterling'],
+    ["bowman's best",                "Bowman's Best"],
+    ['bowman',                       'Bowman'],
+    // Prizm variants
+    ['prizm draft picks',            'Prizm Draft Picks'],
+    ['prizm draft',                  'Prizm Draft'],
+    ['panini prizm',                 'Prizm'],
+    ['prizm',                        'Prizm'],
+    // Other Panini
+    ['donruss optic',                'Donruss Optic'],
+    ['panini contenders optic',      'Panini Contenders Optic'],
+    ['panini contenders',            'Panini Contenders'],
+    ['select',                       'Select'],
+    ['donruss',                      'Donruss'],
+    ['panini chronicles',            'Chronicles'],
+    // Topps product lines
+    ['topps update',                 'Topps Update'],
+    ['topps series 2',               'Topps Series 2'],
+    ['topps series 1',               'Topps Series 1'],
+    ['topps heritage',               'Topps Heritage'],
+    ['topps finest',                 'Topps Finest'],
+    ['topps stadium club',           'Stadium Club'],
+    ['topps pro debut',              'Topps Pro Debut'],
+    ['topps',                        'Topps'],
+    // Other
+    ['upper deck',                   'Upper Deck'],
+    ['fleer ultra',                  'Fleer Ultra'],
+    ['fleer',                        'Fleer'],
+    ['score',                        'Score'],
+  ];
+  for (const [key, val] of signatures) {
+    if (s.includes(key)) return val;
+  }
+  const words = s.split(/\s+/).filter(w => w.length > 3);
+  return words[0] ? words[0].charAt(0).toUpperCase() + words[0].slice(1) : null;
+}
+
+// Map card set to manufacturer for catalog search narrowing.
+// Prevents Topps cards from matching Panini results and vice versa.
+
+function inferManufacturer(cardSet) {
+  const s = (cardSet || '').toLowerCase();
+  if (s.includes('topps') || s.includes('bowman')) return 'Topps';
+  if (s.includes('panini') || s.includes('prizm') || s.includes('donruss') ||
+      s.includes('select') || s.includes('mosaic') || s.includes('contenders') ||
+      s.includes('chronicles') || s.includes('optic'))
+    return 'Panini';
+  if (s.includes('upper deck') || s.includes(' ud ')) return 'Upper Deck';
+  if (s.includes('fleer')) return 'Fleer';
+  return null;
+}
+
+function setRelease(cardSet) {
+  const s = clean(cardSet).replace(/^\d{4}(-\d{2,4})?\s+/, '').replace(/^panini\s+/i, '').replace(/\s+/g, ' ').trim();
+  return s || clean(extractReleaseName(cardSet) || '');
+}
+
+// "RAU-CSK" → ["RAU-CSK", "RAUCSK", "CSK"]; "#112" → ["112"].
+function numberVariants(n) {
+  const raw = clean(n).replace(/^#/, '');
+  if (!raw) return [];
+  const out = [raw];
+  if (/[-\s]/.test(raw)) {
+    out.push(raw.replace(/[-\s]/g, ''));
+    const tail = raw.split(/[-\s]/).pop();
+    if (tail && tail.length >= 2 && /[a-z]/i.test(tail)) out.push(tail);   // "CSK", never a bare "02"
+  }
+  return [...new Set(out)];
+}
+
+const AUTO_RE = /\b(auto|autos|autograph|autographs|autographed|signed|signature|signatures|au)\b/i;
+const STOP = new Set(['base', 'card', 'cards', 'the', 'and', 'of', 'rc', 'rookie', 'rookies', 'rated', 'auto', 'autos',
+  'autograph', 'autographs', 'autographed', 'signed', 'signature', 'signatures', 'au', 'psa', 'bgs', 'bvg', 'sgc',
+  'cgc', 'tag', 'hga', 'gma', 'csg', 'ags', 'isa', 'raw', 'gem', 'mint', 'nm', 'near', 'graded', 'slab',
+  'panini', 'topps', 'bowman', 'upper', 'deck', 'donruss', 'leaf', 'fleer', 'chrome', 'variation', 'parallel', 'numbered', 'ssp', 'sp']);
+
+function attrCodes(c) {
+  const list = Array.isArray(c && c.attributes) ? c.attributes : [];
+  return list.map(a => clean(typeof a === 'string' ? a : (a && (a.shortName || a.short_name || a.code || a.name)))).filter(Boolean);
+}
+
+// Words that name an insert or parallel ("cubic", "star gazing"), from the card's parallel and title,
+// minus the player, year, set, number and generic words.
+function insertWords(card) {
+  const drop = new Set([...words(card.player), ...words(card.cardSet), ...words(card.release),
+    ...words(card.manufacturer), ...words(card.cardNumber)]);
+  const src = [card.parallel, card.title].map(clean).join(' ').replace(/\/\s*\d+/g, ' ');
+  return [...new Set(words(src).filter(w => w.length > 2 && !/^\d+$/.test(w) && !STOP.has(w) && !drop.has(w)))];
+}
+
+// Player names: "Steph Curry" vs "Stephen Curry", "Bobby Witt Jr." vs "Bobby Witt". Last name must match;
+// first names match when one starts with the other.
+const SUFFIX_RE = /\b(jr|sr|ii|iii|iv)\.?$/i;
+function nameParts(n) {
+  const w = clean(n).replace(SUFFIX_RE, '').toLowerCase().replace(/[^a-z\s'-]/g, ' ').split(/\s+/).filter(Boolean);
+  return { first: w[0] || '', last: w[w.length - 1] || '' };
+}
+function nameMatches(candName, player) {
+  const p = nameParts(player);
+  if (!p.last) return false;
+  return clean(candName).split(/\s*\/\s*/).some(one => {
+    const c = nameParts(one);
+    return c.last === p.last && (!p.first || !c.first || p.first === p.last || c.first.startsWith(p.first) || p.first.startsWith(c.first));
+  });
+}
+
+function toCandidate(c) {
+  const id = c && (c.id || c.uuid || c.card_id);
+  if (!id || !ID_RE.test(String(id))) return null;
+  const year = clean(c.releaseYear || c.year || (c.release && c.release.year));
+  const release = clean(c.releaseName || (c.release && c.release.name));
+  const setName = clean(c.setName || (c.set && c.set.name));
+  const insert = setName && !/^base( set)?$/i.test(setName) ? setName : '';
+  const setPart = insert && !release.toLowerCase().includes(insert.toLowerCase()) ? ` ${insert}` : '';
+  const number = clean(c.number);
+  const name = clean(c.name);
+  const attrs = attrCodes(c);
+  return {
+    id: String(id), year, release: release + setPart, number, name, insert,
+    parallels: parallelsOf(c), variation: !!c.variationOf,
+    auto: attrs.some(a => /^au$/i.test(a) || AUTO_RE.test(a)) || AUTO_RE.test(insert),
+    title: [year, release + setPart, name, number ? '#' + number : ''].filter(Boolean).join(' '),
+    imageUrl: '/.netlify/functions/card-image?id=' + encodeURIComponent(String(id)),
+  };
+}
+
+// Parallels on a catalog card: [{ name, numberedTo }] (list rows may include them; the card detail does).
+function parallelsOf(row) {
+  const list = Array.isArray(row && row.parallels) ? row.parallels : null;
+  if (!list) return null;
+  return list.map(p => ({ name: clean(p && p.name), numberedTo: Number(p && p.numberedTo) || null })).filter(p => p.name);
+}
+
+// { strong, score, ... } for one catalog card.
+//   - Card number: when both have one, it must match (a matching set alone never makes #61 a match for
+//     STN-13). With no number on either side, the release must match.
+//   - Insert / parallel words must be in the set name, or name one of the card's parallels ("Cubic").
+//     An exact number match is enough on its own (the number identifies the insert).
+//   - Autograph only matches autograph.
+// CardSight images are of the base version; a matched parallel is reported so the app can say so.
+function judge(c, card) {
+  const yearOk = !card.year || !c.year || c.year === card.year || (card.year2 && c.year === card.year2);
+  const nums = numberVariants(card.cardNumber).map(alnum);
+  const cn = alnum(c.number);
+  const numOk = !!cn && nums.includes(cn);
+  const relWords = words(card.release).filter(w => w.length > 2 && w !== 'the' && w !== 'and');
+  const candRel = c.release.toLowerCase();
+  const releaseOk = relWords.length > 0 && relWords.every(w => candRel.includes(w));
+  // The set must match whenever the card has one: #7 in Bowman is not #7 in Topps Chrome. With a card
+  // number on both sides, it must match too.
+  const identOk = (relWords.length ? releaseOk : true) && (nums.length && cn ? numOk : (relWords.length > 0 || numOk));
+  const text = (c.release + ' ' + c.insert + ' ' + c.name).toLowerCase();
+  const hits = card.insertWords.filter(w => text.includes(w)).length;
+  const pars = c.parallels || [];
+  const parNames = card.insertWords.length
+    ? pars.filter(p => card.insertWords.some(w => p.name.toLowerCase().split(/[^a-z0-9]+/).includes(w))).map(p => p.name)
+    : [];
+  let parallel = parNames[0] || null;
+  if (card.printRun && pars.length) {
+    const byRun = pars.filter(p => p.numberedTo === card.printRun);
+    const both = byRun.find(p => parNames.includes(p.name));
+    if (both) parallel = both.name;
+    else if (!parallel && byRun.length === 1) parallel = byRun[0].name;
+    else if (!parallel && byRun.length > 1) parallel = byRun.slice(0, 3).map(p => p.name).join(' / ');
+  }
+  // An insert set the seller named in the Set field ("Topps Home Field Advantage") counts as named.
+  const insWords = words(c.insert).filter(w => w.length > 2 && !STOP.has(w));
+  const setNamesInsert = insWords.length > 0 && insWords.every(w => words(card.release + ' ' + card.title).includes(w));
+  const insertOk = numOk || setNamesInsert || (card.insertWords.length ? (hits > 0 || parNames.length > 0) : (!c.insert || card.isAuto));
+  const autoOk = card.isAuto ? c.auto : !c.auto;
+  const strong = yearOk && identOk && insertOk && autoOk;
+  // Worth fetching the card's parallel list: everything matches except insert words we haven't checked.
+  const needsParallels = yearOk && identOk && autoOk && !insertOk && !c.parallelsRead && !(c.parallels && c.parallels.length);
+  const score = (numOk ? 10 : 0) + (releaseOk ? 5 : 0) + hits * 2 + (parNames.length ? 2 : 0) + (card.isAuto && c.auto ? 2 : 0) + (yearOk ? 1 : 0) - (c.variation ? 1 : 0);
+  return { strong, yearOk, numOk, releaseOk, needsParallels, parallel, score };
+}
+
+async function search(params, key, path) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(path ? `${BASE}/${encodeURIComponent(path)}` : `${BASE}?${params}`, { headers: { 'X-API-Key': key }, signal: controller.signal });
+    if (res.status === 401 || res.status === 429) return { stop: res.status };
+    if (!res.ok) { console.warn('[catalog-image-search] CardSight', res.status, String(params)); return { rows: [] }; }
+    const data = await res.json();
+    if (path) return { row: data?.card || data };
+    return { rows: data?.cards || data?.data || [] };
+  } catch (e) {
+    console.warn('[catalog-image-search]', e.name === 'AbortError' ? 'timeout' : e.message);
+    return { rows: [] };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+exports.handler = async (event) => {
+  if (event.httpMethod !== 'POST') return json(405, { success: false, error: 'method_not_allowed' });
+  const key = process.env.CARDSIGHT_API_KEY;
+  if (!key) return json(200, { success: false, error: 'missing_key' });
+  let body;
+  try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { success: false, error: 'parse_error' }); }
+  const card = {
+    player: clean(body.player).slice(0, 80),
+    year: (clean(body.year).match(/\d{4}/) || [''])[0],
+    cardSet: clean(body.cardSet).slice(0, 120),
+    cardNumber: clean(body.cardNumber).slice(0, 40),
+    parallel: clean(body.parallel).slice(0, 120),
+    title: clean(body.title).slice(0, 200),
+  };
+  // Season cards ("2024-25"): CardSight may file them under either year.
+  const season = clean(body.title).match(/\b(\d{4})-(\d{2})\b/) || clean(body.year).match(/\b(\d{4})-(\d{2})\b/);
+  card.year2 = season && season[1] === card.year ? String(Number(card.year) + 1) : '';
+  // Print run: the form's Print Run Size, else "/49" in the parallel or title ("17/49").
+  card.printRun = parseInt(body.printRun, 10) > 0 ? parseInt(body.printRun, 10)
+    : Number(((card.parallel + ' ' + card.title).match(PRINT_RUN_RE) || [])[1]) || null;
+  if (!card.player) return json(200, { success: false, error: 'player_required' });
+  const features = Array.isArray(body.features) ? body.features.map(clean) : [];
+  // Release to search and match on: the set name without its year or a leading "Panini" (CardSight names
+  // Panini releases without it: "Revolution WWE"). extractReleaseName()'s table is a fallback for its
+  // short names, e.g. "Prizm" for "Panini Prizm".
+  card.release = setRelease(card.cardSet);
+  card.manufacturer = card.cardSet ? (inferManufacturer(card.cardSet) || '') : '';
+  card.isAuto = features.some(f => /^auto$/i.test(f)) || AUTO_RE.test(card.parallel) || AUTO_RE.test(card.title);
+  card.insertWords = insertWords(card);
+
+  const baseParams = () => { const p = new URLSearchParams(); p.set('name', card.player); if (card.year) p.set('year', card.year); return p; };
+  const plan = [];
+  numberVariants(card.cardNumber).slice(0, 2).forEach((n, i) => {
+    const p = baseParams(); p.set('number', n); p.set('take', '8'); plan.push({ kind: 'number', p, onlyIfEmpty: i > 0 });
+  });
+  if (card.release) {
+    if (card.isAuto) {
+      const p = baseParams(); p.set('releaseName', card.release); p.set('attributeShortName', 'AU');
+      if (card.manufacturer) p.set('manufacturer', card.manufacturer);
+      p.set('take', '15'); plan.push({ kind: 'release_au', p });
+    }
+    const p = baseParams(); p.set('releaseName', card.release);
+    if (card.manufacturer) p.set('manufacturer', card.manufacturer);
+    p.set('take', '20'); plan.push({ kind: 'release', p });
+  }
+  { const p = baseParams(); p.set('take', '25'); plan.push({ kind: 'player_year', p }); }
+
+  const seen = new Map();
+  const attemptsLog = [];
+  let calls = 0, numberHits = 0, stopped = null;
+  const strongCount = () => [...seen.values()].filter(x => x.j.strong).length;
+  const run = async (kind, p) => {
+    if (calls >= MAX_CALLS || stopped) return 0;
+    calls++;
+    const r = await search(p, key);
+    if (r.stop) { stopped = r.stop; return 0; }
+    // A name search is partial ("Curry" also finds "Scurryfoot"); keep only this player's cards.
+    const rows = r.rows.filter(row => nameMatches(row && row.name, card.player));
+    attemptsLog.push({ kind, count: rows.length });
+    for (const row of rows) {
+      const c = toCandidate(row);
+      if (c && !seen.has(c.id)) seen.set(c.id, { c, j: judge(c, card) });
+    }
+    return rows.length;
+  };
+  for (const step of plan) {
+    if (step.onlyIfEmpty && numberHits) continue;
+    if (strongCount() >= 4) break;
+    const n = await run(step.kind, step.p);
+    if (step.kind === 'number') numberHits += n;
+  }
+  // Fallbacks when nothing matched:
+  //   - an insert named in the set ("Topps Home Field Advantage"): release "Topps" + setName "Home Field Advantage"
+  //   - the other year of a season card ("2024-25")
+  //   - the last name alone ("Steph Curry" is "Stephen Curry" in the catalog)
+  const base = extractReleaseName(card.cardSet);
+  if (!strongCount() && base && card.release && card.release.toLowerCase() !== base.toLowerCase()
+      && card.release.toLowerCase().startsWith(base.toLowerCase() + ' ')) {
+    const p = new URLSearchParams(); p.set('name', card.player); if (card.year) p.set('year', card.year);
+    p.set('releaseName', base); p.set('setName', card.release.slice(base.length + 1)); p.set('take', '20');
+    await run('release_set', p);
+  }
+  if (!strongCount() && card.year2) {
+    const p = new URLSearchParams(); p.set('name', card.player); p.set('year', card.year2);
+    if (card.release) p.set('releaseName', card.release);
+    p.set('take', '25'); await run('season_year', p);
+  }
+  if (!strongCount() && !seen.size) {
+    const last = nameParts(card.player).last;
+    if (last && last !== card.player.toLowerCase()) {
+      const p = new URLSearchParams(); p.set('name', last); if (card.year) p.set('year', card.year);
+      if (card.release) p.set('releaseName', card.release);
+      p.set('take', '25'); await run('last_name', p);
+      if (!seen.size && card.year2) {
+        const q = new URLSearchParams(); q.set('name', last); q.set('year', card.year2); q.set('take', '25');
+        await run('last_name_season', q);
+      }
+    }
+  }
+  if (stopped && !seen.size) return json(200, { success: false, error: `cardsight_http_${stopped}` });
+
+  // Same number in several releases (#42 in Select, Black and Immaculate): keep the ones whose release
+  // matches when there are any. Run before and after reading parallel lists.
+  const preferRelease = () => {
+    const strongAll = [...seen.values()].filter(x => x.j.strong);
+    if (strongAll.some(x => x.j.numOk && x.j.releaseOk)) {
+      strongAll.filter(x => x.j.numOk && !x.j.releaseOk).forEach(x => { x.j = { ...x.j, strong: false }; });
+    }
+  };
+  preferRelease();
+
+  // Parallel names ("Cubic") usually aren't in the set name. For the best near-misses, read the card's
+  // parallel list and judge again.
+  let detailCalls = 0;
+  const wantDetail = x => !x.c.parallelsRead && (x.j.needsParallels
+    || (x.j.strong && (card.printRun || card.insertWords.length) && !x.j.parallel && !(x.c.parallels && x.c.parallels.length)));
+  for (const x of [...seen.values()].filter(wantDetail).sort((a, b) => b.j.score - a.j.score)) {
+    if (detailCalls >= MAX_DETAIL_CALLS) break;
+    detailCalls++;
+    const r = await search(null, key, x.c.id);
+    if (r.stop) break;
+    attemptsLog.push({ kind: 'detail', found: !!r.row });
+    x.c.parallelsRead = true;
+    if (r.row) { x.c.parallels = parallelsOf(r.row) || []; x.j = judge(x.c, card); }
+  }
+  preferRelease();
+
+  const all = [...seen.values()].sort((a, b) => b.j.score - a.j.score);
+  const strip = ({ c, j }) => ({ id: c.id, title: c.title, year: c.year, release: c.release, number: c.number,
+    imageUrl: c.imageUrl, auto: c.auto, parallel: j.parallel || null, variation: c.variation });
+  const out = {
+    success: true,
+    results: all.filter(x => x.j.strong).slice(0, MAX_RESULTS).map(strip),
+    others: all.filter(x => !x.j.strong && x.j.yearOk).slice(0, MAX_OTHERS).map(strip),
+  };
+  if (body.debug) out.debug = { release: card.release, manufacturer: card.manufacturer, isAuto: card.isAuto, insertWords: card.insertWords, printRun: card.printRun, attempts: attemptsLog };
+  return json(200, out);
+};
+
+exports._test = { nameMatches, parallelsOf, setRelease, extractReleaseName, inferManufacturer, numberVariants, insertWords, toCandidate, judge };
