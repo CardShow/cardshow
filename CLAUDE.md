@@ -91,6 +91,7 @@ docs/marketplace-plan-v3.md       → CardShow Marketplace strategy + build plan
 supabase/migrations/20261122120000_marketplace_listings.sql → Marketplace Phase 0: listing columns on inventory, listing_reservations, listing_events, publish/delist/reserve/release/mark_sold/expire functions + guard triggers
 supabase/migrations/20261123120000_marketplace_sold_on_insert.sql → Follow-up: cards created already sold are marked sold; backfills Sold cards still draft
 supabase/migrations/20261124120000_inventory_rls.sql → Inventory security: public read, sellers write only their own cards, GTCR trust fields locked (see "Inventory security")
+supabase/migrations/20261125120000_show_inventory_rls.sql → show_inventory security: sellers publish only their own cards to shows they're in; organizers publish/remove in their own shows (see "show_inventory security")
 netlify/functions/expire-listing-reservations.js → Scheduled (every 5 min): expire_listing_reservations(); no-op unless MARKETPLACE_ENABLED=true
 CLAUDE.md                         → This file
 ```
@@ -153,13 +154,13 @@ show_floor_transactions — id (uuid), created_at, sold_at (timestamptz),
 - **Current:** Supabase email + password auth via `supabase.auth.signUp()` / `signInWithPassword()`
 - **Session persistence:** sellers stay signed in across a refresh (session 2026-10-23). `initPage()` calls `_restoreSellerSession()`; admins and entry links (`?code=`, `?signup=`, `?buyer=`, auth-error links) still start from a clean sign-out. See "Show Mode v2".
 - **Seller records:** linked to `auth.uid()` in the sellers table
-- **RLS:** `inventory` is tightened (sellers write only their own cards, session 2026-11-20, see "Inventory security"). `sellers`, `shows`, `show_sellers` and `show_inventory` are still permissive.
+- **RLS:** `inventory` and `show_inventory` are tightened (session 2026-11-20, see "Inventory security" and "show_inventory security"). `sellers`, `shows` and `show_sellers` are still permissive.
 
 ## Current RLS Policies (Needs Tightening)
-`inventory` is done (`20261124120000_inventory_rls.sql`, see "Inventory security"). The older core tables
-made in the dashboard (`sellers`, `shows`, `show_sellers`, `show_inventory`) still use permissive
-`using (true)` / `with check (true)`. Next: `auth.uid() = id` for sellers, then `show_inventory` (organizers
-publish other sellers' cards, so it needs an organizer rule, not just own-row).
+`inventory` and `show_inventory` are done (see "Inventory security" and "show_inventory security"). The other
+core tables made in the dashboard (`sellers`, `shows`, `show_sellers`) still use permissive
+`using (true)` / `with check (true)`. Next: `show_sellers` (anyone can still add themselves to any show, which
+also lets them publish there), then `auth.uid() = id` for `sellers`.
 
 ## Pending DB Migrations (run in Supabase SQL editor)
 Required for sold tracking to persist:
@@ -359,6 +360,9 @@ Required for Show Home (Trades + Show Home Phase 2), after the trades migration:
 `supabase/migrations/20261119120000_show_home.sql`. Until it runs, the Shows tab says it's being set up,
 and snapshots are written straight to `inventory_snapshots` from the phone's numbers.
 
+Required to lock down `show_inventory` (see "show_inventory security"), after the inventory security migration:
+`supabase/migrations/20261125120000_show_inventory_rls.sql`.
+
 Required for the CardShow Marketplace (see that section below), after the Show Mode sales migration:
 `supabase/migrations/20261122120000_marketplace_listings.sql` (run in production 2026-11-20), then
 `20261123120000_marketplace_sold_on_insert.sql`. Nothing in the app uses them yet (Phase 0 is database only).
@@ -458,7 +462,7 @@ Fonts: Bebas Neue (headlines), DM Sans (body), DM Mono (labels/badges), Barlow C
 4. **.maybeSingle() not .single()** — always use maybeSingle() for queries that might return 0 rows. .single() returns 406 on empty result.
 5. **No build step** — vanilla HTML only. No webpack, no npm, no compilation. Edit HTML files directly.
 6. **Domain** — all absolute URLs use getcardshow.com. The old card-show.netlify.app domain is fully deprecated.
-7. **RLS** — `inventory` writes are own-row only (`seller_id = auth.uid()`); every client write path was audited first (see "Inventory security"). Any new code that writes `inventory` from the browser must write the signed-in seller's own cards, or go through a SECURITY DEFINER function / the service key. Other core tables are still permissive.
+7. **RLS** — `show_inventory` writes need the card's seller to be in the show (see "show_inventory security"). `inventory` writes are own-row only (`seller_id = auth.uid()`); every client write path was audited first (see "Inventory security"). Any new code that writes `inventory` from the browser must write the signed-in seller's own cards, or go through a SECURITY DEFINER function / the service key. Other core tables are still permissive.
 8. **Seller handle in DB** — inventory rows store seller_id (UUID), not handle. Always look up seller UUID by handle before querying inventory.
 9. **switchView() is async-safe** — guards `event?.target` so it can be called from async functions without throwing. Previously calling it after any `await` would throw a TypeError and halt the calling function silently.
 10. **Seller session restore on page load (2026-10-23, user-approved)** — `initPage()` calls `_restoreSellerSession()`, which signs a saved seller back in via `loginAsSeller(handle, { restored: true })` (no welcome toast). Admin sessions, `?code=`/`?signup=`/`?buyer=` links and auth-error links still run `db.auth.signOut()` first, as before. Sign out is still explicit (`signOut()`).
@@ -2645,7 +2649,7 @@ migration, no new external library.
   two-buyer race test. **Requires `20261122120000_marketplace_listings.sql`.** See "CardShow Marketplace".
 
 ### Tier 1 — Ship before beta show
-- **Tighten RLS policies** (urgent, high complexity) — `inventory` done 2026-11-20; still to do: `sellers`, `show_inventory`, `show_sellers`, `shows`
+- **Tighten RLS policies** (urgent, high complexity) — `inventory` and `show_inventory` done 2026-11-20; still to do: `show_sellers`, `sellers`, `shows`
 - ~~**eBay comp lookup at card entry**~~ — replaced by PriceCharting + TCG API comp check (see Comp Pricing section)
 
 ### Tier 2 — First show retrospective
@@ -6524,6 +6528,41 @@ baselines). The browser e2e tests use a mock Supabase and don't exercise RLS.
 
 **Not covered:** `sellers`, `shows`, `show_sellers`, `show_inventory` are still permissive. Reads of
 `inventory` stay fully public (every column, including `stock_code` and `trust_flag`).
+
+## show_inventory security (session 2026-11-20)
+
+`supabase/migrations/20261125120000_show_inventory_rls.sql` (run after the inventory one; re-runnable).
+Fixes the hole where anyone, signed out included, could put any card in any show or take it out.
+
+**Audit of writers:**
+- Seller, own cards: `_autoPublishCardToShow()` (every add path, Sell Drawer show pick), Add My Cards,
+  Remove cards (`sellerRemoveFromShow()`), `record_trade` (takes traded cards off) and
+  `delete_dealer_trade` (puts them back). Both trade functions are SECURITY INVOKER.
+- Organizer, other sellers' cards in their own show: Publish Inventory (`publishShowInventoryToDB()`,
+  only sellers from `show_sellers`), removing a seller (`removeShowSellerFromDB()`).
+- Platform owner: `_dirDeleteShowFallback()` (before the delete_show migration).
+- Bypass RLS: `record_sale`, `leave_show_as_seller`, `merge_shows`, `delete_show` (definer),
+  `gtcr-trust-check.js` (service key).
+
+**Rules now:**
+- Read: everyone (buyer pages and live sync read as anon). Unchanged.
+- Add (insert, and the update half of the app's `upsert(onConflict show_id,card_id)`): the card's seller
+  must be in `show_sellers` for that show, and the caller is that seller, or the show's organizer.
+- Remove (delete): the card's seller (any show), or the show's organizer.
+- Organizer = `shows.created_by`, or any `admins` member for a show with no `created_by`, or a platform owner
+  (`platform_admins`). Checked by SECURITY DEFINER helpers `_show_inventory_is_organizer()`,
+  `_show_inventory_can_add()`, `_show_inventory_can_remove()`.
+- `anon` has no write grants. A refused add is an RLS error, which the app's callers already log as a
+  console warning; a refused delete removes 0 rows.
+- A seller removed from a show can't put cards back in it, but can still take their cards out.
+- `delete_dealer_trade` is redefined (same body) so undoing a trade skips putting cards back on a show the
+  seller has left, instead of failing the whole undo.
+
+**Tests:** `tests/show-mode/show-inventory-rls.test.sh` — 13 checks, then re-runs trade-logging (15),
+show-log-import (38) and marketplace (33) with both RLS migrations loaded.
+
+**Not covered:** `show_sellers` is still permissive, so someone can add themselves to a show directly and then
+publish there. That's the next table to tighten.
 
 ## Show Configuration (Demo Data)
 - **MLP Card Show** — Oct 17-18, 2026 · Grand Hyatt Tampa Bay, FL · Code: MLPTPA (primary demo, shown to buyers without code)
