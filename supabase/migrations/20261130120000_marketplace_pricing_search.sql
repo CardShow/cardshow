@@ -442,8 +442,7 @@ revoke all on function public._listing_json(uuid, boolean) from public, anon, au
 --      sort ('best'|'price_asc'|'price_desc'|'deal'|'newest'|'distance'), limit (≤50), offset }
 -- Returns { total, limit, offset, results: [listing…] }. Only public listings (see _listing_is_public).
 create or replace function public.search_listings(p jsonb default '{}'::jsonb)
-returns jsonb language plpgsql stable security definer set search_path = public, extensions
-  set pg_trgm.word_similarity_threshold = 0.45 as $$
+returns jsonb language plpgsql stable security definer set search_path = public, extensions as $$
 declare
   v_q text := nullif(lower(btrim(p->>'q')), '');
   v_ts tsquery := public._search_tsquery(p->>'q');
@@ -479,7 +478,9 @@ begin
             or (cardinality(v_words) > 0 and not exists (
                   select 1 from unnest(v_words) w
                    where not (i.search_doc @@ to_tsquery('simple', quote_literal(w) || ':*')
-                              or (length(w) >= 4 and w <% i.search_text)))))
+                              -- Typo match. Not the <% operator: its threshold is a setting Supabase
+                              -- won't let a function change (permission denied for pg_trgm.*).
+                              or (length(w) >= 4 and word_similarity(w, i.search_text) >= 0.45)))))
        and (nullif(p->>'category', '') is null or lower(i.category) = lower(p->>'category'))
        and (nullif(p->>'subcategory', '') is null or lower(i.subcategory) = lower(p->>'subcategory'))
        and (nullif(p->>'player', '') is null or i.player ilike '%' || (p->>'player') || '%')
