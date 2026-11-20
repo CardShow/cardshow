@@ -2594,11 +2594,8 @@
     font-weight: 600; border-radius: 4px; padding: 0.05rem 0.3rem; margin-right: 0.4rem; vertical-align: 1px; white-space: nowrap; }
   .mk-chip--on { color: var(--black); background: var(--accent); }
   .mk-chip--hold { color: var(--accent); border: 1px dashed var(--accent); }
-  .mk-modal { max-width: 520px; width: calc(100vw - 2rem); max-height: calc(100dvh - 2rem); overflow-y: auto; text-align: left; }
-  .mk-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-  .mk-head h3 { margin: 0; font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; letter-spacing: 0.04em; color: var(--text); }
-  .mk-x { background: none; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer; padding: 0.4rem; min-width: 44px; min-height: 44px; }
-  .mk-intro { color: var(--muted); font-size: 0.85rem; margin: 0.4rem 0 0.9rem; line-height: 1.45; }
+  .mk-modal { text-align: left; }
+  .mk-modal .modal-player { font-size: 1.7rem; }
   .mk-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.9rem; }
   .mk-stats div { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem; text-align: center; }
   .mk-stats b { display: block; font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem; color: var(--text); }
@@ -2620,8 +2617,9 @@
   .mk-more { font-size: 0.75rem; color: var(--muted); }
   .mk-result { background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.84rem; color: var(--text); margin-bottom: 0.8rem; }
   .mk-result--bad { border-color: var(--danger); }
-  .mk-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+  .mk-actions { flex-wrap: wrap; }
   .mk-actions .btn { min-height: 44px; flex: 1 1 auto; }
+  .mk-blocked-hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; line-height: 1.4; }
   .mk-actions .btn:disabled { opacity: 0.45; cursor: default; }
   .mk-cem-status { font-size: 0.82rem; color: var(--text); margin-bottom: 0.3rem; }
   .mk-cem-btn { margin-top: 0.5rem; min-height: 44px; width: 100%; }
@@ -6848,6 +6846,8 @@
           <summary>🛒 Marketplace <span class="cost-summary-val" id="cem_mk_summary"></span></summary>
           <div class="cost-private-body">
             <div class="mk-cem-status" id="cem_mk_status"></div>
+            <button type="button" class="btn btn-ghost mk-cem-btn" id="cem_mk_photo_btn" style="display:none;margin:0.2rem 0 0.5rem" onclick="document.getElementById('cem_mk_photo_input').click()">📷 Add a photo of this card</button>
+            <input type="file" id="cem_mk_photo_input" accept="image/*" hidden onchange="mkPhotoPicked(this)">
             <label class="mk-check"><input type="checkbox" id="cem_mk_accept" onchange="mkCemToggleOffers()"> Accept offers</label>
             <div class="cost-grid" id="cem_mk_offer_rows">
               <div>
@@ -7979,7 +7979,7 @@
 <script src="/js/show-log-import.js?v=20261120a"></script>
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
-<script src="/js/marketplace-dealer.js?v=20261120a"></script>
+<script src="/js/marketplace-dealer.js?v=20261120b"></script>
 <script>
 // ── STATE ──
 let inventory = [];

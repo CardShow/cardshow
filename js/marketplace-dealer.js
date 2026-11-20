@@ -25,6 +25,8 @@ const MK_REASONS = {
   trust_flag: 'Stolen / lost report',
   needs_details: 'Needs details',
   no_price: 'No asking price',
+  no_photo: 'No photo of the card',
+  photo_uploading: 'Photo still uploading',
   not_synced: 'Not saved yet',
   not_found: 'Not found',
 };
@@ -35,6 +37,16 @@ let _mkBusy = false;
 // ── Reading a card ──
 function mkListing(card) { return (card && card.ListingStatus) || 'draft'; }
 
+// Every listing needs a seller photo of the actual card (a catalog image never counts).
+// Sealed product is exempt: every box looks the same. Same rule as publish_listings().
+function mkNeedsPhoto(card) { return (card && card.item_type) !== 'sealed'; }
+function mkHasPhoto(card) {
+  if (!card) return false;
+  if (card._primaryCaptureId || card._captureId) return true;
+  try { return !!(card._dbId && typeof _smCaptureIndex !== 'undefined' && _smCaptureIndex.get(card._dbId)); }
+  catch (_) { return false; }
+}
+
 // Why this card can't be listed right now (same order as publish_listings()), or null.
 function mkCantList(card) {
   if (!card) return 'not_found';
@@ -43,6 +55,7 @@ function mkCantList(card) {
   if (card._trustFlag === 'flagged' || card._trustFlag === 'disputed') return 'trust_flag';
   if (card.IdentificationStatus === 'unidentified') return 'needs_details';
   if (!(Number(card.Price) > 0)) return 'no_price';
+  if (mkNeedsPhoto(card) && !mkHasPhoto(card)) return 'no_photo';
   if (!card._dbId) return 'not_synced';
   return null;
 }
@@ -133,6 +146,7 @@ function _mkRenderPanel(result) {
       ${Object.entries(blocked).map(([why, cards]) => `
         <div class="mk-blocked">
           <div class="mk-blocked-head">${_mkEsc(MK_REASONS[why] || why)} · ${cards.length}</div>
+          ${why === 'no_photo' ? '<div class="mk-blocked-hint">Buyers need to see the actual card. Open a card to add a photo, or scan your case in Show Mode. Sealed product doesn\'t need one.</div>' : ''}
           <div class="mk-blocked-cards">${cards.slice(0, 5).map(c =>
             `<button type="button" class="mk-link" onclick="closeMarketplacePanel();openCEM(${inventory.indexOf(c)})">${_mkEsc(c['Card Title'] || c.Player || 'Card')}</button>`).join('')}
             ${cards.length > 5 ? `<span class="mk-more">+${cards.length - 5} more</span>` : ''}</div>
@@ -141,42 +155,46 @@ function _mkRenderPanel(result) {
 
   const resultHTML = result ? `<div class="mk-result ${result.bad ? 'mk-result--bad' : ''}" role="status">${result.html}</div>` : '';
 
+  const notListed = all.filter(c => c.Status !== 'Sold' && mkListing(c) !== 'active' && mkListing(c) !== 'reserved').length;
   ov.innerHTML = `
     <div class="modal mk-modal">
-      <div class="mk-head">
-        <h3 id="mkTitle">Marketplace listings</h3>
-        <button type="button" class="mk-x" aria-label="Close" onclick="closeMarketplacePanel()">✕</button>
-      </div>
-      <p class="mk-intro">Listed cards appear in CardShow buyer search once the marketplace opens. You confirm every order, and a card sold at your table comes off automatically.</p>
-      <div class="mk-stats">
-        <div><b>${listed}</b><span>Listed</span></div>
-        <div><b>${held}</b><span>On hold</span></div>
-        <div><b>${all.filter(c => c.Status !== 'Sold' && mkListing(c) !== 'active' && mkListing(c) !== 'reserved').length}</b><span>Not listed</span></div>
-      </div>
-      ${resultHTML}
-      <div class="mk-scope">${checkedCount ? `Working on the <b>${scope.length}</b> card${scope.length === 1 ? '' : 's'} you checked.` : `Working on all <b>${scope.length}</b> unsold cards. Check cards in the table to pick some.`}</div>
-
-      <div class="mk-section">
-        <div class="section-label">Offers and delivery for cards you list now</div>
-        <label class="mk-check"><input type="checkbox" id="mkAccept" ${d.acceptsOffers ? 'checked' : ''} onchange="_mkToggleOfferRows()"> Accept offers</label>
-        <div class="mk-grid" id="mkOfferRows" style="${d.acceptsOffers ? '' : 'display:none'}">
-          <label>Lowest offer to consider
-            <span class="mk-pct"><input type="number" id="mkMinPct" inputmode="decimal" min="1" max="100" step="1" placeholder="Any" value="${_mkEsc(d.minPct)}"><span>% of asking</span></span></label>
-          <label>Accept automatically at
-            <span class="mk-pct"><input type="number" id="mkAutoPct" inputmode="decimal" min="1" max="100" step="1" placeholder="Never" value="${_mkEsc(d.autoPct)}"><span>% of asking</span></span></label>
+      <div class="modal-header">
+        <div>
+          <div class="modal-player" id="mkTitle">Marketplace listings</div>
+          <div class="modal-title">Listed cards appear in CardShow buyer search once the marketplace opens. You confirm every order, and a card sold at your table comes off automatically.</div>
         </div>
-        <div class="mk-row">
-          <label class="mk-check"><input type="checkbox" id="mkShip" ${d.ship ? 'checked' : ''}> Ship to buyer</label>
-          <label class="mk-check"><input type="checkbox" id="mkPickup" ${d.pickup ? 'checked' : ''}> Pickup at a show</label>
-        </div>
-        <div class="cost-field-err" id="mkErr"></div>
+        <button type="button" class="modal-close mk-x" aria-label="Close" onclick="closeMarketplacePanel()">✕</button>
       </div>
+      <div class="modal-body">
+        <div class="mk-stats">
+          <div><b>${listed}</b><span>Listed</span></div>
+          <div><b>${held}</b><span>On hold</span></div>
+          <div><b>${notListed}</b><span>Not listed</span></div>
+        </div>
+        ${resultHTML}
+        <div class="mk-scope">${checkedCount ? `Working on the <b>${scope.length}</b> card${scope.length === 1 ? '' : 's'} you checked.` : `Working on all <b>${scope.length}</b> unsold cards. Check cards in the table to pick some.`}</div>
 
-      ${blockedHTML}
+        <div class="mk-section">
+          <div class="section-label">Offers and delivery for cards you list now</div>
+          <label class="mk-check"><input type="checkbox" id="mkAccept" ${d.acceptsOffers ? 'checked' : ''} onchange="_mkToggleOfferRows()"> Accept offers</label>
+          <div class="mk-grid" id="mkOfferRows" style="${d.acceptsOffers ? '' : 'display:none'}">
+            <label>Lowest offer to consider
+              <span class="mk-pct"><input type="number" id="mkMinPct" inputmode="decimal" min="1" max="100" step="1" placeholder="Any" value="${_mkEsc(d.minPct)}"><span>% of asking</span></span></label>
+            <label>Accept automatically at
+              <span class="mk-pct"><input type="number" id="mkAutoPct" inputmode="decimal" min="1" max="100" step="1" placeholder="Never" value="${_mkEsc(d.autoPct)}"><span>% of asking</span></span></label>
+          </div>
+          <div class="mk-row">
+            <label class="mk-check"><input type="checkbox" id="mkShip" ${d.ship ? 'checked' : ''}> Ship to buyer</label>
+            <label class="mk-check"><input type="checkbox" id="mkPickup" ${d.pickup ? 'checked' : ''}> Pickup at a show</label>
+          </div>
+          <div class="cost-field-err" id="mkErr"></div>
+        </div>
 
-      <div class="mk-actions">
+        ${blockedHTML}
+      </div>
+      <div class="modal-actions mk-actions">
+        <button type="button" class="btn btn-ghost" id="mkDelistBtn" ${toDelist.length ? '' : 'disabled style="display:none"'} onclick="mkDelistFromPanel()">Take ${toDelist.length} off</button>
         <button type="button" class="btn btn-primary" id="mkListBtn" ${toList.length ? '' : 'disabled'} onclick="mkListFromPanel()">List ${toList.length} card${toList.length === 1 ? '' : 's'}</button>
-        <button type="button" class="btn btn-ghost" id="mkDelistBtn" ${toDelist.length ? '' : 'disabled'} onclick="mkDelistFromPanel()">Take ${toDelist.length} off</button>
       </div>
     </div>`;
 }
@@ -345,8 +363,11 @@ function mkCemFill(card) {
   sum.textContent = label;
   status.textContent = s === 'active' ? 'Listed on the marketplace.'
     : s === 'reserved' ? 'A buyer is holding this card. It can\'t be changed until the hold ends.'
+    : why === 'no_photo' ? 'Can\'t list yet: add a photo of the card. Buyers need to see the actual card.'
     : why && why !== 'sold' ? `Can't list yet: ${MK_REASONS[why] || why}.` : s === 'sold' ? 'Sold.' : 'Not listed.';
   btn.style.display = (s === 'active' || (!why && s !== 'reserved')) ? '' : 'none';
+  const photoBtn = document.getElementById('cem_mk_photo_btn');
+  if (photoBtn) { photoBtn.style.display = why === 'no_photo' ? '' : 'none'; photoBtn.disabled = false; photoBtn.textContent = '📷 Add a photo of this card'; }
   btn.textContent = s === 'active' ? 'Take off marketplace' : 'List on marketplace';
   btn.dataset.action = s === 'active' ? 'delist' : 'list';
   const accepts = card.AcceptsOffers !== false;
@@ -419,5 +440,41 @@ async function mkCemListToggle() {
   } finally {
     _mkBusy = false; btn.disabled = false;
     mkCemFill(card);
+  }
+}
+
+// ── Add a photo to a card (Edit Card) ──
+// Saved like any Show Mode photo: kept on the phone, uploaded by the outbox, then linked as the
+// card's primary photo (attach_capture). Works offline; listing waits until the upload finishes.
+async function mkPhotoPicked(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  const card = inventory.find(c => c._dbId && c._dbId === document.getElementById('cem_mk_details').dataset.dbid);
+  if (!file || !card) return;
+  if (typeof smSaveCapture !== 'function' || typeof smEnqueue !== 'function') {
+    showToast('Photos can\'t be saved on this device', '#ef4444'); return;
+  }
+  const btn = document.getElementById('cem_mk_photo_btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving photo…'; }
+  try {
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+    catch (_) { bmp = await createImageBitmap(file); }
+    const crop = await _smCanvasBlob(_smDrawScaled(bmp, 0, 0, bmp.width, bmp.height, 1400));
+    if (bmp.close) bmp.close();
+    const cap = await smSaveCapture({ crop, original: null, entryPoint: 'case_scan' });
+    await smUpdateCapture(cap.id, { attachedTo: card._dbId });
+    smThumbUrl(cap.id, crop);
+    _smCaptureIndex.set(card._dbId, cap.id);
+    card._captureId = cap.id;
+    await smEnqueue({ type: 'attach_capture', captureId: cap.id, inventoryId: card._dbId });
+    showToast('Photo added');
+  } catch (e) {
+    console.warn('[marketplace] photo not saved', e);
+    showToast('Couldn\'t save the photo — try again', '#ef4444');
+  } finally {
+    mkCemFill(card);
+    const box = document.getElementById('cem_mk_details'); if (box) box.open = true;
+    _mkAfterChange();
   }
 }

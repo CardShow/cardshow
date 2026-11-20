@@ -91,6 +91,7 @@ qrcode.min.js                     → Self-hosted qrcodejs 1.0.0 (all QR codes);
 docs/marketplace-plan-v3.md       → CardShow Marketplace strategy + build plan v3 (the spec); progress and deviations are in "CardShow Marketplace" below
 supabase/migrations/20261122120000_marketplace_listings.sql → Marketplace Phase 0: listing columns on inventory, listing_reservations, listing_events, publish/delist/reserve/release/mark_sold/expire functions + guard triggers
 supabase/migrations/20261123120000_marketplace_sold_on_insert.sql → Follow-up: cards created already sold are marked sold; backfills Sold cards still draft
+supabase/migrations/20261129120000_marketplace_listing_photos.sql → publish_listings() requires a seller photo (sealed product exempt): skips no_photo / photo_uploading
 supabase/migrations/20261124120000_inventory_rls.sql → Inventory security: public read, sellers write only their own cards, GTCR trust fields locked (see "Inventory security")
 supabase/migrations/20261125120000_show_inventory_rls.sql → show_inventory security: sellers publish only their own cards to shows they're in; organizers publish/remove in their own shows (see "show_inventory security")
 supabase/migrations/20261126120000_show_sellers_rls.sql → show_sellers security: public read, only the show's organizer adds/edits/removes sellers; sellers join/leave through the join/leave functions (see "show_sellers security")
@@ -369,8 +370,9 @@ show_inventory one.
 
 Required for the CardShow Marketplace (see that section below), after the Show Mode sales migration:
 `supabase/migrations/20261122120000_marketplace_listings.sql` (run in production 2026-11-20), then
-`20261123120000_marketplace_sold_on_insert.sql`. Nothing in the app uses them yet (Phase 0 is database only).
-Unsold cards start as `listing_status = 'draft'`, sold cards are `sold`; sales keep working unchanged.
+`20261123120000_marketplace_sold_on_insert.sql`. Unsold cards start as `listing_status = 'draft'`, sold cards
+are `sold`; sales keep working unchanged. Then `20261129120000_marketplace_listing_photos.sql` (photo requirement,
+see "Dealer listing controls"). Until it runs, the app still asks for a photo but the server doesn't enforce it.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6494,15 +6496,19 @@ PostgREST, so the guard's session check is exercised. Also checked: `trade-loggi
 
 ### Dealer listing controls (Phase 1, step 1, session 2026-11-20)
 `js/marketplace-dealer.js` (mk*). **Off** behind `MARKETPLACE_UI_LAUNCHED = false`; test on one browser with
-`?marketplace=1` (`=0` clears; localStorage `marketplaceTest`). No migration (uses the Phase 0 columns and functions).
+`?marketplace=1` (`=0` clears; localStorage `marketplaceTest`). Uses the Phase 0 columns and functions, plus
+`20261129120000_marketplace_listing_photos.sql` for the photo rule.
+- **Panel layout** uses the shared modal structure (`.modal` > `.modal-header` with `.modal-player` title and
+  `.modal-close`, `.modal-body`, `.modal-actions`), same padding as the other modals. "Take N off" only shows
+  when something is listed.
 - **🛒 Marketplace** toolbar button (seller, My Inventory tab; `mkUpdateEntry()`) opens `#mkOverlay`:
   - Counts (Listed / On hold / Not listed), and which cards it acts on: checked rows, else every unsold card
     (same rule as Check Comps).
   - Offer and delivery settings for the cards being listed: accept offers, lowest offer and auto-accept as a % of
     each card's asking price (stored as cents per card), ship and/or pickup at a show. Remembered per seller on
     the device (`mkDefaults:<handle>`).
-  - "Can't list yet" grouped by reason (no asking price, stolen/lost report, needs details, on hold, not saved
-    yet), same order as `publish_listings()`; each card opens Edit Card.
+  - "Can't list yet" grouped by reason (no asking price, no photo, stolen/lost report, needs details, on hold, not
+    saved yet), same order as `publish_listings()`; each card opens Edit Card.
   - **List N cards** writes the offer settings first (20 at a time), then calls `publish_listings()` (500 per call)
     and shows what was listed and what the server skipped. **Take N off** calls `delist_listings()`.
 - **Edit Card → 🛒 Marketplace** (`#cem_mk_details`, `mkCemFill/Read/Apply`): status and why it can't be listed,
@@ -6513,9 +6519,23 @@ PostgREST, so the guard's session check is exercised. Also checked: `trade-loggi
 - **LISTED** / **ON HOLD** chips on table rows (`mkChipHTML()`); `dbRowToCard()` reads `ListingStatus`,
   `AcceptsOffers`, `MinOfferCents`, `AutoAcceptCents`, `SaleModes` (read only).
 - Feature guide entry "Marketplace listings" (shown only with the switch on).
-- **Tests:** `tests/show-mode/marketplace-dealer.e2e.mjs` (iPhone 13 + Pixel 7). The mock gained
-  `publish_listings` / `delist_listings` with the SQL's checks.
-- **Not built:** a photo requirement for listing, shipping costs (`shipping_options`), wholesale settings,
+- **Tests:** `tests/show-mode/marketplace-dealer.e2e.mjs` (iPhone 13 + Pixel 7; layout padding, photo rule,
+  sealed exemption, Add photo → upload → list). The mock gained `publish_listings` / `delist_listings` with the
+  SQL's checks, including the photo rule. `marketplace-photos.test.sh` (Postgres, 9 checks).
+- **Photo requirement (decided 2026-11-20, from a competitor review):** every listing needs a seller photo of the
+  actual card; a CardSight catalog image never counts. **Sealed product (`item_type = 'sealed'`) is exempt**; lots
+  and single cards are not.
+  - Server: `publish_listings()` skips `no_photo` (no `primary_capture_id`, or that capture deleted / without a
+    crop) and `photo_uploading` (capture not `uploaded_at` yet), checked after `no_price`. Helper
+    `_listing_photo_state()` (definer, not callable from the app). Cards already listed stay listed.
+  - App: `mkNeedsPhoto()` / `mkHasPhoto()` (`_primaryCaptureId`, `_captureId`, or a photo on this phone in
+    `_smCaptureIndex`); reason "No photo of the card" with a hint (open a card, or scan the case in Show Mode).
+  - **Edit Card → "📷 Add a photo of this card"** (`#cem_mk_photo_btn`, `mkPhotoPicked()`): any photo (camera or
+    library, not cropped), saved through Show Mode's capture path (`smSaveCapture`, entry point `case_scan`) and
+    linked with an `attach_capture` op (sets `primary_capture_id` when empty). Works offline; listing waits for
+    the upload ("Photo still uploading").
+  - Not built: replacing a photo, a back photo, delisting a card whose photo is later deleted, bulk photo add.
+- **Not built:** shipping costs (`shipping_options`), wholesale settings,
   pickup show choice (`pickup_show_id`), and turning the switch on (wait for the buyer site).
 
 ### Next (Phase 1)

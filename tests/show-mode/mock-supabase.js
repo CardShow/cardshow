@@ -246,7 +246,10 @@
         if (name === 'publish_listings') {
           const why = (r.status === 'Sold' || ls === 'sold') ? 'sold' : ls === 'reserved' ? 'reserved'
             : ['flagged','disputed'].includes(r.trust_flag) ? 'trust_flag' : r.identification_status === 'unidentified' ? 'needs_details'
-            : !(Number(r.price) > 0) ? 'no_price' : null;
+            : !(Number(r.price) > 0) ? 'no_price'
+            : (r.item_type || 'card') === 'sealed' ? null
+            : (() => { const c = r.primary_capture_id && S.card_captures.find(x => x.id === r.primary_capture_id);
+                       return !c || c.deleted_at || !c.crop_key ? 'no_photo' : !c.uploaded_at ? 'photo_uploading' : null; })();
           if (why) skipped.push({ id, reason: why }); else { r.listing_status = 'active'; ok.push(id); }
         } else {
           if (ls === 'reserved' || ls === 'sold') skipped.push({ id, reason: ls });
