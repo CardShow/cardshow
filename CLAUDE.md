@@ -6531,8 +6531,8 @@ baselines). The browser e2e tests use a mock Supabase and don't exercise RLS.
 
 ## show_inventory security (session 2026-11-20)
 
-`supabase/migrations/20261125120000_show_inventory_rls.sql` (run after the inventory one; re-runnable).
-Fixes the hole where anyone, signed out included, could put any card in any show or take it out.
+`supabase/migrations/20261125120000_show_inventory_rls.sql` (run after the inventory one; re-runnable;
+run in production 2026-11-20, four policies confirmed). Fixes the hole where anyone, signed out included, could put any card in any show or take it out.
 
 **Audit of writers:**
 - Seller, own cards: `_autoPublishCardToShow()` (every add path, Sell Drawer show pick), Add My Cards,
