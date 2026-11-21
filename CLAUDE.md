@@ -112,6 +112,11 @@ supabase/migrations/20261201120000_show_geocoding.sql → shows.street_address/p
 supabase/migrations/20261202120000_pricing_admin.sql → pricing tables readable by the platform owner only (was every organizer), 'ignored' status, pricing_admin_summary/_unmatched/_resolve — see "Pricing admin"
 netlify/functions/pricing-admin.js → Platform owner POST {action: summary|queue|lookup|match|retry|ignore}: the Pricing tab's server (Card Hedge key stays here)
 js/pricing-admin.js               → Admin "💲 Pricing" tab (platform owner): pricing summary + queue of cards Card Hedge couldn't match — loaded after js/marketplace-dealer.js
+buyer/                            → Marketplace buyer site (Astro, server-rendered, its own Netlify site "cardshow-buyer", base dir buyer/); getcardshow.com proxies /search, /c/*, /d/*, /account, /_astro/* to it — see "Buyer site" and buyer/README.md
+supabase/migrations/20261203120000_marketplace_buyer_site.sql → inventory.public_photo_path/_capture_id (server-managed), public listing-photos bucket, listing_photos_due()/listing_photo_set(), _listing_json() adds photo_path + dealer WhatsApp/Instagram on the listing page
+netlify/lib/listing-photos.js     → Copies listed cards' seller photos to the public listing-photos bucket and deletes them when delisted/sold/flagged/replaced
+netlify/functions/sync-listing-photos.js → Scheduled (every 5 min, needs MARKETPLACE_ENABLED=true): runs the photo sync
+netlify/functions/listing-photos-now.js  → POST {ids} with a seller session: sync the caller's own cards now (called by the dealer app after List / Take off)
 CLAUDE.md                         → This file
 ```
 
@@ -391,7 +396,9 @@ Then `20261130120000_marketplace_pricing_search.sql` (Phase 1: pricing, search, 
 app needs it; until it runs Edit Card just shows no online comp. Then `20261201120000_show_geocoding.sql` (after the
 shows security migration). Until it runs, the Show Directory saves without the street address and ZIP.
 Both ran in production 2026-11-20 (the pricing one after a fix: Supabase refuses `set pg_trgm.*` on a function).
-Then `20261202120000_pricing_admin.sql` (access fix + Pricing tab). Until it runs the Pricing tab can't load.
+Then `20261202120000_pricing_admin.sql` (access fix + Pricing tab; run in production 2026-11-21, four read policies confirmed). Until it runs the Pricing tab can't load.
+Then `20261203120000_marketplace_buyer_site.sql` (public listing photos, dealer contact on listing pages). Until it runs, the buyer
+site shows only catalog images and no WhatsApp/Instagram, and the photo sync functions fail with a console error.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -934,7 +941,8 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `META_GRAPH_VERSION` | Graph API version, `v23.0` |
 | `MARKETPLACE_ENABLED` | Must be exactly `true` for the marketplace's scheduled jobs to run (`expire-listing-reservations`, `refresh-card-values`, `recalc-pricing-priorities`, `saved-search-alerts`). Off by default |
 | `MARKETPLACE_MCP_ENABLED` | Must be exactly `true` for the read-only MCP server at `/mcp` to answer. Off by default |
-| `MARKETPLACE_SITE_URL` | Base for links in MCP results and alert emails (default `https://getcardshow.com`) |
+| `MARKETPLACE_SITE_URL` | Base for links in MCP results and alert emails (default `https://getcardshow.com`); also used by the buyer site |
+| `BUYER_SITE_INDEXING` | Buyer site (its own Netlify site) only: exactly `true` lets search engines index it. Unset until launch |
 | `CARDHEDGE_DAILY_LIMIT` / `CARDHEDGE_PER_MINUTE` | Card Hedge plan limits for the pricing job (defaults 5000 / 60). The job stops at 90% of the daily limit |
 | `MCP_RATE_PER_MINUTE` / `MCP_RATE_PER_DAY` | MCP tool calls allowed per client IP (defaults 60 / 2000) |
 | `LOOPS_API_KEY` | Loops API key (pricing alert + saved-search emails) |
@@ -6703,11 +6711,56 @@ logging, saved-search emails), `marketplace-dealer.e2e.mjs` (comp line). Existin
 with the migration loaded.
 
 **Next (Phase 1, not built):**
-- Buyer site (search page, listing pages with schema.org Product/Offer, storefronts, saved searches UI); needs the
-  framework decision. Seller photos are in a private bucket: the buyer site's server must sign them.
+- ~~Buyer site~~: built (Astro), see "Buyer site" below.
 - ~~Geocode shows~~: done, see "Show geocoding" below.
 - ~~Admin screen for unmatched cards~~: done, see "Pricing admin" below.
 - Run the migration, add `CARDHEDGE_DAILY_LIMIT` from the license, Loops emails, then switch on.
+
+### Buyer site (session 2026-11-21)
+Decisions (Stephen, 2026-11-21): **Astro**; Card Hedge comps **may be shown publicly**; Claude builds it. Taken from the
+recommendations without objection: same domain via proxy, public photo copies, contact + show/table until checkout
+(Phase 2), plain Supabase accounts for buyers (no profile table: saved-search emails come from `auth.users`), noindex
+until launch, no dealer rating yet.
+- **Where:** `buyer/` (Astro 7, `@astrojs/netlify`, `output: 'server'`). A separate Netlify site, **name `cardshow-buyer`,
+  base directory `buyer`**, env `SUPABASE_URL`, `SUPABASE_ANON_KEY`, optional `MARKETPLACE_SITE_URL`, and
+  `BUYER_SITE_INDEXING=true` only at launch. The main site's `_redirects` proxies `/search`, `/account`, `/c/*`, `/d/*`,
+  `/_astro/*` to `cardshow-buyer.netlify.app` and 404s `/buyer/*` (the main site publishes the repo root, so the source
+  would otherwise be served as files). Change the host there if the site gets another name. This is the first part of
+  the repo with a build step and npm dependencies of its own; the main site still has none.
+- **Pages:** `/search` (filters in the URL, `src/lib/search.js` maps URL ↔ `search_listings` params; Use my location =
+  browser geolocation, rounded; "this weekend" / "next 30 days"), `/c/<id>-<slug>` (wrong slug → 301; active / on hold /
+  sold open, anything else 404; schema.org Product + Offer JSON-LD; market value block with % vs market; GTCR block;
+  How to buy = show + table + WhatsApp link with a prefilled message + Instagram; asks `request_card_value_refresh`),
+  `/d/<handle>` (storefront), `/account` (sign in / create / reset password / saved searches with email on/off), `/` →
+  `/search` on the buyer site's own domain.
+- **Data:** only the public functions with the public key (`src/lib/api.js`); the browser uses supabase-js only for
+  sign-in and `saved_searches` (own rows). The Supabase session is shared with the dealer app (same origin and storage
+  key), so a signed-in dealer is signed in here too; a buyer opening `app.html` gets "No seller account found".
+- **Save search:** signed out → `/account?next=save` with the search kept in sessionStorage, saved after sign-in.
+  Saved params drop dates/sort/paging and keep `when` (opening re-applies "this weekend"; alert emails ignore dates).
+- **Caching:** HTML `Netlify-CDN-Cache-Control: s-maxage=60, stale-while-revalidate=300` (404s 30s, errors and
+  `/account` not cached). `X-Robots-Tag: noindex` + robots meta on every page until `BUYER_SITE_INDEXING=true`;
+  filtered and paged search results stay noindex after launch.
+- **Public photos:** seller photos stay in the private `card-captures` bucket. `listing_photos_due()` lists listed,
+  unflagged cards whose current photo (`primary_capture_id`, uploaded) isn't public yet, and public copies that must go
+  (not active/reserved, flagged, photo removed). `netlify/lib/listing-photos.js` copies the crop (else the original) to
+  `listing-photos/<card id>/<capture id>.jpg` and records it with `listing_photo_set()`; a replaced photo's old copy is
+  deleted. Runs every 5 min (`sync-listing-photos`, needs `MARKETPLACE_ENABLED=true`) and right after List / Take off in
+  the dealer app (`mkSyncPhotos()` → `listing-photos-now`, own cards only). `public_photo_*` columns are guarded
+  (`inv_public_photo_guard`); `_listing_json()` only returns `image.photo_path` while it matches the current photo.
+  Sold cards lose their photo (the sold listing page shows the catalog image or none).
+- **MCP:** results gain `image.photo_url` (public URL) when a listing has a public photo.
+- **Before it works in production:** run `20261203120000_marketplace_buyer_site.sql`; create the Netlify site (above);
+  add `https://getcardshow.com/account` to Supabase Auth redirect URLs; list cards (`MARKETPLACE_UI_LAUNCHED` / `?marketplace=1`)
+  and turn on `MARKETPLACE_ENABLED` so photos sync and comps fill in.
+- **Tests:** `tests/show-mode/buyer-site.test.sh` (14 SQL checks: due lists, guard, set/replace/clear, sold/delisted,
+  public JSON with contact only on the listing page, anon refused), `tests/show-mode/listing-photos.test.mjs` (11: copy,
+  replace, remove, failure per card, own-cards-only endpoint), `buyer/test/search.test.mjs` (`npm test`, 5),
+  `buyer/test/site.e2e.mjs` (44 checks on iPhone 13 and Desktop Chrome: `astro dev` against `buyer/test/mock-supabase.mjs`).
+  `marketplace-search.test.sql` still passes 49/49 with this migration loaded.
+- **Not built:** sitemap.xml and a robots.txt for launch; buying (holds, offers, checkout: Phase 2+); dealer ratings;
+  search by city/ZIP (only state or the browser's location); show pages on the buyer site (they link to `show.html`);
+  storefront filters beyond sort; images resized for thumbnails (tiles load the full crop).
 
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only

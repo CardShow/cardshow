@@ -1,0 +1,223 @@
+---
+// /search — every public listing, with filters. Everything is in the URL, so a search can be shared,
+// saved (saved_searches + hourly email alerts) and opened by AI assistants.
+import Base from '../layouts/Base.astro';
+import ListingTile from '../components/ListingTile.astro';
+import { rpc } from '../lib/api.js';
+import { fromQuery, toQuery, PAGE_SIZE, SORTS, CATEGORIES, GRADERS, MILES, STATES, forSaving, describe } from '../lib/search.js';
+
+const { p, form, page } = fromQuery(Astro.url.searchParams);
+const savedId = Astro.url.searchParams.get('saved');
+let result = { total: 0, results: [] as any[] }, failed = false;
+try {
+  result = await rpc('search_listings', { p: { ...p, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE } });
+} catch (e: any) {
+  failed = true;
+  console.error('[search]', e?.message);
+  Astro.locals.cache = 0;
+  Astro.response.status = 503;
+}
+const total = result.total || 0;
+const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+const pageHref = (n: number) => { const q = toQuery(p); return `/search?${q}${q ? '&' : ''}page=${n}`; };
+const anyFilter = Object.keys(p).some(k => k !== 'q' && k !== 'sort');
+const heading = p.q ? `“${p.q}”` : 'All cards';
+const saveParams = forSaving(p);
+---
+<Base title={p.q ? `${p.q} for sale` : 'Cards for sale at card shows'} canonical={`/search${toQuery(p) ? '?' + toQuery(p) : ''}`}
+      noindex={page > 1 || anyFilter} q={p.q || ''}>
+  {savedId && <div class="notice" id="savedOpening" data-saved={savedId}>Opening your saved search…</div>}
+  <div class="search-layout">
+    <aside class="filters">
+      <details id="filterBox" open={anyFilter}>
+        <summary>Filters{anyFilter ? ' · on' : ''}</summary>
+        <form method="get" action="/search" id="filterForm">
+          {p.q && <input type="hidden" name="q" value={p.q} />}
+          <label class="field">Category
+            <select name="category"><option value="">Any</option>{CATEGORIES.map(c => <option selected={form.category === c}>{c}</option>)}</select>
+          </label>
+          <label class="field">Graded or raw
+            <select name="graded">
+              <option value="">Either</option>
+              <option value="graded" selected={form.graded === 'graded'}>Graded</option>
+              <option value="raw" selected={form.graded === 'raw'}>Raw</option>
+            </select>
+          </label>
+          <label class="field">Grader
+            <select name="grader"><option value="">Any</option>{GRADERS.map(g => <option selected={form.grader === g}>{g}</option>)}</select>
+          </label>
+          <div class="two">
+            <label class="field">Min $<input name="min" inputmode="decimal" value={form.min || ''} /></label>
+            <label class="field">Max $<input name="max" inputmode="decimal" value={form.max || ''} /></label>
+          </div>
+          <label class="check"><input type="checkbox" name="deals" value="1" checked={!!form.deals} /> Deals only (10%+ under market)</label>
+          <label class="field">How to get it
+            <select name="how">
+              <option value="">Any</option>
+              <option value="ship" selected={form.how === 'ship'}>Ships to me</option>
+              <option value="pickup" selected={form.how === 'pickup'}>Pick up at a show</option>
+            </select>
+          </label>
+          <label class="field">At a show
+            <select name="when">
+              <option value="">Any time</option>
+              <option value="weekend" selected={form.when === 'weekend'}>This weekend</option>
+              <option value="month" selected={form.when === 'month'}>Next 30 days</option>
+            </select>
+          </label>
+          <label class="field">State
+            <select name="state"><option value="">Any</option>{STATES.map(s => <option selected={form.state === s}>{s}</option>)}</select>
+          </label>
+          <div class="near">
+            <input type="hidden" name="lat" value={form.lat || ''} />
+            <input type="hidden" name="lng" value={form.lng || ''} />
+            <label class="field">Distance
+              <select name="miles">{MILES.map(m => <option value={m} selected={String(m) === (form.miles || '50')}>Within {m} miles</option>)}</select>
+            </label>
+            <button type="button" class="btn" id="nearMe">{form.lat ? 'Near me ✓' : 'Use my location'}</button>
+            {form.lat && <button type="button" class="linkish" id="nearClear">Any distance</button>}
+            <p class="muted small" id="nearMsg" hidden></p>
+          </div>
+          <label class="field">Sort
+            <select name="sort">
+              <option value="">{p.q ? 'Best match' : 'Newest'}</option>
+              {Object.entries(SORTS).filter(([k]) => k !== 'best' && (k !== 'distance' || form.lat)).map(([k, v]) =>
+                <option value={k} selected={form.sort === k}>{v}</option>)}
+            </select>
+          </label>
+          <div class="filter-actions">
+            <button class="btn btn-primary" type="submit">Show results</button>
+            {anyFilter && <a class="btn" href={p.q ? `/search?q=${encodeURIComponent(p.q)}` : '/search'}>Clear</a>}
+          </div>
+        </form>
+      </details>
+    </aside>
+
+    <section class="results">
+      <div class="results-head">
+        <div>
+          <h1>{heading}</h1>
+          <p class="muted">{failed ? 'Search isn’t available right now.' : `${total.toLocaleString('en-US')} ${total === 1 ? 'card' : 'cards'}`}</p>
+        </div>
+        {!failed && <button class="btn" id="saveSearch" type="button"
+            data-params={JSON.stringify(saveParams)} data-name={describe(saveParams)}>🔔 Save search</button>}
+      </div>
+      <p class="muted small" id="saveMsg" role="status"></p>
+
+      {failed && <div class="notice">Something went wrong loading cards. Try again in a minute.</div>}
+      {!failed && total === 0 && (
+        <div class="notice">
+          <p><b>No cards match yet.</b> New cards are listed every day: save this search and we’ll email you when one does.</p>
+          {anyFilter && <p><a href={p.q ? `/search?q=${encodeURIComponent(p.q)}` : '/search'}>Clear the filters</a></p>}
+        </div>
+      )}
+      <div class="grid">
+        {result.results.map((l: any) => <ListingTile l={l} />)}
+      </div>
+      {pages > 1 && (
+        <nav class="pager" aria-label="Pages">
+          {page > 1 ? <a class="btn" href={pageHref(page - 1)} rel="prev">← Previous</a> : <span />}
+          <span class="muted">Page {page} of {pages}</span>
+          {page < pages ? <a class="btn" href={pageHref(page + 1)} rel="next">Next →</a> : <span />}
+        </nav>
+      )}
+    </section>
+  </div>
+</Base>
+
+<style>
+  .search-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; margin-top: 8px; }
+  .filters details { position: sticky; top: 76px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+  .filters summary { cursor: pointer; font-weight: 700; min-height: 32px; display: flex; align-items: center; }
+  .filters form { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .near { display: flex; flex-direction: column; gap: 8px; }
+  .filter-actions { display: flex; gap: 8px; }
+  .filter-actions .btn { flex: 1; }
+  .linkish { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 0; align-self: flex-start; }
+  .small { font-size: 13px; margin: 0; }
+  .results-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .results-head h1 { margin-top: 12px; overflow-wrap: anywhere; }
+  .results-head p { margin: 0; }
+  #saveMsg:empty { display: none; }
+  #saveMsg { margin-bottom: 12px; }
+  .notice { margin-bottom: 16px; }
+  .notice p { margin: 4px 0; }
+  @media (max-width: 860px) {
+    .search-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .filters details { position: static; }
+  }
+  @media (min-width: 861px) { .filters summary { pointer-events: none; list-style: none; } .filters summary::-webkit-details-marker { display: none; } }
+</style>
+
+<script>
+  import { currentUser, saveSearch, setPendingSave, sb } from '../lib/browser.js';
+  import { toQuery } from '../lib/search.js';
+
+  // Filters stay open on desktop.
+  const box = document.getElementById('filterBox') as HTMLDetailsElement | null;
+  if (box && window.matchMedia('(min-width: 861px)').matches) box.open = true;
+
+  // Near me: the browser's location (never stored), rounded to about 100 m in the URL.
+  const form = document.getElementById('filterForm') as HTMLFormElement | null;
+  const msg = document.getElementById('nearMsg');
+  document.getElementById('nearMe')?.addEventListener('click', () => {
+    if (!form) return;
+    if (!navigator.geolocation) { if (msg) { msg.hidden = false; msg.textContent = 'Your browser can’t share its location. Pick a state instead.'; } return; }
+    navigator.geolocation.getCurrentPosition(pos => {
+      (form.elements.namedItem('lat') as HTMLInputElement).value = pos.coords.latitude.toFixed(3);
+      (form.elements.namedItem('lng') as HTMLInputElement).value = pos.coords.longitude.toFixed(3);
+      form.submit();
+    }, () => { if (msg) { msg.hidden = false; msg.textContent = 'Location is off for this site. Pick a state instead, or allow location and try again.'; } },
+    { timeout: 10000, maximumAge: 600000 });
+  });
+  document.getElementById('nearClear')?.addEventListener('click', () => {
+    if (!form) return;
+    (form.elements.namedItem('lat') as HTMLInputElement).value = '';
+    (form.elements.namedItem('lng') as HTMLInputElement).value = '';
+    const sort = form.elements.namedItem('sort') as HTMLSelectElement;
+    if (sort.value === 'distance') sort.value = '';
+    form.submit();
+  });
+  // Empty fields stay out of the URL.
+  form?.addEventListener('submit', () => {
+    for (const el of Array.from(form.elements) as HTMLInputElement[]) {
+      if (el.name && !el.value) el.disabled = true;
+      if (el.name === 'miles' && !(form.elements.namedItem('lat') as HTMLInputElement).value) el.disabled = true;
+    }
+  });
+
+  // Save search: signed in → saved now; otherwise sign in first and it's saved after.
+  const btn = document.getElementById('saveSearch') as HTMLButtonElement | null;
+  const out = document.getElementById('saveMsg');
+  btn?.addEventListener('click', async () => {
+    const params = JSON.parse(btn.dataset.params || '{}'), name = btn.dataset.name || 'Saved search';
+    btn.disabled = true;
+    try {
+      if (!(await currentUser())) {
+        setPendingSave({ params, name });
+        location.href = '/account?next=save';
+        return;
+      }
+      await saveSearch(params, name);
+      if (out) out.innerHTML = 'Saved. We’ll email you when new cards match (at most once an hour). <a href="/account">Manage saved searches</a>';
+      btn.textContent = '✓ Saved';
+    } catch (e: any) {
+      if (out) out.textContent = /saved_search_limit/.test(e?.message || '') ? 'You have 50 saved searches already. Remove one first.' : 'Couldn’t save the search. Try again.';
+      btn.disabled = false;
+    }
+  });
+
+  // /search?saved=<id> (from an alert email): open that saved search.
+  const opening = document.getElementById('savedOpening');
+  if (opening) {
+    (async () => {
+      const id = opening.dataset.saved;
+      if (!(await currentUser())) { location.href = `/account?next=${encodeURIComponent('/search?saved=' + id)}`; return; }
+      const { data } = await sb().from('saved_searches').select('params').eq('id', id).maybeSingle();
+      if (!data) { opening.textContent = 'That saved search was removed.'; return; }
+      const params = { ...(data.params || {}), sort: 'newest' };
+      location.replace('/search?' + toQuery(params));
+    })();
+  }
+</script>

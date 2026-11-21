@@ -1,0 +1,30 @@
+---
+// One listing in a grid (search results, storefronts).
+import { money, gradeLabel, pctLabel, imageFor, dateRange, place } from '../lib/format.js';
+import { env } from '../lib/env.js';
+interface Props { l: any }
+const { l } = Astro.props;
+const img = imageFor(l, { supabaseUrl: env.supabaseUrl(), siteUrl: env.siteUrl() });
+const pct = l.comp ? pctLabel(l.pct_of_comp) : '';
+const show = l.show;
+---
+<a class="tile" href={l.url} data-listing={l.id}>
+  <div class="tile-img">
+    {img ? <img src={img.url} alt={l.title} loading="lazy" decoding="async" /> : <span class="ph">CardShow</span>}
+    {img?.kind === 'catalog' && <span class="chip tag">Catalog image</span>}
+  </div>
+  <div class="tile-body">
+    <div class="tile-chips">
+      <span class="chip chip-grade">{gradeLabel(l)}</span>
+      {l.deal && <span class="chip chip-deal">Deal</span>}
+      {l.gtcr_clear && <span class="chip chip-gtcr">GTCR ✓</span>}
+      {l.listing_status === 'reserved' && <span class="chip chip-hold">On hold</span>}
+    </div>
+    <div class="tile-title">{l.title}</div>
+    <div class="tile-price">{money(l.price_cents)}</div>
+    {l.comp && (
+      <div class="tile-comp">Market {money(l.comp.value_cents)}{pct && <> · <span class={pct.includes('under') ? 'under' : pct.includes('over') ? 'over' : ''}>{pct}</span></>}</div>
+    )}
+    {show && <div class="tile-where">{show.name}{show.start_date ? ` · ${dateRange(show.start_date, show.end_date)}` : ''}{l.miles != null ? ` · ${l.miles} mi` : place(show) ? ` · ${place(show)}` : ''}</div>}
+  </div>
+</a>

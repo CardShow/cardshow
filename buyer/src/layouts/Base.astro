@@ -1,0 +1,79 @@
+---
+// Every buyer page: head (title, description, canonical, link preview, robots), header with search, footer.
+import '../styles/global.css';
+import { env } from '../lib/env.js';
+
+interface Props {
+  title: string;
+  description?: string;
+  canonical?: string;      // path, e.g. /c/<id>-<slug>
+  image?: string | null;   // absolute URL for link previews
+  noindex?: boolean;
+  q?: string;
+}
+const { title, description = 'Graded and raw cards from dealers at card shows near you, priced against recent sales.',
+        canonical, image, noindex = false, q = '' } = Astro.props;
+const site = env.siteUrl();
+const robots = noindex || !env.indexing() ? 'noindex, nofollow' : 'index, follow';
+const canonicalUrl = canonical ? site + canonical : null;
+const fullTitle = title.includes('CardShow') ? title : `${title} · CardShow`;
+---
+<!doctype html>
+<html lang="en" data-sb-url={env.supabaseUrl()} data-sb-key={env.anonKey()}>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{fullTitle}</title>
+  <meta name="description" content={description} />
+  <meta name="robots" content={robots} />
+  {canonicalUrl && <link rel="canonical" href={canonicalUrl} />}
+  <meta property="og:site_name" content="CardShow" />
+  <meta property="og:title" content={fullTitle} />
+  <meta property="og:description" content={description} />
+  {canonicalUrl && <meta property="og:url" content={canonicalUrl} />}
+  {image && <meta property="og:image" content={image} />}
+  <meta name="twitter:card" content={image ? 'summary_large_image' : 'summary'} />
+  <meta name="theme-color" content="#07080c" />
+  <link rel="icon" href={`${site}/assets/app-icon-192.png`} />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;600;700&display=swap" />
+  <slot name="head" />
+</head>
+<body>
+  <header class="site-head">
+    <div class="wrap">
+      <a class="brand" href="/search" aria-label="CardShow Marketplace home">
+        <img src={`${site}/assets/cardshow-emblem.png`} alt="" width="30" height="30" />
+        <b>CardShow</b><span>Marketplace</span>
+      </a>
+      <form class="head-search" action="/search" method="get" role="search">
+        <label class="sr-only" for="headQ">Search cards</label>
+        <input id="headQ" name="q" type="search" value={q} placeholder="Search cards, players, sets…" autocomplete="off" enterkeyhint="search" />
+        <button type="submit">Search</button>
+      </form>
+      <a class="head-link" href="/account" id="headAccount">Sign in</a>
+    </div>
+  </header>
+  <main class="wrap">
+    <slot />
+  </main>
+  <footer class="site-foot">
+    <div class="wrap">
+      <span>© CardShow</span>
+      <a href={`${site}/`}>About</a>
+      <a href={`${site}/app.html`}>Dealers: sign in</a>
+      <a href={`${site}/privacy`}>Privacy</a>
+    </div>
+  </footer>
+  <script>
+    // Header shows "Account" once signed in (session saved by Supabase in this browser).
+    try {
+      const k = Object.keys(localStorage).find(k => /^sb-.*-auth-token$/.test(k));
+      if (k && JSON.parse(localStorage.getItem(k) || 'null')?.access_token) {
+        const a = document.getElementById('headAccount'); if (a) a.textContent = 'Account';
+      }
+    } catch {}
+  </script>
+</body>
+</html>

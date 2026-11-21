@@ -1,0 +1,94 @@
+/* CardShow buyer site. Same brand tokens as the dealer app (dark only, like app.html). */
+:root {
+  --accent: #f5c842;
+  --accent-ink: #07080c;
+  --black: #07080c;
+  --surface: #0d1018;
+  --card: #131828;
+  --border: #1e2640;
+  --text: #e8eaf5;
+  --muted: #8b94b4;
+  --good: #3ecf8e;
+  --warn: #f5a742;
+  --danger: #ef5d6c;
+  --radius: 12px;
+  --font-head: 'Bebas Neue', Impact, sans-serif;
+  --font-body: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--black); color: var(--text); font-family: var(--font-body); font-size: 16px; line-height: 1.45; }
+a { color: inherit; }
+img { max-width: 100%; display: block; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* header */
+.site-head { position: sticky; top: 0; z-index: 20; background: rgba(7, 8, 12, .94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+.site-head .wrap { display: flex; align-items: center; gap: 14px; height: 62px; }
+.brand { display: flex; align-items: center; gap: 8px; text-decoration: none; flex-shrink: 0; }
+.brand img { width: 30px; height: 30px; }
+.brand b { font-family: var(--font-head); font-size: 26px; letter-spacing: .04em; font-weight: 400; }
+.brand span { font-family: var(--font-mono); font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; }
+.head-search { flex: 1; display: flex; min-width: 0; }
+.head-search input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-right: 0; border-radius: 10px 0 0 10px; background: var(--surface); }
+.head-search button { height: 40px; padding: 0 14px; border: 0; border-radius: 0 10px 10px 0; background: var(--accent); color: var(--accent-ink); font-weight: 700; cursor: pointer; }
+.head-link { text-decoration: none; color: var(--muted); font-size: 14px; white-space: nowrap; }
+.head-link:hover { color: var(--text); }
+@media (max-width: 640px) {
+  .site-head .wrap { flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; gap: 10px; }
+  .head-search { order: 3; flex-basis: 100%; }
+  .brand span { display: none; }
+  .head-link { margin-left: auto; }
+}
+
+.site-foot { border-top: 1px solid var(--border); margin-top: 48px; padding: 24px 0 40px; color: var(--muted); font-size: 13px; }
+.site-foot a { color: var(--muted); }
+.site-foot .wrap { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+
+/* common */
+h1 { font-family: var(--font-head); font-weight: 400; letter-spacing: .02em; font-size: 34px; line-height: 1.05; margin: 20px 0 6px; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 18px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--card); text-decoration: none; font-weight: 600; cursor: pointer; }
+.btn:hover { border-color: #33406a; }
+.btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn-primary:hover { border-color: var(--accent); filter: brightness(1.05); }
+.btn[disabled] { opacity: .5; cursor: default; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+.chip-grade { color: var(--text); }
+.chip-deal { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.chip-gtcr { color: var(--good); border-color: rgba(62, 207, 142, .45); }
+.chip-hold { color: var(--warn); border-color: rgba(245, 167, 66, .5); }
+.chip-sold { color: var(--danger); border-color: rgba(239, 93, 108, .5); }
+.notice { border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 14px 16px; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.field input, .field select { width: 100%; min-width: 0; height: 42px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font-size: 16px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 14px; min-height: 42px; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+/* listing grid */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; }
+@media (max-width: 420px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }
+.tile { display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; text-decoration: none; min-width: 0; }
+.tile:hover { border-color: #33406a; }
+.tile-img { aspect-ratio: 5 / 7; background: var(--surface); display: flex; align-items: center; justify-content: center; position: relative; }
+.tile-img img { width: 100%; height: 100%; object-fit: contain; }
+.tile-img .ph { font-family: var(--font-head); color: var(--border); font-size: 28px; }
+.tile-img .tag { position: absolute; left: 6px; bottom: 6px; }
+.tile-body { padding: 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile-title { font-size: 14px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.tile-price { font-weight: 700; font-size: 18px; }
+.tile-comp { font-size: 12px; color: var(--muted); }
+.tile-comp .under { color: var(--good); }
+.tile-comp .over { color: var(--warn); }
+.tile-where { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.pager { display: flex; justify-content: center; align-items: center; gap: 12px; margin: 28px 0 0; }

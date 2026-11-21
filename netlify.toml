@@ -30,6 +30,11 @@
 [functions."saved-search-alerts"]
   schedule = "@hourly"
 
+# Buyer site: copy listed cards' photos to the public listing-photos bucket (and remove them when
+# delisted/sold/flagged). No-op unless MARKETPLACE_ENABLED=true.
+[functions."sync-listing-photos"]
+  schedule = "*/5 * * * *"
+
 # Locate shows (US Census geocoder / Gazetteer) for "cards within X miles". Free, no key.
 [functions."geocode-shows"]
   schedule = "@hourly"
