@@ -391,7 +391,7 @@ Then `20261130120000_marketplace_pricing_search.sql` (Phase 1: pricing, search, 
 app needs it; until it runs Edit Card just shows no online comp. Then `20261201120000_show_geocoding.sql` (after the
 shows security migration). Until it runs, the Show Directory saves without the street address and ZIP.
 Both ran in production 2026-11-20 (the pricing one after a fix: Supabase refuses `set pg_trgm.*` on a function).
-Then `20261202120000_pricing_admin.sql` (access fix + Pricing tab). Until it runs the Pricing tab can't load.
+Then `20261202120000_pricing_admin.sql` (access fix + Pricing tab; run in production 2026-11-21, four read policies confirmed). Until it runs the Pricing tab can't load.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
