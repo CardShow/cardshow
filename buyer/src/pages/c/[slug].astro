@@ -1,0 +1,188 @@
+---
+// /c/<id>-<slug> — one listing. Server-rendered with schema.org Product/Offer data for search engines and
+// AI assistants. Active, on-hold and sold cards open (a shared link keeps working); anything else is a 404.
+// Until checkout exists (Phase 2), buyers contact the dealer or find them at their show table.
+import Base from '../../layouts/Base.astro';
+import { rpc } from '../../lib/api.js';
+import { env } from '../../lib/env.js';
+import { money, gradeLabel, pctLabel, imageFor, dateRange, place, timeAgo } from '../../lib/format.js';
+
+const raw = String(Astro.params.slug || '');
+const id = raw.slice(0, 36);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+let l: any = null, failed = false;
+if (UUID.test(id)) {
+  try { l = await rpc('get_listing', { p_id: id }); } catch (e: any) { failed = true; console.error('[listing]', e?.message); }
+}
+if (failed) { Astro.locals.cache = 0; Astro.response.status = 503; }
+const found = l && !l.error;
+if (!found && !failed) {
+  Astro.response.status = 404;
+  Astro.locals.cache = 30;
+}
+// Old or mistyped slug → the canonical URL.
+if (found && l.url && `/c/${raw}` !== l.url) return Astro.redirect(l.url + Astro.url.search, 301);
+
+const site = env.siteUrl();
+const img = found ? imageFor(l, { supabaseUrl: env.supabaseUrl(), siteUrl: site }) : null;
+const grade = found ? gradeLabel(l) : '';
+const status = found ? l.listing_status : '';
+const pct = found && l.comp ? pctLabel(l.pct_of_comp) : '';
+const show = found ? l.show : null;
+const dealer = found ? l.dealer : null;
+const details = found ? [
+  ['Player / character', l.player], ['Year', l.year], ['Set', l.set], ['Card #', l.number],
+  ['Parallel', l.parallel], ['Grade', grade !== 'Raw' ? grade : 'Raw (ungraded)'], ['Cert #', l.cert_number],
+  ['Serial #', l.serial_number && l.print_run_size ? `${l.serial_number}/${l.print_run_size}` : l.serial_number],
+  ['Features', Array.isArray(l.features) && l.features.length ? l.features.join(', ') : null],
+  ['Category', [l.category, l.subcategory].filter(Boolean).join(' · ')],
+].filter(([, v]) => v !== null && v !== undefined && v !== '') : [];
+const msgText = found ? `Hi! I saw your ${l.title} on CardShow for ${money(l.price_cents)}. Is it still available?` : '';
+const waUrl = dealer?.whatsapp ? `https://wa.me/${dealer.whatsapp}?text=${encodeURIComponent(msgText)}` : null;
+const igUrl = dealer?.instagram ? `https://instagram.com/${encodeURIComponent(dealer.instagram)}` : null;
+const description = found
+  ? `${l.title} · ${grade} · ${money(l.price_cents)}${l.comp ? ` (market ${money(l.comp.value_cents)})` : ''}${show ? ` · at ${show.name}${place(show) ? ', ' + place(show) : ''}` : ''}.`
+  : 'This card isn’t listed any more.';
+const jsonLd = found ? {
+  '@context': 'https://schema.org', '@type': 'Product',
+  name: l.title, sku: l.id, url: site + l.url,
+  ...(img ? { image: img.url } : {}),
+  ...(l.category ? { category: [l.category, l.subcategory].filter(Boolean).join(' > ') } : {}),
+  description,
+  offers: {
+    '@type': 'Offer', url: site + l.url, priceCurrency: 'USD', price: (l.price_cents / 100).toFixed(2),
+    availability: status === 'active' ? 'https://schema.org/InStock' : status === 'sold' ? 'https://schema.org/SoldOut' : 'https://schema.org/LimitedAvailability',
+    seller: { '@type': 'Organization', name: dealer?.display_name || dealer?.handle },
+  },
+} : null;
+---
+<Base title={found ? `${l.title} · ${grade}` : failed ? 'Listing unavailable' : 'Card not found'} description={description}
+      canonical={found ? l.url : undefined} image={img?.url} noindex={!found}>
+  {jsonLd && <script is:inline type="application/ld+json" slot="head" set:html={JSON.stringify(jsonLd).replace(/</g, '\\u003c')} />}
+
+  {!found && (
+    <div class="gone">
+      <h1>{failed ? 'Couldn’t load this card' : 'This card isn’t listed any more'}</h1>
+      <p class="muted">{failed ? 'Try again in a minute.' : 'The dealer sold it or took it off CardShow.'}</p>
+      <a class="btn btn-primary" href="/search">Search other cards</a>
+    </div>
+  )}
+
+  {found && (
+    <article class="listing" data-id={l.id} data-status={status}>
+      <div class="media">
+        {img ? <img src={img.url} alt={l.title} width="500" height="700" /> : <div class="ph">No photo yet</div>}
+        {img?.kind === 'catalog' && <p class="muted small">Catalog image. The dealer’s card may differ (centering, corners).</p>}
+      </div>
+
+      <div class="info">
+        <div class="chips">
+          <span class="chip chip-grade">{grade}</span>
+          {l.deal && <span class="chip chip-deal">Deal</span>}
+          {status === 'reserved' && <span class="chip chip-hold">On hold for a buyer</span>}
+          {status === 'sold' && <span class="chip chip-sold">Sold</span>}
+        </div>
+        <h1>{l.title}</h1>
+        <div class="price">{money(l.price_cents)}</div>
+        {l.accepts_offers && status === 'active' && <p class="muted small">The dealer takes offers.</p>}
+
+        {l.comp ? (
+          <section class="box comp" aria-label="Market value">
+            <div class="row"><span>Market value</span><b>{money(l.comp.value_cents)}</b></div>
+            {pct && <div class={`pct ${pct.includes('under') ? 'under' : pct.includes('over') ? 'over' : ''}`}>This price is {pct.toLowerCase()}</div>}
+            {(l.comp.low_cents || l.comp.high_cents) && <div class="row muted"><span>Recent range</span><span>{money(l.comp.low_cents)}–{money(l.comp.high_cents)}</span></div>}
+            {l.comp.sales_30d != null && <div class="row muted"><span>Sales in the last 30 days</span><span>{l.comp.sales_30d}</span></div>}
+            {l.comp.few_sales && <p class="muted small">Few recent sales, so this value is less certain.</p>}
+            <p class="muted small">Based on recent sales of this card in this grade{l.comp.refreshed_at ? `, updated ${timeAgo(l.comp.refreshed_at)}` : ''}.</p>
+          </section>
+        ) : (
+          <p class="muted small">No market value for this card yet.</p>
+        )}
+
+        {l.gtcr_clear && (
+          <section class="box gtcr">
+            <b>✓ No stolen or lost report</b>
+            <p class="muted small">{l.grader} cert {l.cert_number} was checked with the Global Trading Card Registry this week.</p>
+          </section>
+        )}
+
+        {status !== 'sold' && (
+          <section class="box buy" aria-label="How to buy">
+            <h2>How to buy</h2>
+            <p class="muted small">Buying on CardShow is coming soon. For now, reach the dealer directly{show ? ' or find them at the show' : ''}.</p>
+            {show && (
+              <div class="show">
+                <b>{show.name}</b>
+                <span>{[show.start_date ? dateRange(show.start_date, show.end_date) : '', show.venue, place(show)].filter(Boolean).join(' · ')}</span>
+                {show.table_number && <span class="table">Table {show.table_number}</span>}
+                <a href={`${site}/show.html?id=${encodeURIComponent(show.id)}`}>Show details</a>
+              </div>
+            )}
+            <div class="contact">
+              {waUrl && <a class="btn btn-primary" href={waUrl} rel="nofollow noopener" target="_blank">Message on WhatsApp</a>}
+              {igUrl && <a class="btn" href={igUrl} rel="nofollow noopener" target="_blank">Instagram @{dealer.instagram}</a>}
+            </div>
+            {!waUrl && !igUrl && !show && <p class="muted small">This dealer hasn’t added contact details yet. See their other cards below.</p>}
+          </section>
+        )}
+
+        <dl class="details">
+          {details.map(([k, v]) => <><dt>{k}</dt><dd>{v}</dd></>)}
+        </dl>
+
+        <a class="dealer" href={dealer.url}>
+          <span class="muted small">Sold by</span>
+          <b>{dealer.display_name}</b>
+          <span class="muted small">See all their cards →</span>
+        </a>
+      </div>
+    </article>
+  )}
+</Base>
+
+<style>
+  .gone { text-align: center; padding: 48px 0; }
+  .listing { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 28px; margin-top: 20px; }
+  .media img { width: 100%; height: auto; max-height: 78vh; object-fit: contain; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+  .media .ph { aspect-ratio: 5 / 7; display: flex; align-items: center; justify-content: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted); }
+  .small { font-size: 13px; margin: 6px 0 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .info h1 { margin-top: 10px; overflow-wrap: anywhere; }
+  .price { font-size: 34px; font-weight: 700; }
+  .box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-top: 16px; }
+  .box h2 { font-size: 16px; margin: 0; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .comp .row b { font-size: 20px; }
+  .pct { font-weight: 600; }
+  .pct.under { color: var(--good); }
+  .pct.over { color: var(--warn); }
+  .gtcr b { color: var(--good); }
+  .show { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; padding: 10px 12px; background: var(--surface); border-radius: 10px; }
+  .show .table { font-family: var(--font-mono); color: var(--accent); }
+  .show a { color: var(--accent); font-size: 14px; }
+  .contact { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .details { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 18px 0 0; }
+  .details dt { color: var(--muted); }
+  .details dd { margin: 0; overflow-wrap: anywhere; }
+  .dealer { display: flex; flex-direction: column; margin-top: 18px; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; }
+  .dealer:hover { border-color: #33406a; }
+  @media (max-width: 760px) {
+    .listing { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+    .media img { max-height: 60vh; }
+    .contact .btn { flex: 1 1 100%; }
+  }
+</style>
+
+<script>
+  // Ask for a fresh market value when someone looks at an active card (never waits; the pricing job
+  // picks it up within minutes, and request_card_value_refresh() skips values that are current).
+  const el = document.querySelector('.listing') as HTMLElement | null;
+  const d = document.documentElement.dataset;
+  if (el && el.dataset.status === 'active' && d.sbUrl && d.sbKey) {
+    fetch(`${d.sbUrl}/rest/v1/rpc/request_card_value_refresh`, {
+      method: 'POST', keepalive: true,
+      headers: { apikey: d.sbKey, Authorization: `Bearer ${d.sbKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_listing_id: el.dataset.id }),
+    }).catch(() => {});
+  }
+</script>

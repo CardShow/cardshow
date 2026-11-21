@@ -69,3 +69,8 @@ node catalog-image-search.test.mjs          # catalog-image-search.js with CardS
 ./trade-logging.test.sh                     # record_trade / update / delete: ids, idempotency, refusals, undo order (fresh db)
 TITO_FIXTURE_DIR=/path/to/csvs ./trades.test.sh # Trades + Show Home: Tito's Nov 7 Show Report via dealer_show_report(), then show-home.test.sql (fresh db, runs the migrations itself)
 ```
+
+## Buyer site support
+- `./buyer-site.test.sh` — public listing photos and dealer contact (`20261203120000_marketplace_buyer_site.sql`), 14 checks.
+- `node listing-photos.test.mjs` — photo sync library and `listing-photos-now` against a fake Supabase, 11 checks.
+- The buyer site's own tests live in `buyer/test/` (see `buyer/README.md`).

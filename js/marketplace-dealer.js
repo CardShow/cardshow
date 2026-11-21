@@ -313,6 +313,7 @@ async function mkListCards(cards, settingsFor) {
   }
   published.forEach(id => { const c = byId.get(id); if (c) c.ListingStatus = 'active'; });
   _mkAfterChange();
+  mkSyncPhotos(published);
   let html = published.length ? `✓ ${published.length} card${published.length === 1 ? '' : 's'} listed.` : 'No cards were listed.';
   if (skipped.length) {
     const counts = {};
@@ -322,6 +323,22 @@ async function mkListCards(cards, settingsFor) {
   return { html, bad: !published.length, published, skipped };
 }
 
+// Put listed cards' photos on the buyer site now (or take them off), instead of on the next 5-minute run
+// of sync-listing-photos. Fire and forget: a failure just leaves it to the scheduled run.
+async function mkSyncPhotos(ids) {
+  try {
+    if (!ids || !ids.length || typeof db === 'undefined' || !db) return;
+    const { data } = await db.auth.getSession();
+    const token = data && data.session && data.session.access_token;
+    if (!token) return;
+    for (let i = 0; i < ids.length; i += 200) {
+      fetch('/.netlify/functions/listing-photos-now', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ ids: ids.slice(i, i + 200) }) }).catch(() => {});
+    }
+  } catch (e) { console.warn('[marketplace] photo sync', e); }
+}
+
 async function mkDelistCards(cards) {
   const byId = new Map(cards.map(c => [c._dbId, c]));
   const { data, error } = await db.rpc('delist_listings', { p_ids: [...byId.keys()] });
@@ -329,6 +346,7 @@ async function mkDelistCards(cards) {
   const done = (data && data.delisted) || [], skipped = (data && data.skipped) || [];
   done.forEach(id => { const c = byId.get(id); if (c && mkListing(c) === 'active') c.ListingStatus = 'delisted'; });
   _mkAfterChange();
+  mkSyncPhotos(done);
   let html = `✓ ${done.length} card${done.length === 1 ? '' : 's'} taken off the marketplace.`;
   if (skipped.length) html += ` ${skipped.length} couldn't be taken off (on hold for a buyer or sold).`;
   return { html, bad: !done.length, delisted: done, skipped };

@@ -1,0 +1,72 @@
+---
+// /d/<handle> — a dealer's storefront: every card they have listed.
+import Base from '../../layouts/Base.astro';
+import ListingTile from '../../components/ListingTile.astro';
+import { rpc } from '../../lib/api.js';
+import { PAGE_SIZE, SORTS } from '../../lib/search.js';
+
+const handle = String(Astro.params.handle || '').slice(0, 40);
+const sort = SORTS[Astro.url.searchParams.get('sort') || ''] && Astro.url.searchParams.get('sort') !== 'distance'
+  ? Astro.url.searchParams.get('sort') : 'newest';
+const page = Math.min(Math.max(parseInt(Astro.url.searchParams.get('page') || '1', 10) || 1, 1), 200);
+let store: any = null, result: any = { total: 0, results: [] }, failed = false;
+if (/^[\w.-]{1,40}$/.test(handle)) {
+  try {
+    [store, result] = await Promise.all([
+      rpc('get_dealer_storefront', { p_handle: handle }),
+      rpc('search_listings', { p: { dealer: handle, sort, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE } }),
+    ]);
+  } catch (e: any) { failed = true; console.error('[storefront]', e?.message); }
+}
+const found = store && !store.error;
+if (failed) { Astro.locals.cache = 0; Astro.response.status = 503; }
+else if (!found) { Astro.response.status = 404; Astro.locals.cache = 30; }
+else if (store.handle !== handle) return Astro.redirect(`/d/${store.handle}${Astro.url.search}`, 301);
+const pages = Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE));
+const href = (n: number) => `/d/${handle}?${sort !== 'newest' ? `sort=${sort}&` : ''}page=${n}`;
+---
+<Base title={found ? `${store.display_name}'s cards` : 'Dealer not found'} canonical={found ? store.url : undefined}
+      description={found ? `${store.listings} cards for sale from ${store.display_name} on CardShow.` : undefined} noindex={!found || page > 1}>
+  {!found && (
+    <div class="gone">
+      <h1>{failed ? 'Couldn’t load this dealer' : 'Dealer not found'}</h1>
+      <a class="btn btn-primary" href="/search">Search cards</a>
+    </div>
+  )}
+  {found && (
+    <>
+      <div class="store-head">
+        <div>
+          <h1>{store.display_name}</h1>
+          <p class="muted">@{store.handle} · {store.listings} {store.listings === 1 ? 'card' : 'cards'} listed
+            {store.instagram && <> · <a href={`https://instagram.com/${encodeURIComponent(store.instagram.replace(/^@/, ''))}`} rel="nofollow noopener" target="_blank">Instagram</a></>}</p>
+        </div>
+        <form method="get" class="sort">
+          <label class="field">Sort
+            <select name="sort" onchange="this.form.submit()">
+              {Object.entries(SORTS).filter(([k]) => k !== 'best' && k !== 'distance').map(([k, v]) => <option value={k} selected={sort === k}>{v}</option>)}
+            </select>
+          </label>
+          <noscript><button class="btn" type="submit">Sort</button></noscript>
+        </form>
+      </div>
+      {result.total === 0 && <div class="notice">No cards listed right now.</div>}
+      <div class="grid">{result.results.map((l: any) => <ListingTile l={l} />)}</div>
+      {pages > 1 && (
+        <nav class="pager" aria-label="Pages">
+          {page > 1 ? <a class="btn" href={href(page - 1)} rel="prev">← Previous</a> : <span />}
+          <span class="muted">Page {page} of {pages}</span>
+          {page < pages ? <a class="btn" href={href(page + 1)} rel="next">Next →</a> : <span />}
+        </nav>
+      )}
+    </>
+  )}
+</Base>
+<style>
+  .gone { text-align: center; padding: 48px 0; }
+  .store-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .store-head h1 { overflow-wrap: anywhere; }
+  .store-head p { margin: 0; }
+  .store-head a { color: var(--accent); }
+  .sort { min-width: 200px; }
+</style>

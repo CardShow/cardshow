@@ -1,6 +1,17 @@
 # Marketplace read-only MCP server (Phase 1) — AI assistants connect to https://getcardshow.com/mcp
 /mcp    /.netlify/functions/mcp    200
 
+# Marketplace buyer site (Astro, its own Netlify site built from buyer/, named cardshow-buyer).
+# getcardshow.com serves it at these paths so printed QR codes and the dealer app keep their URLs.
+# If the buyer site gets a different Netlify name, change the host on these lines.
+/search      https://cardshow-buyer.netlify.app/search      200
+/account     https://cardshow-buyer.netlify.app/account     200
+/c/*         https://cardshow-buyer.netlify.app/c/:splat    200
+/d/*         https://cardshow-buyer.netlify.app/d/:splat    200
+/_astro/*    https://cardshow-buyer.netlify.app/_astro/:splat  200
+# The buyer site's source is in this repo (published here as plain files); don't serve it.
+/buyer/*     /buyer-source-not-served  404!
+
 # Platform app
 /app    /app.html    200
 

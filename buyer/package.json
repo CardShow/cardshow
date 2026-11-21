@@ -1,0 +1,17 @@
+{
+  "name": "cardshow-buyer",
+  "private": true,
+  "type": "module",
+  "description": "CardShow Marketplace buyer site (Astro, server-rendered, deployed as its own Netlify site with base directory buyer/)",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@astrojs/netlify": "^8.2.14",
+    "@supabase/supabase-js": "^2.45.0",
+    "astro": "^7.4.13"
+  }
+}

@@ -16,6 +16,7 @@
 
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+const { publicPhotoUrl } = require('../lib/listing-photos');
 const { lookupPlace } = require('../lib/us-places');
 
 const SERVER = { name: 'cardshow', title: 'CardShow', version: '1.0.0' };
@@ -122,7 +123,12 @@ function shapeListing(l, client) {
   const out = { ...l, url: linkify(l.url, client), price: dollars(l.price_cents) };
   if (l.comp) out.comp = { ...l.comp, value: dollars(l.comp.value_cents), low: dollars(l.comp.low_cents), high: dollars(l.comp.high_cents) };
   if (l.dealer) out.dealer = { ...l.dealer, url: linkify(l.dealer.url, client) };
-  if (l.image?.stock_image_url) out.image = { ...l.image, stock_image_url: `${SITE()}${l.image.stock_image_url}` };
+  if (l.image) {
+    out.image = { ...l.image };
+    if (l.image.stock_image_url) out.image.stock_image_url = `${SITE()}${l.image.stock_image_url}`;
+    const photo = publicPhotoUrl(process.env.SUPABASE_URL, l.image.photo_path);
+    if (photo) out.image.photo_url = photo;
+  }
   if (l.show?.id) out.show = { ...l.show, url: linkify(`/show.html?id=${l.show.id}`, client) };
   return out;
 }

@@ -1,0 +1,15 @@
+// CardShow Marketplace buyer site. Every page is rendered on the server (fast on phones, readable by
+// Google, link previews and AI assistants). Deployed as its own Netlify site (base directory buyer/);
+// getcardshow.com proxies /search, /c/*, /d/*, /account and /_astro/* to it (see the repo's _redirects).
+import { defineConfig } from 'astro/config';
+import netlify from '@astrojs/netlify';
+
+export default defineConfig({
+  output: 'server',
+  adapter: netlify(),
+  site: process.env.MARKETPLACE_SITE_URL || 'https://getcardshow.com',
+  trailingSlash: 'never',
+  build: { format: 'file' },
+  devToolbar: { enabled: false },
+  security: { checkOrigin: true },
+});

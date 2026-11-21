@@ -1,0 +1,175 @@
+---
+// /account — sign in / create an account (same Supabase accounts as the dealer app), and saved searches.
+// Rendered in the browser after load: nothing here is cached or indexed.
+import Base from '../layouts/Base.astro';
+Astro.locals.cache = 0;
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+---
+<Base title="Your account" noindex>
+  <div class="acct">
+    <h1>Your account</h1>
+    <p class="notice" id="acctMsg" role="status" hidden></p>
+
+    <section id="signedOut" hidden>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" aria-selected="true" data-mode="in">Sign in</button>
+        <button type="button" role="tab" aria-selected="false" data-mode="up">Create account</button>
+      </div>
+      <form id="authForm" class="stack">
+        <label class="field">Email<input name="email" type="email" autocomplete="email" required /></label>
+        <label class="field">Password<input name="password" type="password" autocomplete="current-password" minlength="8" required /></label>
+        <button class="btn btn-primary" type="submit" id="authSubmit">Sign in</button>
+        <button class="linkish" type="button" id="forgot">Forgot password?</button>
+      </form>
+      <p class="muted small">Dealers: this is the same account you use in the CardShow app.</p>
+    </section>
+
+    <section id="recovery" hidden>
+      <form id="pwForm" class="stack">
+        <label class="field">New password (8+ characters)<input name="password" type="password" autocomplete="new-password" minlength="8" required /></label>
+        <button class="btn btn-primary" type="submit">Save new password</button>
+      </form>
+    </section>
+
+    <section id="signedIn" hidden>
+      <p>Signed in as <b id="who"></b> · <button class="linkish" type="button" id="signOut">Sign out</button></p>
+      <h2>Saved searches</h2>
+      <p class="muted small">We email you when new cards match, at most once an hour per search.</p>
+      <div id="saved" class="saved"><p class="muted">Loading…</p></div>
+    </section>
+  </div>
+</Base>
+
+<style>
+  .acct { max-width: 560px; }
+  .stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-top: 12px; }
+  .tabs button { background: none; border: 0; padding: 10px 14px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; min-height: 44px; }
+  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  .linkish { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 0; align-self: flex-start; }
+  .small { font-size: 13px; }
+  h2 { font-size: 18px; margin: 24px 0 4px; }
+  .saved { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .saved-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
+  .saved-row a.name { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+  .saved-row .check { min-height: 0; font-size: 13px; }
+  #acctMsg { margin-top: 12px; }
+</style>
+
+<script>
+  import { sb, takePendingSave, saveSearch } from '../lib/browser.js';
+  import { toQuery } from '../lib/search.js';
+
+  const $ = (id: string) => document.getElementById(id)!;
+  const msg = (text: string, html = false) => { const m = $('acctMsg'); m.hidden = !text; if (html) m.innerHTML = text; else m.textContent = text; };
+  const next = new URLSearchParams(location.search).get('next') || '';
+  let mode: 'in' | 'up' = 'in';
+  let recovering = /type=recovery/.test(location.hash);
+
+  function esc(s: string) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!)); }
+
+  async function render() {
+    const { data } = await sb().auth.getSession();
+    const user = data?.session?.user;
+    $('recovery').hidden = !(recovering && user);
+    $('signedOut').hidden = !!user;
+    $('signedIn').hidden = !user || recovering;
+    if (!user || recovering) return;
+    $('who').textContent = user.email || '';
+    const head = document.getElementById('headAccount'); if (head) head.textContent = 'Account';
+
+    // A search waiting from before sign-in, or a link to go back to.
+    const pending = takePendingSave();
+    if (pending) {
+      try { await saveSearch(pending.params, pending.name); msg(`Saved “${pending.name}”. We’ll email you when new cards match.`); }
+      catch (e: any) { msg(/saved_search_limit/.test(e?.message || '') ? 'You have 50 saved searches already. Remove one first.' : 'Couldn’t save that search. Try again from the search page.'); }
+    } else if (next.startsWith('/') && !next.startsWith('//') && next !== '/account') {
+      location.replace(next); return;
+    }
+    loadSaved();
+  }
+
+  async function loadSaved() {
+    const box = $('saved');
+    const { data, error } = await sb().from('saved_searches').select('id, name, params, alerts, created_at').order('created_at', { ascending: false });
+    if (error) { box.innerHTML = '<p class="muted">Couldn’t load your saved searches.</p>'; return; }
+    if (!data?.length) { box.innerHTML = '<p class="muted">No saved searches yet. Search for cards, then tap “Save search”.</p>'; return; }
+    box.innerHTML = data.map(s => `
+      <div class="saved-row" data-id="${esc(s.id)}">
+        <a class="name" href="/search?${esc(toQuery(s.params || {}))}">${esc(s.name)}</a>
+        <label class="check"><input type="checkbox" data-act="alerts" ${s.alerts ? 'checked' : ''}/> Email me</label>
+        <button class="linkish" type="button" data-act="delete">Remove</button>
+      </div>`).join('');
+  }
+
+  $('saved').addEventListener('change', async e => {
+    const t = e.target as HTMLInputElement;
+    if (t.dataset.act !== 'alerts') return;
+    const id = t.closest<HTMLElement>('.saved-row')!.dataset.id;
+    const { error } = await sb().from('saved_searches').update({ alerts: t.checked }).eq('id', id);
+    if (error) { t.checked = !t.checked; msg('Couldn’t change that. Try again.'); }
+  });
+  $('saved').addEventListener('click', async e => {
+    const t = e.target as HTMLElement;
+    if (t.dataset.act !== 'delete') return;
+    const row = t.closest<HTMLElement>('.saved-row')!;
+    const { error } = await sb().from('saved_searches').delete().eq('id', row.dataset.id);
+    if (error) msg('Couldn’t remove it. Try again.'); else { row.remove(); if (!$('saved').children.length) loadSaved(); }
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('.tabs button').forEach(b => b.addEventListener('click', () => {
+    mode = b.dataset.mode as 'in' | 'up';
+    document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+    $('authSubmit').textContent = mode === 'in' ? 'Sign in' : 'Create account';
+    ($('authForm').querySelector('[name=password]') as HTMLInputElement).autocomplete = mode === 'in' ? 'current-password' : 'new-password';
+    $('forgot').hidden = mode === 'up';
+    msg('');
+  }));
+
+  $('authForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target as HTMLFormElement;
+    const email = (f.elements.namedItem('email') as HTMLInputElement).value.trim();
+    const password = (f.elements.namedItem('password') as HTMLInputElement).value;
+    const btn = $('authSubmit') as HTMLButtonElement;
+    btn.disabled = true; msg('');
+    try {
+      if (mode === 'in') {
+        const { error } = await sb().auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      } else {
+        const { data, error } = await sb().auth.signUp({ email, password, options: { emailRedirectTo: location.origin + '/account' } });
+        if (error) throw error;
+        if (!data.session) { msg('Check your email to confirm your account, then come back and sign in.'); return; }
+      }
+      await render();
+    } catch (err: any) {
+      msg(/invalid login/i.test(err?.message || '') ? 'Wrong email or password.' : (err?.message || 'Something went wrong. Try again.'));
+    } finally { btn.disabled = false; }
+  });
+
+  $('forgot').addEventListener('click', async () => {
+    const email = ($('authForm').querySelector('[name=email]') as HTMLInputElement).value.trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) { msg('Type your email above first.'); return; }
+    const { error } = await sb().auth.resetPasswordForEmail(email, { redirectTo: location.origin + '/account' });
+    msg(error ? error.message : `If an account exists for ${email}, we sent a link to reset the password.`);
+  });
+
+  $('pwForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const password = ((e.target as HTMLFormElement).elements.namedItem('password') as HTMLInputElement).value;
+    const { error } = await sb().auth.updateUser({ password });
+    if (error) { msg(error.message); return; }
+    recovering = false; history.replaceState(null, '', location.pathname); msg('Password saved.'); render();
+  });
+
+  $('signOut').addEventListener('click', async () => {
+    await sb().auth.signOut();
+    const head = document.getElementById('headAccount'); if (head) head.textContent = 'Sign in';
+    msg('Signed out.'); render();
+  });
+
+  sb().auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY') { recovering = true; render(); } });
+  if (/error_code=/.test(location.hash)) msg('That email link is invalid or has expired. Request a new one.');
+  render().catch(() => msg('Sign-in isn’t available right now.'));
+</script>
