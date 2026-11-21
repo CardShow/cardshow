@@ -109,6 +109,9 @@ netlify/functions/mcp.js          → Read-only MCP server at /mcp (search_cards
 netlify/functions/geocode-shows.js → Scheduled (hourly) + admin POST {show_id}: sets shows.latitude/longitude from US Census data — see "Show geocoding"
 netlify/lib/geocode.js / us-places.js / us-places.json → Census Geocoder call (street addresses) + Census Gazetteer city points (32k places, built by scripts/build_us_places.py)
 supabase/migrations/20261201120000_show_geocoding.sql → shows.street_address/postal_code/geo_*; coordinates locked to the service role / platform owner, cleared on address change
+supabase/migrations/20261202120000_pricing_admin.sql → pricing tables readable by the platform owner only (was every organizer), 'ignored' status, pricing_admin_summary/_unmatched/_resolve — see "Pricing admin"
+netlify/functions/pricing-admin.js → Platform owner POST {action: summary|queue|lookup|match|retry|ignore}: the Pricing tab's server (Card Hedge key stays here)
+js/pricing-admin.js               → Admin "💲 Pricing" tab (platform owner): pricing summary + queue of cards Card Hedge couldn't match — loaded after js/marketplace-dealer.js
 CLAUDE.md                         → This file
 ```
 
@@ -387,6 +390,8 @@ see "Dealer listing controls"). Until it runs, the app still asks for a photo bu
 Then `20261130120000_marketplace_pricing_search.sql` (Phase 1: pricing, search, MCP data). Nothing in the dealer
 app needs it; until it runs Edit Card just shows no online comp. Then `20261201120000_show_geocoding.sql` (after the
 shows security migration). Until it runs, the Show Directory saves without the street address and ZIP.
+Both ran in production 2026-11-20 (the pricing one after a fix: Supabase refuses `set pg_trgm.*` on a function).
+Then `20261202120000_pricing_admin.sql` (access fix + Pricing tab). Until it runs the Pricing tab can't load.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6701,8 +6706,37 @@ with the migration loaded.
 - Buyer site (search page, listing pages with schema.org Product/Offer, storefronts, saved searches UI); needs the
   framework decision. Seller photos are in a private bucket: the buyer site's server must sign them.
 - ~~Geocode shows~~: done, see "Show geocoding" below.
-- Admin screen for unmatched cards (`pricing_unmatched` / `pricing_set_match` exist).
+- ~~Admin screen for unmatched cards~~: done, see "Pricing admin" below.
 - Run the migration, add `CARDHEDGE_DAILY_LIMIT` from the license, Loops emails, then switch on.
+
+### Pricing admin (session 2026-11-21)
+Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only
+(shown by `checkPlatformAdmin()`, hidden on sign-out). Badge = listings that couldn't be matched.
+- **Summary:** listed cards, with a comp, waiting for a match, couldn't match, hidden, Card Hedge calls today vs
+  `CARDHEDGE_DAILY_LIMIT`, last refresh, cards failing to refresh. Notes when `CARDHEDGE_API_KEY` is missing or
+  `MARKETPLACE_ENABLED` is off (manual matches still work then).
+- **Queue** (one row per card = pricing identity, most listings first; filters Couldn't match / Matched by hand /
+  Hidden; search): **Find match** opens an editable Card Hedge search pre-filled without the grade; the result shows
+  title, confidence (flagged below 90%), grade values with the listed grades first and how many listed grades have a
+  value. **Use this match** links every listing of that card and stores the lookup's values at once (no second call).
+  **Try again** sends it back to the automatic queue; **Hide** = no comp for this card ('ignored', never auto-matched;
+  Bring back undoes it). Matched-by-hand rows have Change match / Undo.
+- A card only reaches the queue after `no_match`, or 3 Card Hedge errors (one error is retried automatically).
+- **Server:** `pricing-admin.js` checks `platform_admins`, then calls the database functions with the service key.
+  `lookup` is one `card-match` call, counted in `pricing_api_usage`. `match` validates the values (known grade
+  labels, positive whole cents) before `pricing_apply_values`.
+- **Migration `20261202120000_pricing_admin.sql`:** **access fix**: 20261130120000 used `is_cardshow_admin()`, which
+  is anyone in `admins` (every show organizer), for reading `card_values` / `pricing_cards` / `pricing_api_usage` /
+  `agent_actions` and for the queue functions; now `_pricing_is_platform_admin()` (platform owner) or the service
+  role. Adds `pricing_match_status 'ignored'`, `pricing_admin_summary()`, `pricing_unmatched(status, limit)` (replaces
+  the `(int)` version), `pricing_admin_resolve(identity, match|retry|ignore, card_id, query, title)`;
+  `pricing_set_match()` now goes through it. A manual match is never overwritten by the automatic job.
+- **Tests:** `pricing-admin.test.sh` (14 checks: organizer locked out, platform owner reads, queue + summary, ignore
+  hidden from the job, manual match fills comps by grade and stores the query, job doesn't overwrite it, change match,
+  retry, anon), `pricing-admin.e2e.mjs` (17 checks on iPhone 13 + Pixel 7, function faked in-page).
+- **Not built:** fixing a wrong *automatic* match from here (only unmatched / hand-matched / hidden cards are listed;
+  editing the card's details re-queues it); Card Hedge returns one best match per search, so there's no list of
+  candidates to pick from.
 
 ### Show geocoding (session 2026-11-20)
 "Cards at shows within X miles" needs coordinates on shows. Stephen chose the **US Census** (free, no key).

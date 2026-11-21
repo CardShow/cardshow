@@ -62,6 +62,8 @@ node marketplace-dealer.e2e.mjs "iPhone 13"   # marketplace listing controls (pa
 node marketplace-pricing.test.mjs           # Pricing job (Card Hedge stubbed), read-only MCP server, saved-search emails (run npm install at the repo root first)
 ./show-geocoding.test.sh                    # Show coordinates: guard, reset on address change, platform owner (fresh db)
 node show-geocoding.test.mjs                # Census places + geocoder (stubbed; LIVE=1 for the real one), geocode-shows, MCP near a city
+./pricing-admin.test.sh                     # Pricing admin: organizers locked out, queue, match / retry / ignore (fresh db)
+node pricing-admin.e2e.mjs "iPhone 13"      # Pricing tab (platform owner), function faked in-page; also "Pixel 7"
 ./marketplace-photos.test.sh                # Listing image rule: slab photo for graded, photo or picked catalog image for raw, sealed exempt (fresh db)
 node catalog-image-search.test.mjs          # catalog-image-search.js with CardSight stubbed (exact vs other matches, autos, inserts, number variants)
 ./trade-logging.test.sh                     # record_trade / update / delete: ids, idempotency, refusals, undo order (fresh db)
