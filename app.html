@@ -5477,6 +5477,8 @@
         </div>
 
         <input type="file" id="bulkScanInput" accept="image/*" capture="environment" style="display:none" onchange="handleBulkScanFile(this)">
+        <input type="file" id="bulkScanLibraryInput" accept="image/*" style="display:none" onchange="handleBulkScanFile(this)">
+        <input type="file" id="cardPhotoLibraryInput" accept="image/*" style="display:none" onchange="addCardFromPhotoFile(this)">
         <button class="btn btn-ghost" id="bulkScanBtn" style="width:100%;justify-content:center;font-size:0.78rem;margin-top:0.5rem" onclick="document.getElementById('bulkScanInput').click()">📸 Bulk Scan Showcase</button>
       </div>
 
@@ -6375,6 +6377,12 @@
           </button>
           <div style="font-size:0.62rem;color:#5a6585;font-family:'DM Mono',monospace;text-align:center;margin-top:0.3rem">Photo · barcode · PSA · CGC · SGC</div>
           <div style="text-align:center;margin-top:0.5rem">
+            <a href="#" onclick="event.preventDefault();document.getElementById('cardPhotoLibraryInput').click()"
+              style="font-size:0.72rem;color:var(--gold);font-family:'DM Mono',monospace;text-decoration:underline;cursor:pointer">
+              🖼️ Use a photo I already have
+            </a>
+          </div>
+          <div style="text-align:center;margin-top:0.5rem">
             <a href="#" onclick="event.preventDefault();closeAddCard();document.getElementById('bulkScanInput').click()"
               style="font-size:0.72rem;color:var(--gold);font-family:'DM Mono',monospace;text-decoration:underline;cursor:pointer">
               📸 Scanning a whole showcase? Bulk Scan instead
@@ -6660,6 +6668,10 @@
         <button id="scanPhotoBtn" onclick="scanTakePhoto()"
           style="width:100%;padding:0.9rem 1rem;border-radius:10px;border:2px solid var(--gold);background:#1a1f2e;color:var(--gold);font-family:'Barlow Condensed',sans-serif;font-size:1.35rem;letter-spacing:0.08em;font-weight:700;cursor:pointer;box-shadow:0 0 20px rgba(245,200,66,0.4),inset 0 0 0 0 transparent;text-shadow:0 0 8px rgba(245,200,66,0.5)">
           📷 Take Photo
+        </button>
+        <button id="scanLibraryBtn" onclick="document.getElementById('cardPhotoLibraryInput').click()"
+          style="width:100%;padding:0.6rem 1rem;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:0.85rem;cursor:pointer">
+          🖼️ Use a photo I already have
         </button>
         <!-- vision retry / search fallback (shown on low confidence) -->
         <div id="scanVisionFallback" style="display:none;display:none;flex-direction:column;gap:0.4rem">
@@ -7100,6 +7112,10 @@
         <span class="qa-choice-icon" aria-hidden="true">📸</span>
         <span class="qa-choice-text"><strong>Take a photo of a whole case</strong><span>Finds every card in the picture</span></span>
       </button>
+      <button class="qa-choice" onclick="qaShow('photo')">
+        <span class="qa-choice-icon" aria-hidden="true">🖼️</span>
+        <span class="qa-choice-text"><strong>Use a photo I already have</strong><span>Pick one from your phone or computer</span></span>
+      </button>
       <button class="qa-choice" onclick="qaGo('upload')">
         <span class="qa-choice-icon" aria-hidden="true">📊</span>
         <span class="qa-choice-text"><strong>Upload a spreadsheet</strong><span>A CSV or Excel file of your cards</span></span>
@@ -7109,6 +7125,17 @@
         <span class="qa-choice-text"><strong>Type it in</strong><span>Fill in the details yourself</span></span>
       </button>
       <a class="qa-link" href="/downloads/CardShow_Inventory_Template.xlsx" download>⬇ Download the spreadsheet template</a>
+    </div>
+
+    <div class="qa-screen" id="qaScreenPhoto" style="display:none">
+      <button class="qa-choice" onclick="qaGo('photoOne')">
+        <span class="qa-choice-icon" aria-hidden="true">🃏</span>
+        <span class="qa-choice-text"><strong>A photo of one card</strong><span>The details fill in for you</span></span>
+      </button>
+      <button class="qa-choice" onclick="qaGo('photoCase')">
+        <span class="qa-choice-icon" aria-hidden="true">🗂️</span>
+        <span class="qa-choice-text"><strong>A photo of a whole case</strong><span>Finds every card in the picture</span></span>
+      </button>
     </div>
 
     <div class="qa-screen" id="qaScreenPick" style="display:none">
@@ -17705,7 +17732,39 @@ async function _callVisionScan(base64, mediaType) {
   });
 }
 
+// A photo picked from the device (menu, scanner overlay or Add Card): open Add Card if needed,
+// then read it with the same vision call as Take Photo.
+let _visionFromUpload = false;
+async function addCardFromPhotoFile(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (document.getElementById('certScannerOverlay')?.style.display === 'flex') closeCertScanner();
+  if (!document.getElementById('addCardOverlay')?.classList.contains('open')) openAddCard();
+  let base64;
+  try { base64 = await _posCompressImage(file); }
+  catch {
+    showToast('That photo couldn\'t be opened. Try a JPG or PNG.', 'var(--danger)');
+    return;
+  }
+  _visionCapturedImage = base64;
+  _visionCapturedType  = 'image/jpeg';
+  _visionRetryCount    = 0;
+  _visionFromUpload    = true;
+  showToast('Reading your photo…', 'var(--muted)');
+  try { await _callVisionScan(base64, 'image/jpeg'); }
+  finally { _visionFromUpload = false; }
+}
+
 function _handleVisionFailure(result) {
+  if (_visionFromUpload) {
+    // No scanner overlay is open for an uploaded photo, so say it here and leave the form ready.
+    showToast(result.error === 'low_confidence'
+      ? 'Couldn\'t read the card in that photo. Fill in the details, or try a clearer photo.'
+      : 'Couldn\'t read the photo. Check your connection, or fill in the details.', 'var(--gold)');
+    document.getElementById('ac_player')?.focus();
+    return;
+  }
   _visionRetryCount++;
 
   if (result.error === 'low_confidence') {
@@ -21514,8 +21573,9 @@ const QA_TITLES = {
   sell: 'Is the card already in your inventory?',
   add:  'How do you want to add cards?',
   pick: 'Which card are you selling?',
+  photo: 'What\'s in the photo?',
 };
-const QA_PARENT = { sell: 'root', add: 'root', pick: 'sell' };
+const QA_PARENT = { sell: 'root', add: 'root', pick: 'sell', photo: 'add' };
 let _qaScreen = 'root';
 
 function openQuickActions(screen) {
@@ -21529,7 +21589,7 @@ function closeQuickActions() {
 
 function qaShow(screen) {
   _qaScreen = screen;
-  const ids = { root: 'qaScreenRoot', sell: 'qaScreenSell', add: 'qaScreenAdd', pick: 'qaScreenPick' };
+  const ids = { root: 'qaScreenRoot', sell: 'qaScreenSell', add: 'qaScreenAdd', pick: 'qaScreenPick', photo: 'qaScreenPhoto' };
   Object.entries(ids).forEach(([k, id]) => {
     const el = document.getElementById(id);
     if (el) el.style.display = k === screen ? '' : 'none';
@@ -21553,6 +21613,10 @@ function qaGo(kind) {
   else if (kind === 'trade') tlOpenFromClassic();
   else if (kind === 'scanOne') { openAddCard(); openCertScanner(); }
   else if (kind === 'bulk') document.getElementById('bulkScanInput')?.click();
+  // Photos already on the device: same file inputs without capture="environment",
+  // so phones open the photo library and computers a file picker instead of the camera.
+  else if (kind === 'photoOne') document.getElementById('cardPhotoLibraryInput')?.click();
+  else if (kind === 'photoCase') document.getElementById('bulkScanLibraryInput')?.click();
   else if (kind === 'upload') document.querySelector('#uploadZone input[type="file"]')?.click();
   else if (kind === 'type') openAddCard();
   closeQuickActions();
@@ -21927,6 +21991,7 @@ const FEATURE_GUIDE = [
     { icon: '✏️', name: 'Add a card', desc: 'Type a player name and pick the set and card from the list, or fill in the fields yourself.', action: () => openAddCard() },
     { icon: '📷', name: 'Scan a card', desc: 'Take a photo of a slab or raw card and the details fill in for you.', action: () => { openAddCard(); openCertScanner(); } },
     { icon: '📸', name: 'Bulk scan a showcase', desc: 'One photo of a case or tray finds every card in it. Check them over, then add them together.', action: () => document.getElementById('bulkScanInput')?.click() },
+    { icon: '🖼️', name: 'Use a photo you already have', desc: 'Pick a photo from your phone or computer: one card fills in Add Card, a whole case finds every card in it.', action: () => openQuickActions('photo') },
     { icon: '📊', name: 'Upload a spreadsheet', desc: 'CSV or Excel. Columns are matched automatically, including Shopify, Ludex and Flipwise exports.', action: () => document.querySelector('#uploadZone input[type="file"]')?.click() },
   ]},
   { group: 'At the show', items: [

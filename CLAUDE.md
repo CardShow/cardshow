@@ -4792,6 +4792,22 @@ Back (`qaBack()`, via `QA_PARENT`) and Cancel on every screen; Escape closes. On
 sheet is centered. `#view-seller` gets 5rem bottom padding on mobile so the pill never covers the
 last row.
 
+### Use a photo I already have (session 2026-11-21)
+Seller request: add cards from a photo already on the phone or computer, not only the camera.
+- **Add menu:** new choice **Use a photo I already have** → screen `photo` ("What's in the photo?", Back to Add):
+  **A photo of one card** (`qaGo('photoOne')` → `#cardPhotoLibraryInput`) or **A photo of a whole case**
+  (`qaGo('photoCase')` → `#bulkScanLibraryInput` → the existing `handleBulkScanFile()` review).
+- Both inputs are `accept="image/*"` **without** `capture`, so phones open the photo library and computers a file
+  picker (the camera inputs keep `capture="environment"`).
+- Also offered as **🖼️ Use a photo I already have** in the card scanner (`#scanLibraryBtn`, closes the camera) and
+  under SCAN CARD in Add Card, and in the Feature guide.
+- `addCardFromPhotoFile(input)`: opens Add Card if needed, resizes with `_posCompressImage()` (1024px JPEG), then the
+  same `_callVisionScan()` as Take Photo. `_visionFromUpload` makes `_handleVisionFailure()` show a toast and focus
+  Player instead of the scanner's retry buttons (no scanner is open). A photo the browser can't decode (e.g. HEIC on
+  desktop Chrome) gets "That photo couldn't be opened. Try a JPG or PNG."
+- **Tests:** `tests/show-mode/photo-upload.e2e.mjs` (iPhone 13 + Pixel 7: menu, one card, unreadable photo, Add Card
+  link, scanner button, whole case → review).
+
 ### Key functions (app.html)
 `openQuickActions(screen?)` / `closeQuickActions()` / `qaShow(screen)` / `qaBack()` /
 `qaGo(kind)` / `qaRenderPick()` / `qaSellCard(idx)`. `qaGo()` starts the tool **before** closing
