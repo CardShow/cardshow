@@ -3514,6 +3514,11 @@
     color: var(--text); margin: 0.3rem 0 1rem; line-height: 1.25;
   }
   .qa-screen { display: flex; flex-direction: column; gap: 0.75rem; }
+  .ac-photo-note { align-items: center; gap: 0.6rem; padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-size: 0.76rem; color: var(--muted); }
+  .ac-photo-note img { width: 40px; height: 56px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+  .ac-photo-note strong { color: var(--text); font-weight: 600; }
+  .ac-photo-note span { flex: 1; min-width: 0; }
+  .ac-photo-note button { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 0.76rem; padding: 0.3rem; }
   .qa-choice {
     display: flex; align-items: center; gap: 1rem; width: 100%; min-height: 76px;
     padding: 0.9rem 1rem; text-align: left; cursor: pointer;
@@ -6389,6 +6394,7 @@
             </a>
           </div>
         </div>
+        <div id="ac_photo_note" class="ac-photo-note" style="display:none"></div>
 
         <div>
           <div class="section-label" style="margin-bottom:0.3rem" id="ac_title_label">Card Title *</div>
@@ -8092,7 +8098,7 @@
 <script src="/js/show-log-import.js?v=20261120a"></script>
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
-<script src="/js/card-photo.js?v=20261120d"></script>
+<script src="/js/card-photo.js?v=20261121a"></script>
 <script src="/js/marketplace-dealer.js?v=20261121a"></script>
 <script src="/js/pricing-admin.js?v=20261121a"></script>
 <script>
@@ -17253,6 +17259,7 @@ let _acItemType   = 'card';
 let _acGradeTimer = null;
 
 function openAddCard() {
+  if (typeof cpClearAddPhoto === 'function') cpClearAddPhoto();
   // Clear all fields
   ['ac_title','ac_player','ac_year','ac_year_sealed','ac_set',
    'ac_number','ac_serial','ac_print_run','ac_parallel','ac_grade','ac_cert','ac_price','ac_location','ac_lot_desc',
@@ -17355,6 +17362,7 @@ function _acShow(id, show) {
 
 function closeAddCard() {
   document.getElementById('addCardOverlay').classList.remove('open');
+  if (typeof cpClearAddPhoto === 'function') cpClearAddPhoto();
   const banner = document.getElementById('visionConfirmBanner');
   if (banner) banner.remove();
   _acHideComp();
@@ -17650,6 +17658,7 @@ function scanTakePhoto() {
   _visionCapturedType  = mediaType;
   _visionRetryCount    = 0;
 
+  if (typeof cpSetAddPhoto === 'function') cpSetAddPhoto(video);   // becomes the card's photo when saved
   _callVisionScan(base64, mediaType);
 }
 
@@ -17741,6 +17750,7 @@ async function addCardFromPhotoFile(input) {
   if (!file) return;
   if (document.getElementById('certScannerOverlay')?.style.display === 'flex') closeCertScanner();
   if (!document.getElementById('addCardOverlay')?.classList.contains('open')) openAddCard();
+  if (typeof cpSetAddPhoto === 'function') cpSetAddPhoto(file);   // becomes the card's photo when saved
   let base64;
   try { base64 = await _posCompressImage(file); }
   catch {
@@ -17956,6 +17966,7 @@ function _showVisionConfirmBanner(filledFields) {
 }
 
 function clearVisionData() {
+  if (typeof cpClearAddPhoto === 'function') cpClearAddPhoto();
   // Remove banner
   const banner = document.getElementById('visionConfirmBanner');
   if (banner) banner.remove();
@@ -18378,11 +18389,13 @@ function saveAddCard() {
   card._shows = new Set();
   costFormApply(card, costForm);   // waits on the card until insertCardToDB() has an id
   inventory.push(card);
+  const scanPhoto = typeof cpTakeAddPhoto === 'function' ? cpTakeAddPhoto() : null;
 
   // Persist to Supabase and store the returned UUID on the card
   insertCardToDB(card).then(dbId => {
     if (!dbId) return;
     card._dbId = dbId;
+    if (scanPhoto) cpAttachNewCardPhoto(card, scanPhoto);   // the identify photo becomes the card's photo
     if (activeShowId) _autoPublishCardToShow(card, dbId, activeShowId);
   });
 

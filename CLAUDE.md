@@ -4805,8 +4805,18 @@ Seller request: add cards from a photo already on the phone or computer, not onl
   same `_callVisionScan()` as Take Photo. `_visionFromUpload` makes `_handleVisionFailure()` show a toast and focus
   Player instead of the scanner's retry buttons (no scanner is open). A photo the browser can't decode (e.g. HEIC on
   desktop Chrome) gets "That photo couldn't be opened. Try a JPG or PNG."
+- **The identify photo becomes the card's photo** (same session): Take Photo in the card scanner and "Use a photo I
+  already have" keep the photo (`cpSetAddPhoto()` in `js/card-photo.js`, 1400px JPEG; from the scanner it's the video
+  frame being read). Add Card shows it (`#ac_photo_note`, "Your photo will be saved with this card", **Remove**).
+  `saveAddCard()` takes it (`cpTakeAddPhoto()`) and, once `insertCardToDB()` returns the id, attaches it as the card's
+  seller photo (`cpAttachNewCardPhoto()`: `smSaveCapture` + `attach_capture`, the same path as Edit Card's photo). So it
+  satisfies the listing photo rule (graded cards need the seller's slab photo) and is the photo the buyer site shows.
+  Dropped by Remove, Clear scan data, a new Add Card, or closing without saving. Not done for: a card saved while the
+  insert fails (offline in the classic view saves nothing anyway), Scan-to-Sell / Manual Sale (sold at once, never
+  listed), and the classic whole-case bulk scan (one photo of many cards; Show Mode's case scan already crops per card).
 - **Tests:** `tests/show-mode/photo-upload.e2e.mjs` (iPhone 13 + Pixel 7: menu, one card, unreadable photo, Add Card
-  link, scanner button, whole case → review).
+  link, scanner button, whole case → review, photo saved as the card's photo for upload and fake-camera Take Photo,
+  Remove, close without saving).
 
 ### Key functions (app.html)
 `openQuickActions(screen?)` / `closeQuickActions()` / `qaShow(screen)` / `qaBack()` /
