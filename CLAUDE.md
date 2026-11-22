@@ -6813,6 +6813,10 @@ Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pric
   **Try again** sends it back to the automatic queue; **Hide** = no comp for this card ('ignored', never auto-matched;
   Bring back undoes it). Matched-by-hand rows have Change match / Undo.
 - A card only reaches the queue after `no_match`, or 3 Card Hedge errors (one error is retried automatically).
+- **▶ Run now** (session 2026-11-22, `paRunNow()` → `pricing-admin` action `run`): one pass of the automatic job
+  (`runRefresh()`, ~7s budget), toast with matched / couldn't match / refreshed / why it stopped. Needed because Netlify
+  answers a direct POST to a scheduled function (`refresh-card-values`) on production with an empty 403, so that
+  function's own "admin POST" only works on deploy previews.
 - **Server:** `pricing-admin.js` checks `platform_admins`, then calls the database functions with the service key.
   `lookup` is one `card-match` call, counted in `pricing_api_usage`. `match` validates the values (known grade
   labels, positive whole cents) before `pricing_apply_values`.
