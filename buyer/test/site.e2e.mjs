@@ -47,6 +47,10 @@ try {
     && /\$18,000/.test(t0text) && /Market \$21,000/.test(t0text) && /14% under market/.test(t0text) && /Monster Show/.test(t0text), t0text);
   check('tile: dealer photo from the public bucket', (await t0.locator('img').getAttribute('src')) === `${mock.url}/storage/v1/object/public/listing-photos/${CHAR}/cap.jpg`);
   check('tile: catalog image is labeled', /Catalog image/.test(await page.locator('.tile[data-listing^="2222"]').textContent()));
+  const catImg = page.locator('.tile[data-listing^="2222"] img');
+  await catImg.evaluate(img => img.complete || new Promise(r => { img.onload = r; img.onerror = r; }));
+  const catW = await catImg.evaluate(img => [img.getBoundingClientRect().width, img.naturalWidth]);
+  check('tile: catalog image shown at most its own size, not stretched', catW[1] === 160 && catW[0] <= 160.5, JSON.stringify(catW));
   check('search: no sideways scroll', await noSideScroll());
 
   await page.fill('#headQ', 'charizard'); await page.press('#headQ', 'Enter'); await page.waitForURL(/q=charizard/);
@@ -94,9 +98,17 @@ try {
     && !(await page.isVisible('a:has-text("WhatsApp")'))
     && JSON.parse(await page.textContent('script[type="application/ld+json"]')).offers.availability.endsWith('LimitedAvailability'));
   mock.state.refresh.length = 0;
+  await page.goto(BASE + '/c/22222222-2222-4222-8222-222222222222-2024-prizm-jayden-daniels-silver');
+  const lp = page.locator('.media.is-catalog .frame img');
+  await lp.evaluate(img => img.complete || new Promise(r => { img.onload = r; img.onerror = r; }));
+  const lpW = await lp.evaluate(img => [img.getBoundingClientRect().width, img.naturalWidth]);
+  check('listing: catalog image framed at its own size, not stretched', lpW[1] === 160 && lpW[0] <= 160.5
+    && /Catalog image/.test(await page.textContent('.media')), JSON.stringify(lpW));
+  check('listing: no sideways scroll with a catalog image', await noSideScroll());
+  await wait(300); const refreshBefore = mock.state.refresh.length;
   await page.goto(BASE + '/c/44444444-4444-4444-8444-444444444444-sold-card'); await wait(300);
   check('sold: chip, no how-to-buy, SoldOut, no refresh asked', /Sold/.test(await page.textContent('.chips')) && !(await page.isVisible('.buy'))
-    && JSON.parse(await page.textContent('script[type="application/ld+json"]')).offers.availability.endsWith('SoldOut') && mock.state.refresh.length === 0);
+    && JSON.parse(await page.textContent('script[type="application/ld+json"]')).offers.availability.endsWith('SoldOut') && mock.state.refresh.length === refreshBefore);
   res = await page.goto(BASE + '/c/55555555-5555-4555-8555-555555555555-gone');
   check('unknown listing → 404 page', res.status() === 404 && /isn’t listed any more/.test(await page.textContent('h1')));
   res = await page.goto(BASE + '/c/not-a-uuid');

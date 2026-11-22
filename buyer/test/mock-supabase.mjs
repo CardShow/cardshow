@@ -2,6 +2,8 @@
 // sign-in, and public storage. Synthetic data only. start() → { url, state, close }.
 import http from 'node:http';
 
+// A catalog image is small, like CardSight's (160x224).
+const CATALOG_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAKAAAADgCAIAAAAL9foWAAABYklEQVR42u3RAREAAAQAMcSUSWg5uH2EX3ZP6G9lAWABFmABFmABFmDAAizAAizAAizAgAVYgAVYgAVYgAUYsAALsAALsAALMGABFmABFmABFmDAAizAAizAAizAAgxYgAVYgAVYgAUYsAALsAALsAALMGABFmABFmABFmABBizAAizAAizAAgxYgAVYgAVYgAVYgAELsAALsAALsAADFmABFmABFmABBizAAizAAizAAizAgAVYgAVYgAVYgAELsAALsAALsAADFmABFmABFmABFmDAAizAAizAAizAgAVYgAVYgAVYgAUYsAALsAALsAALMGABFmABFmABFmDAAizAAizAAizAAgxYgAVYgAVYgAUYsAALsAALsAALMGABFmABFmABFmABBizAAizAAizAAgxYgAVYgAVYgAVYgAELsAALsAALsAADFmABFmABFmABBizAAizAAizAAizAgHW9BTKuAwApJTkQAAAAAElFTkSuQmCC', 'base64');
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 const now = Date.now();
 const day = 86400000;
@@ -51,8 +53,8 @@ export async function start({ port = 0 } = {}) {
     if (req.method === 'OPTIONS') return send(204, '', 'text/plain');
     state.calls.push({ method: req.method, path: url.pathname, body: j, query: url.search });
 
-    if (url.pathname.startsWith('/storage/v1/object/public/') || url.pathname === '/.netlify/functions/card-image'
-        || url.pathname.startsWith('/assets/')) return send(200, PNG, 'image/png');
+    if (url.pathname === '/.netlify/functions/card-image') return send(200, CATALOG_PNG, 'image/png');
+    if (url.pathname.startsWith('/storage/v1/object/public/') || url.pathname.startsWith('/assets/')) return send(200, PNG, 'image/png');
     const m = /^\/rest\/v1\/rpc\/(\w+)$/.exec(url.pathname);
     if (m) {
       const name = m[1];

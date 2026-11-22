@@ -105,7 +105,7 @@ function cpCemRender() {
 
   let msg;
   if (hasOwn) msg = 'Your photo of this card.';
-  else if (stockOk) msg = 'Catalog image (not your card). Buyers see it as a representative image. A photo of your own card is better.';
+  else if (stockOk) msg = 'Catalog image (not your card). It\'s low resolution and looks blurry to buyers. A photo of your own card sells better, and search shows cards with your own photo first.';
   else if (graded) {
     const fromTitle = cpGraderOnlyInTitle(card, true);
     msg = (fromTitle ? `The title says ${fromTitle}, so this looks like a graded card. Set the Grader field if it is. ` : '')
@@ -114,7 +114,7 @@ function cpCemRender() {
   }
   else if (sealed) msg = 'Optional. Sealed product can be listed without a photo.';
   else if (cpItemType(card) === 'lot') msg = 'Add a photo of the lot.';
-  else msg = 'No photo yet. Take one, or pick a catalog image of this card.';
+  else msg = 'No photo yet. Take one (it sells best), or pick a catalog image of this card.';
   status.textContent = msg;
 
   take.textContent = hasOwn ? '📷 Replace photo' : (graded ? '📷 Photo of the slab' : '📷 Take or choose a photo');
@@ -222,7 +222,7 @@ async function cpFindCatalog() {
   const parNote = isParallel && results.length
     ? ' Catalog images show the base version, so a color or numbered parallel looks different from your card.' : '';
   const head = results.length
-    ? `<div class="cp-note">Catalog images, not your card. Pick the one that matches exactly: same year, set and number.${parNote}</div>
+    ? `<div class="cp-note">Catalog images, not your card, and low resolution: a photo of your own card looks sharper to buyers. Pick the one that matches exactly: same year, set and number.${parNote}</div>
        <div class="cp-grid cp-grid--match" id="cem_photo_grid">${results.map(tile).join('')}</div>`
     : `<div class="cp-note" id="cem_photo_nomatch">No exact catalog match for this card. Take a photo instead${others.length ? ', or check the card details if one of the cards below is it' : ''}.</div>`;
   const rest = others.length ? `

@@ -114,6 +114,7 @@ netlify/functions/pricing-admin.js → Platform owner POST {action: summary|queu
 js/pricing-admin.js               → Admin "💲 Pricing" tab (platform owner): pricing summary + queue of cards Card Hedge couldn't match — loaded after js/marketplace-dealer.js
 buyer/                            → Marketplace buyer site (Astro, server-rendered, its own Netlify site "cardshow-buyer", base dir buyer/); getcardshow.com proxies /search, /c/*, /d/*, /account, /_astro/* to it — see "Buyer site" and buyer/README.md
 supabase/migrations/20261203120000_marketplace_buyer_site.sql → inventory.public_photo_path/_capture_id (server-managed), public listing-photos bucket, listing_photos_due()/listing_photo_set(), _listing_json() adds photo_path + dealer WhatsApp/Instagram on the listing page
+supabase/migrations/20261204120000_marketplace_photo_ranking.sql → search_listings(): listings with the dealer's own (public) photo rank first; default sort is 'best' for every search
 netlify/lib/listing-photos.js     → Copies listed cards' seller photos to the public listing-photos bucket and deletes them when delisted/sold/flagged/replaced
 netlify/functions/sync-listing-photos.js → Scheduled (every 5 min, needs MARKETPLACE_ENABLED=true): runs the photo sync
 netlify/functions/listing-photos-now.js  → POST {ids} with a seller session: sync the caller's own cards now (called by the dealer app after List / Take off)
@@ -399,6 +400,8 @@ Both ran in production 2026-11-20 (the pricing one after a fix: Supabase refuses
 Then `20261202120000_pricing_admin.sql` (access fix + Pricing tab; run in production 2026-11-21, four read policies confirmed). Until it runs the Pricing tab can't load.
 Then `20261203120000_marketplace_buyer_site.sql` (public listing photos, dealer contact on listing pages). Until it runs, the buyer
 site shows only catalog images and no WhatsApp/Instagram, and the photo sync functions fail with a console error.
+Then `20261204120000_marketplace_photo_ranking.sql` (search puts the dealer's own photos first). Until it runs, search order is
+unchanged (newest first without a query).
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6784,6 +6787,15 @@ until launch, no dealer rating yet.
   replace, remove, failure per card, own-cards-only endpoint), `buyer/test/search.test.mjs` (`npm test`, 5),
   `buyer/test/site.e2e.mjs` (44 checks on iPhone 13 and Desktop Chrome: `astro dev` against `buyer/test/mock-supabase.mjs`).
   `marketplace-search.test.sql` still passes 49/49 with this migration loaded.
+- **Catalog images are small** (session 2026-11-22): CardSight's `/v1/images/cards/{id}` returns about 160–225px JPEGs and
+  has no size option (checked in SDK 4.4.0: only `format` and `default`). So the buyer site never stretches them: tiles
+  (`.tile-img.is-catalog`) and the listing page (`.media.is-catalog .frame`) show them at their own size, centered.
+  Listings with the dealer's own photo rank first (`20261204120000_marketplace_photo_ranking.sql`: 'best' adds 0.1 to the
+  text rank for a current public photo; with no query that means photos first, then newest; the search page's default
+  sort is labeled "Recommended"; `sort: 'newest'` is still strict, as alerts and storefronts use). The dealer app says
+  catalog images are low resolution: Edit Card's Photo section and catalog picker, and a "Using a catalog image" list in
+  the Marketplace panel. Asking CardSight for higher-resolution images is open (Stephen); if they exist it's a change in
+  `netlify/functions/card-image.js`.
 - **Not built:** sitemap.xml and a robots.txt for launch; buying (holds, offers, checkout: Phase 2+); dealer ratings;
   search by city/ZIP (only state or the browser's location); show pages on the buyer site (they link to `show.html`);
   storefront filters beyond sort; images resized for thumbnails (tiles load the full crop).

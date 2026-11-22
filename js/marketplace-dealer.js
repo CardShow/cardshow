@@ -153,6 +153,21 @@ function _mkRenderPanel(result) {
         </div>`).join('')}
     </div>` : '';
 
+  // Listed (or about to be) with only a catalog image: those are low resolution and blurry on the buyer
+  // site, and search shows cards with the dealer's own photo first.
+  const catalogOnly = scope.filter(c => c.Status !== 'Sold' && c.StockImageId && !cpSellerPhotoId(c)
+    && (mkListing(c) === 'active' || toList.includes(c)));
+  const catalogHTML = catalogOnly.length ? `
+    <div class="mk-section">
+      <div class="section-label">Using a catalog image · ${catalogOnly.length}</div>
+      <div class="mk-blocked">
+        <div class="mk-blocked-hint">Catalog images are low resolution and look blurry to buyers. A photo of your own card sells better, and search shows cards with your own photo first.</div>
+        <div class="mk-blocked-cards">${catalogOnly.slice(0, 5).map(c =>
+          `<button type="button" class="mk-link" onclick="closeMarketplacePanel();openCEM(${inventory.indexOf(c)})">${_mkEsc(c['Card Title'] || c.Player || 'Card')}</button>`).join('')}
+          ${catalogOnly.length > 5 ? `<span class="mk-more">+${catalogOnly.length - 5} more</span>` : ''}</div>
+      </div>
+    </div>` : '';
+
   const resultHTML = result ? `<div class="mk-result ${result.bad ? 'mk-result--bad' : ''}" role="status">${result.html}</div>` : '';
 
   const notListed = all.filter(c => c.Status !== 'Sold' && mkListing(c) !== 'active' && mkListing(c) !== 'reserved').length;
@@ -191,6 +206,7 @@ function _mkRenderPanel(result) {
         </div>
 
         ${blockedHTML}
+        ${catalogHTML}
       </div>
       <div class="modal-actions mk-actions">
         <button type="button" class="btn btn-ghost" id="mkDelistBtn" ${toDelist.length ? '' : 'disabled style="display:none"'} onclick="mkDelistFromPanel()">Take ${toDelist.length} off</button>
