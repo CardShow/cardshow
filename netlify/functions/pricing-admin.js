@@ -10,12 +10,16 @@
 //   { action: 'match', identity, card_id, query, title, values? } → link every listing of that card to it and
 //                                                     store the values from the lookup (no second Card Hedge call)
 //   { action: 'retry' | 'ignore', identity }       → back to the automatic queue / hide (no comp)
+//   { action: 'run' }                              → one pass of the automatic pricing job now (same as the
+//                                                     5-minute refresh-card-values schedule, ~7s budget). Netlify
+//                                                     won't let a scheduled function be called by URL in production,
+//                                                     so this is how the platform owner runs it by hand.
 //
 // Needs SUPABASE_URL + SUPABASE_SERVICE_KEY; 'lookup' also needs CARDHEDGE_API_KEY. Works whether or not
 // MARKETPLACE_ENABLED is on (fixing matches before launch is the point).
 
 const { createClient } = require('@supabase/supabase-js');
-const { cardHedgeMatch, bumpUsage, dailyLimit, normalizeGrade } = require('../lib/card-values');
+const { cardHedgeMatch, bumpUsage, dailyLimit, normalizeGrade, runRefresh } = require('../lib/card-values');
 
 const json = (statusCode, body) => ({ statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
@@ -90,6 +94,12 @@ async function handle(event, deps = {}) {
           await db.from('pricing_cards').update({ requested_at: new Date().toISOString() }).eq('card_id', String(b.card_id));
         }
         return json(200, { ok: true, listings: res?.listings ?? 0, values: values.length });
+      }
+      case 'run': {
+        if (!process.env.CARDHEDGE_API_KEY) return json(503, { error: 'no_cardhedge_key' });
+        const summary = await (deps.runRefresh || runRefresh)(db, { budgetMs: 7000, fetchImpl: deps.fetchImpl });
+        console.log('[pricing-admin] run', JSON.stringify(summary));
+        return json(200, { summary });
       }
       case 'retry':
       case 'ignore': {

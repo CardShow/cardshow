@@ -45,6 +45,29 @@ const PA_ERRORS = {
 };
 const paErr = e => PA_ERRORS[e?.code] || PA_ERRORS[e?.message] || e?.message || 'Something went wrong';
 
+// One pass of the automatic pricing job, run from the tab (the 5-minute schedule can't be called by URL).
+async function paRunNow(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  try {
+    const { summary: r = {} } = await paApi('run');
+    const parts = [];
+    if (r.matched) parts.push(`${r.matched} matched`);
+    if (r.no_match) parts.push(`${r.no_match} couldn't match`);
+    if (r.refreshed) parts.push(`${r.refreshed} refreshed`);
+    if (r.match_errors || r.refresh_errors) parts.push(`${(r.match_errors || 0) + (r.refresh_errors || 0)} errors`);
+    const why = { daily_limit: 'Stopped: daily Card Hedge limit reached.', auth_error: 'Stopped: Card Hedge refused the API key.',
+                  rate_limited: 'Stopped: Card Hedge rate limit. Try again in a minute.', time_budget: 'More cards left: run it again.' }[r.stopped] || '';
+    const msg = parts.length ? parts.join(' · ') : (r.calls ? 'Nothing changed' : 'Nothing waiting to price');
+    showToast(`Pricing run: ${msg}${why ? '. ' + why : ''}`, r.stopped === 'auth_error' ? '#ef4444' : undefined);
+    console.log('[pricing] run', r);
+  } catch (e) {
+    showToast('Pricing run failed: ' + paErr(e), '#ef4444');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '▶ Run now'; }
+  }
+  paLoad();
+}
+
 async function paRefreshBadge() {
   try {
     const s = await paApi('summary');
