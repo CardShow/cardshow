@@ -10,6 +10,7 @@ so the dealer app, show pages and printed QR codes keep their URLs.
 | `/c/<id>-<slug>` | One listing: photo, price, market value and % vs market, GTCR check, show + table, WhatsApp / Instagram contact, details, schema.org Product/Offer. Wrong slug → 301 to the right one. |
 | `/d/<handle>` | A dealer's listed cards. |
 | `/account` | Sign in / create account / reset password (same Supabase accounts as the dealer app), saved searches with email on/off. |
+| `/robots.txt`, `/sitemap.xml` | For the whole getcardshow.com domain (the main site proxies them here). Marketplace pages closed to crawlers and no sitemap advertised until `BUYER_SITE_INDEXING=true`. |
 
 Data comes only from the public database functions (`search_listings`, `get_listing`, `get_dealer_storefront`,
 `request_card_value_refresh`) with the public key; saved searches use the signed-in buyer's own rows.

@@ -166,6 +166,18 @@ try {
     && /no-store/.test(res.headers()['netlify-cdn-cache-control'] || ''));
   mock.state.failSearch = false;
 
+  // robots.txt and sitemap.xml (served at getcardshow.com through the main site's proxy rules)
+  let rr = await page.request.get(BASE + '/robots.txt');
+  const robots = await rr.text();
+  check('robots.txt before launch: marketplace closed, no sitemap line, private pages closed', rr.status() === 200
+    && /text\/plain/.test(rr.headers()['content-type']) && /^Disallow: \/c\/$/m.test(robots) && /^Disallow: \/account$/m.test(robots)
+    && !/Sitemap:/.test(robots), robots);
+  rr = await page.request.get(BASE + '/sitemap.xml');
+  const sm = await rr.text();
+  check('sitemap.xml: active listings, their dealers, search and the landing page; no sold or unlisted cards', rr.status() === 200
+    && /xml/.test(rr.headers()['content-type']) && /<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/.test(sm)
+    && sm.includes(`${mock.url}/c/${CHAR}-`) && sm.includes(`${mock.url}/d/`) && sm.includes(`<loc>${mock.url}/search</loc>`)
+    && sm.includes(`<loc>${mock.url}/</loc>`) && !sm.includes('44444444-4444-4444-8444-444444444444'), sm);
   check('no page errors', errors.length === 0, JSON.stringify(errors));
 } catch (e) {
   fails++; console.log('FAIL  crashed:', e.message);

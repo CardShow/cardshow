@@ -6799,7 +6799,19 @@ until launch, no dealer rating yet.
   catalog images are low resolution: Edit Card's Photo section and catalog picker, and a "Using a catalog image" list in
   the Marketplace panel. Asking CardSight for higher-resolution images is open (Stephen); if they exist it's a change in
   `netlify/functions/card-image.js`.
-- **Not built:** sitemap.xml and a robots.txt for launch; buying (holds, offers, checkout: Phase 2+); dealer ratings;
+- **robots.txt + sitemap.xml** (session 2026-11-22): made by the buyer site (`src/lib/seo.js`, `src/pages/robots.txt.js`,
+  `src/pages/sitemap.xml.js`) and served for the whole domain through the main site's `_redirects` (`/robots.txt`,
+  `/sitemap.xml` → cardshow-buyer). Cloudflare (in front of getcardshow.com) adds its own content-signals comment block.
+  - robots.txt always closes `/app`, `/app.html`, `/account`, `/.netlify/`, `/mcp`, `/trade-board`, `/seller-browse`
+    (duplicated by `/d/<handle>`). Before launch it also closes `/search`, `/c/`, `/d/` and has no Sitemap line; with
+    `BUYER_SITE_INDEXING=true` those open and `Sitemap: https://getcardshow.com/sitemap.xml` is added.
+  - sitemap.xml: landing page, `/search`, every public listing (newest 5,050: `search_listings` pages of 50, offset ≤ 5,000;
+    past that add a database function returning ids/slugs/dates), each dealer's storefront, upcoming listed show pages
+    (`show.html?id=`), `/privacy`. `lastmod` = listing date. CDN-cached 1 hour; 503 + Retry-After if the database is down.
+  - Tests: `buyer/test/seo.test.mjs` (5), 2 checks in `site.e2e.mjs`.
+  - At launch: set `BUYER_SITE_INDEXING=true` on cardshow-buyer and redeploy; then submit the sitemap in Google Search
+    Console / Bing Webmaster Tools.
+- **Not built:** buying (holds, offers, checkout: Phase 2+); dealer ratings;
   search by city/ZIP (only state or the browser's location); show pages on the buyer site (they link to `show.html`);
   storefront filters beyond sort; images resized for thumbnails (tiles load the full crop).
 
