@@ -24,11 +24,19 @@ export function photoUrl(supabaseUrl, path) {
   return path && supabaseUrl ? `${supabaseUrl}/storage/v1/object/public/listing-photos/${path}` : null;
 }
 
+// A resized copy of a dealer photo from Netlify's image service (/.netlify/images). Both Netlify sites allow
+// the listing-photos bucket as a remote image source (netlify.toml [images]); the copy is cached at the CDN.
+export function thumbUrl(url, width) {
+  return `/.netlify/images?url=${encodeURIComponent(url)}&w=${width}&q=72`;
+}
+
 // The listing's best image: the dealer's own photo, else the catalog image the dealer picked.
-export function imageFor(l, { supabaseUrl, siteUrl }) {
+// thumb: a width for grid tiles (dealer photos only; catalog images are already small).
+// cdn: false outside Netlify (astro dev and tests), where /.netlify/images doesn't exist.
+export function imageFor(l, { supabaseUrl, siteUrl, thumb = 0, cdn = false }) {
   const img = l?.image || {};
   const photo = photoUrl(supabaseUrl, img.photo_path);
-  if (photo) return { url: photo, kind: 'photo' };
+  if (photo) return { url: thumb && cdn ? thumbUrl(photo, thumb) : photo, full: photo, kind: 'photo' };
   if (img.stock_image_url) return { url: siteUrl + img.stock_image_url, kind: 'catalog' };
   return null;
 }

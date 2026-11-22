@@ -1,0 +1,175 @@
+---
+// /s/<key> — one show: its details, the dealers there (with table numbers) and every card listed for it
+// (published to the show or picked as the pickup show). key = the show's slug when it has one, else its id;
+// an id for a show with a slug, or a merged show, redirects. show.html keeps the floor map and directory.
+import Base from '../../layouts/Base.astro';
+import ListingTile from '../../components/ListingTile.astro';
+import { rpc } from '../../lib/api.js';
+import { env } from '../../lib/env.js';
+import { fromQuery, PAGE_SIZE, SORTS, CATEGORIES } from '../../lib/search.js';
+import { dateRange, place } from '../../lib/format.js';
+
+const key = String(Astro.params.key || '').slice(0, 120);
+const { p, form, page } = fromQuery(Astro.url.searchParams);
+// Only the filters this page offers; the show is fixed.
+const params: any = { show_id: '', limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE };
+for (const k of ['q', 'category', 'raw', 'dealer', 'sort']) if (p[k] !== undefined && !(k === 'sort' && p[k] === 'distance')) params[k] = p[k];
+
+let show: any = null, result: any = { total: 0, results: [] }, failed = false;
+if (/^[\w-]{1,120}$/.test(key)) {
+  try {
+    show = await rpc('get_show_page', { p_key: key });
+    if (show && !show.error && !show.redirect) {
+      params.show_id = show.id;
+      result = await rpc('search_listings', { p: params });
+    }
+  } catch (e: any) { failed = true; console.error('[show]', e?.message); }
+}
+if (show?.redirect) return Astro.redirect(show.redirect + Astro.url.search, 301);
+const found = show && !show.error;
+if (failed) { Astro.locals.cache = 0; Astro.response.status = 503; }
+else if (!found) { Astro.response.status = 404; Astro.locals.cache = 30; }
+
+const site = env.siteUrl();
+const filtered = ['q', 'category', 'raw', 'dealer', 'sort'].some(k => params[k] !== undefined);
+const pages = Math.max(1, Math.ceil((result.total || 0) / PAGE_SIZE));
+const base = found ? show.url : '';
+const qs = (extra: Record<string, string | number>) => {
+  const sp = new URLSearchParams();
+  if (form.q) sp.set('q', form.q);
+  if (form.category) sp.set('category', form.category);
+  if (form.graded) sp.set('graded', form.graded);
+  if (params.dealer) sp.set('dealer', params.dealer);
+  if (form.sort && form.sort !== 'distance') sp.set('sort', form.sort);
+  for (const [k, v] of Object.entries(extra)) sp.set(k, String(v));
+  const s = sp.toString();
+  return s ? `${base}?${s}` : base;
+};
+const when = found ? (show.start_date ? dateRange(show.start_date, show.end_date) : show.date_text || '') : '';
+const where = found ? [show.venue, place(show)].filter(Boolean).join(', ') : '';
+const dealerNow = found && params.dealer ? show.dealers.find((d: any) => d.handle.toLowerCase() === String(params.dealer).toLowerCase()) : null;
+const description = found
+  ? `${show.listed_cards} cards for sale at ${show.name}${when ? `, ${when}` : ''}${where ? `, ${where}` : ''}. See prices, market values and dealer table numbers before you go.`
+  : undefined;
+const jsonLd = found && show.start_date ? {
+  '@context': 'https://schema.org', '@type': 'Event', name: show.name, url: site + show.url,
+  startDate: show.start_date, endDate: show.end_date || show.start_date,
+  eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
+  eventStatus: 'https://schema.org/EventScheduled',
+  location: { '@type': 'Place', name: show.venue || show.name,
+    address: { '@type': 'PostalAddress', streetAddress: show.street_address, addressLocality: show.city, addressRegion: show.state, addressCountry: 'US' } },
+  description,
+} : null;
+---
+<Base title={found ? `${show.name}${when ? ` · ${when}` : ''}` : failed ? 'Show unavailable' : 'Show not found'}
+      description={description} canonical={found ? show.url : undefined}
+      noindex={!found || !show.listed || show.ended || filtered || page > 1} q={form.q || ''}>
+  {jsonLd && <script is:inline type="application/ld+json" slot="head" set:html={JSON.stringify(jsonLd).replace(/</g, '\\u003c')} />}
+  {!found && (
+    <div class="gone">
+      <h1>{failed ? 'Couldn’t load this show' : 'Show not found'}</h1>
+      <a class="btn btn-primary" href="/search">Search cards</a>
+    </div>
+  )}
+  {found && (
+    <>
+      <header class="show-head">
+        <div>
+          {show.ended && <span class="chip chip-sold">This show has ended</span>}
+          <h1>{show.name}</h1>
+          <p class="when">{[when, where].filter(Boolean).join(' · ')}</p>
+          <p class="links">
+            <a href={`${site}${show.show_page}`}>Floor map &amp; table directory</a>
+            {show.website && <a href={show.website} rel="nofollow noopener" target="_blank">Show website ↗</a>}
+          </p>
+        </div>
+        <p class="count"><b>{show.listed_cards.toLocaleString('en-US')}</b> {show.listed_cards === 1 ? 'card' : 'cards'} listed</p>
+      </header>
+
+      {show.dealers.length > 0 && (
+        <section class="dealers" aria-label="Dealers at this show">
+          <h2>Dealers ({show.dealers.length})</h2>
+          <div class="dealer-list">
+            {show.dealers.map((d: any) => (
+              <a class={`dealer-chip${dealerNow?.handle === d.handle ? ' on' : ''}`}
+                 href={dealerNow?.handle === d.handle ? base : `${base}?dealer=${encodeURIComponent(d.handle)}`}>
+                {d.table_number && <span class="tbl">Table {d.table_number}</span>}
+                <b>{d.display_name}</b>
+                <span class="muted">{d.listings} {d.listings === 1 ? 'card' : 'cards'}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <form method="get" class="show-filters" action={base}>
+        {params.dealer && <input type="hidden" name="dealer" value={params.dealer} />}
+        <label class="field grow">Search this show<input name="q" value={form.q || ''} placeholder="Player, set, card…" /></label>
+        <label class="field">Category
+          <select name="category"><option value="">Any</option>{CATEGORIES.map(c => <option selected={form.category === c}>{c}</option>)}</select>
+        </label>
+        <label class="field">Graded or raw
+          <select name="graded">
+            <option value="">Either</option>
+            <option value="graded" selected={form.graded === 'graded'}>Graded</option>
+            <option value="raw" selected={form.graded === 'raw'}>Raw</option>
+          </select>
+        </label>
+        <label class="field">Sort
+          <select name="sort">
+            <option value="">Recommended</option>
+            {Object.entries(SORTS).filter(([k]) => k !== 'best' && k !== 'distance').map(([k, v]) => <option value={k} selected={form.sort === k}>{v}</option>)}
+          </select>
+        </label>
+        <button class="btn btn-primary" type="submit">Show</button>
+      </form>
+
+      <p class="muted results-line" id="showResults">
+        {failed ? '' : `${(result.total || 0).toLocaleString('en-US')} ${result.total === 1 ? 'card' : 'cards'}`}
+        {dealerNow && <> from {dealerNow.display_name} · <a href={base}>all dealers</a></>}
+        {filtered && !dealerNow && <> · <a href={base}>clear</a></>}
+      </p>
+      {!failed && result.total === 0 && (
+        <div class="notice">{filtered ? 'No cards match. Try fewer filters.' : 'No cards listed for this show yet. Dealers add cards up to the day of the show.'}</div>
+      )}
+      <div class="grid">{result.results.map((l: any) => <ListingTile l={l} />)}</div>
+      {pages > 1 && (
+        <nav class="pager" aria-label="Pages">
+          {page > 1 ? <a class="btn" href={qs({ page: page - 1 })} rel="prev">← Previous</a> : <span />}
+          <span class="muted">Page {page} of {pages}</span>
+          {page < pages ? <a class="btn" href={qs({ page: page + 1 })} rel="next">Next →</a> : <span />}
+        </nav>
+      )}
+    </>
+  )}
+</Base>
+
+<style>
+  .gone { text-align: center; padding: 48px 0; }
+  .show-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .show-head > div { min-width: 0; }
+  .show-head h1 { overflow-wrap: anywhere; margin-top: 12px; }
+  .when { margin: 0; font-size: 17px; }
+  .links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 0; }
+  .links a { color: var(--accent); }
+  .count { margin: 0; color: var(--muted); }
+  .count b { color: var(--text); font-size: 22px; }
+  .dealers h2 { font-size: 16px; margin: 18px 0 8px; }
+  .dealer-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+  .dealer-chip { flex: 0 0 auto; display: flex; flex-direction: column; gap: 1px; min-width: 132px; max-width: 220px; padding: 8px 12px;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--card); text-decoration: none; font-size: 14px; }
+  .dealer-chip b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dealer-chip:hover { border-color: #33406a; }
+  .dealer-chip.on { border-color: var(--accent); }
+  .dealer-chip .tbl { font-family: var(--font-mono); color: var(--accent); font-size: 12px; }
+  .show-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 16px 0 6px; }
+  .show-filters .field { min-width: 140px; }
+  .show-filters .grow { flex: 1 1 220px; }
+  .results-line { margin: 6px 0 12px; }
+  .results-line a { color: var(--accent); }
+  @media (max-width: 640px) {
+    .show-filters .field { flex: 1 1 calc(50% - 10px); min-width: 0; }
+    .show-filters .grow { flex-basis: 100%; }
+    .show-filters .btn { flex: 1 1 100%; }
+  }
+</style>

@@ -4,10 +4,23 @@
 import Base from '../layouts/Base.astro';
 import ListingTile from '../components/ListingTile.astro';
 import { rpc } from '../lib/api.js';
+import { resolveLocation, locationMessage } from '../lib/geo.js';
 import { fromQuery, toQuery, PAGE_SIZE, SORTS, CATEGORIES, GRADERS, MILES, STATES, forSaving, describe } from '../lib/search.js';
 
 const { p, form, page } = fromQuery(Astro.url.searchParams);
 const savedId = Astro.url.searchParams.get('saved');
+// A typed ZIP code or city: look it up; if it can't be found, search without it and say so.
+let locError = '';
+if (p.near && p.near.lat == null) {
+  const r = await resolveLocation(p.near.label);
+  if (r.ok) p.near = { lat: r.lat, lng: r.lng, miles: p.near.miles, label: r.label };
+  else {
+    locError = locationMessage(p.near.label, r);
+    delete p.near;
+    if (p.sort === 'distance') delete p.sort;
+  }
+}
+const hasNear = !!p.near || !!form.loc;
 let result = { total: 0, results: [] as any[] }, failed = false;
 try {
   result = await rpc('search_listings', { p: { ...p, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE } });
@@ -21,7 +34,7 @@ const total = result.total || 0;
 const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 const pageHref = (n: number) => { const q = toQuery(p); return `/search?${q}${q ? '&' : ''}page=${n}`; };
 const anyFilter = Object.keys(p).some(k => k !== 'q' && k !== 'sort');
-const heading = p.q ? `“${p.q}”` : 'All cards';
+const heading = p.q ? `“${p.q}”` : p.near?.label ? `Cards near ${p.near.label}` : 'All cards';
 const saveParams = forSaving(p);
 ---
 <Base title={p.q ? `${p.q} for sale` : 'Cards for sale at card shows'} canonical={`/search${toQuery(p) ? '?' + toQuery(p) : ''}`}
@@ -71,17 +84,21 @@ const saveParams = forSaving(p);
           <div class="near">
             <input type="hidden" name="lat" value={form.lat || ''} />
             <input type="hidden" name="lng" value={form.lng || ''} />
+            <label class="field">Near
+              <input name="loc" id="locInput" value={form.loc || ''} placeholder={form.lat ? 'Your location' : 'ZIP code or city, state'}
+                     autocomplete="postal-code" maxlength="80" />
+            </label>
             <label class="field">Distance
               <select name="miles">{MILES.map(m => <option value={m} selected={String(m) === (form.miles || '50')}>Within {m} miles</option>)}</select>
             </label>
             <button type="button" class="btn" id="nearMe">{form.lat ? 'Near me ✓' : 'Use my location'}</button>
-            {form.lat && <button type="button" class="linkish" id="nearClear">Any distance</button>}
+            {hasNear && <button type="button" class="linkish" id="nearClear">Any distance</button>}
             <p class="muted small" id="nearMsg" hidden></p>
           </div>
           <label class="field">Sort
             <select name="sort">
               <option value="">{p.q ? 'Best match' : 'Recommended'}</option>
-              {Object.entries(SORTS).filter(([k]) => k !== 'best' && (k !== 'distance' || form.lat)).map(([k, v]) =>
+              {Object.entries(SORTS).filter(([k]) => k !== 'best' && (k !== 'distance' || p.near)).map(([k, v]) =>
                 <option value={k} selected={form.sort === k}>{v}</option>)}
             </select>
           </label>
@@ -104,6 +121,7 @@ const saveParams = forSaving(p);
       </div>
       <p class="muted small" id="saveMsg" role="status"></p>
 
+      {locError && <div class="notice" id="locError" role="status">{locError} Showing cards anywhere.</div>}
       {failed && <div class="notice">Something went wrong loading cards. Try again in a minute.</div>}
       {!failed && total === 0 && (
         <div class="notice">
@@ -165,6 +183,7 @@ const saveParams = forSaving(p);
     if (!form) return;
     if (!navigator.geolocation) { if (msg) { msg.hidden = false; msg.textContent = 'Your browser can’t share its location. Pick a state instead.'; } return; }
     navigator.geolocation.getCurrentPosition(pos => {
+      (form.elements.namedItem('loc') as HTMLInputElement).value = '';
       (form.elements.namedItem('lat') as HTMLInputElement).value = pos.coords.latitude.toFixed(3);
       (form.elements.namedItem('lng') as HTMLInputElement).value = pos.coords.longitude.toFixed(3);
       form.submit();
@@ -175,15 +194,25 @@ const saveParams = forSaving(p);
     if (!form) return;
     (form.elements.namedItem('lat') as HTMLInputElement).value = '';
     (form.elements.namedItem('lng') as HTMLInputElement).value = '';
+    (form.elements.namedItem('loc') as HTMLInputElement).value = '';
     const sort = form.elements.namedItem('sort') as HTMLSelectElement;
     if (sort.value === 'distance') sort.value = '';
     form.submit();
   });
   // Empty fields stay out of the URL.
+  // Typing a place replaces "my location".
+  document.getElementById('locInput')?.addEventListener('input', () => {
+    if (!form) return;
+    (form.elements.namedItem('lat') as HTMLInputElement).value = '';
+    (form.elements.namedItem('lng') as HTMLInputElement).value = '';
+  });
   form?.addEventListener('submit', () => {
+    const val = (n: string) => ((form.elements.namedItem(n) as HTMLInputElement).value || '').trim();
+    const placed = !!(val('loc') || val('lat'));
     for (const el of Array.from(form.elements) as HTMLInputElement[]) {
-      if (el.name && !el.value) el.disabled = true;
-      if (el.name === 'miles' && !(form.elements.namedItem('lat') as HTMLInputElement).value) el.disabled = true;
+      if (el.name && !el.value.trim()) el.disabled = true;
+      if (el.name === 'miles' && !placed) el.disabled = true;
+      if (el.name === 'sort' && el.value === 'distance' && !placed) el.disabled = true;
     }
   });
 

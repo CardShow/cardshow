@@ -30,6 +30,11 @@ const status = found ? l.listing_status : '';
 const pct = found && l.comp ? pctLabel(l.pct_of_comp) : '';
 const show = found ? l.show : null;
 const dealer = found ? l.dealer : null;
+const modes: string[] = found && Array.isArray(l.sale_modes) ? l.sale_modes : ['ship'];
+const ships = modes.includes('ship');
+const pickup = modes.includes('local_pickup');
+const shipText = !found || !ships ? '' : l.shipping_cents === 0 ? 'Free shipping' : l.shipping_cents > 0 ? `Ships for ${money(l.shipping_cents, { cents: true })}` : 'Ships · ask the dealer about shipping';
+const showUrl = show ? (show.url || `/show.html?id=${encodeURIComponent(show.id)}`) : '';
 const details = found ? [
   ['Player / character', l.player], ['Year', l.year], ['Set', l.set], ['Card #', l.number],
   ['Parallel', l.parallel], ['Grade', grade !== 'Raw' ? grade : 'Raw (ungraded)'], ['Cert #', l.cert_number],
@@ -87,6 +92,12 @@ const jsonLd = found ? {
         <h1>{l.title}</h1>
         <div class="price">{money(l.price_cents)}</div>
         {l.accepts_offers && status === 'active' && <p class="muted small">The dealer takes offers.</p>}
+        {status !== 'sold' && (ships || pickup) && (
+          <ul class="delivery" aria-label="Delivery">
+            {ships && <li>📦 {shipText}</li>}
+            {pickup && <li>🤝 {show?.pickup ? `Pick up at ${show.name}` : show ? `Pick up at a show (next: ${show.name})` : 'Pick up in person'}</li>}
+          </ul>
+        )}
 
         {l.comp ? (
           <section class="box comp" aria-label="Market value">
@@ -114,10 +125,11 @@ const jsonLd = found ? {
             <p class="muted small">Buying on CardShow is coming soon. For now, reach the dealer directly{show ? ' or find them at the show' : ''}.</p>
             {show && (
               <div class="show">
+                {show.pickup && <span class="muted small">Pickup show</span>}
                 <b>{show.name}</b>
                 <span>{[show.start_date ? dateRange(show.start_date, show.end_date) : '', show.venue, place(show)].filter(Boolean).join(' · ')}</span>
                 {show.table_number && <span class="table">Table {show.table_number}</span>}
-                <a href={`${site}/show.html?id=${encodeURIComponent(show.id)}`}>Show details</a>
+                <a href={showUrl}>More cards at this show →</a>
               </div>
             )}
             <div class="contact">
@@ -153,6 +165,7 @@ const jsonLd = found ? {
   .media .ph { aspect-ratio: 5 / 7; display: flex; align-items: center; justify-content: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted); }
   .small { font-size: 13px; margin: 6px 0 0; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .delivery { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 4px; }
   .info h1 { margin-top: 10px; overflow-wrap: anywhere; }
   .price { font-size: 34px; font-weight: 700; }
   .box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-top: 16px; }

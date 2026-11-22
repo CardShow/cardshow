@@ -96,6 +96,10 @@ await call('list_upcoming_shows', { near: { city: 'Fort Worth', state: 'TX' } })
 check('list_upcoming_shows near a city', near(seen.pop()[1].p.near, 32.78, -97.35));
 res = JSON.parse((await call('search_cards', { near: { city: 'Atlantis', state: 'CA' } })).body);
 check('unknown city → tool error, no search', res.result.isError === true && /Couldn't find Atlantis/.test(res.result.content[0].text));
+await call('search_cards', { near: { zip: '95814', miles: 10 } });
+check('search_cards near a ZIP code', near(seen.at(-1)[1].p.near, 38.58, -121.49) && seen.pop()[1].p.near.miles === 10);
+res = JSON.parse((await call('search_cards', { near: { zip: '00000' } })).body);
+check('unknown ZIP → tool error', res.result.isError === true && /ZIP code 00000/.test(res.result.content[0].text));
 await call('search_cards', { near: { lat: 40, lng: -74 } });
 check('lat/lng still works', JSON.stringify(seen.pop()[1].p.near) === '{"lat":40,"lng":-74}');
 
