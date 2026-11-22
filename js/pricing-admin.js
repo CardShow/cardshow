@@ -6,7 +6,7 @@
 // Server: netlify/functions/pricing-admin.js + 20261202120000_pricing_admin.sql. Loaded after
 // js/marketplace-dealer.js. Uses app.html globals: db, showToast, _escHtml, _isPlatformAdmin.
 
-let _paFilter = 'open';      // 'open' | 'manual' | 'ignored'
+let _paFilter = 'check';     // 'check' | 'open' | 'auto' | 'manual' | 'ignored'
 let _paRows = [];
 let _paSummary = null;
 let _paOpen = null;          // index of the row with the lookup box open
@@ -14,7 +14,7 @@ let _paResults = {};         // index → last lookup result
 let _paLoading = false;
 
 function paReset() {
-  _paFilter = 'open'; _paRows = []; _paSummary = null; _paOpen = null; _paResults = {};
+  _paFilter = 'check'; _paRows = []; _paSummary = null; _paOpen = null; _paResults = {};
   const b = document.getElementById('paTabBadge');
   if (b) b.style.display = 'none';
 }
@@ -52,6 +52,7 @@ async function paRunNow(btn) {
     const { summary: r = {} } = await paApi('run');
     const parts = [];
     if (r.matched) parts.push(`${r.matched} matched`);
+    if (r.review) parts.push(`${r.review} need a check`);
     if (r.no_match) parts.push(`${r.no_match} couldn't match`);
     if (r.refreshed) parts.push(`${r.refreshed} refreshed`);
     if (r.match_errors || r.refresh_errors) parts.push(`${(r.match_errors || 0) + (r.refresh_errors || 0)} errors`);
@@ -114,6 +115,7 @@ function paSummaryHTML(s) {
   return stat((s.listed || 0).toLocaleString(), 'Listed cards')
     + stat((s.priced || 0).toLocaleString(), 'Have an online comp')
     + stat((s.waiting || 0).toLocaleString(), 'Waiting for a match')
+    + stat((s.check || 0).toLocaleString(), 'Need a check', s.check > 0)
     + stat((s.unmatched || 0).toLocaleString(), 'Couldn\'t match', s.unmatched > 0)
     + stat((s.ignored || 0).toLocaleString(), 'Hidden (no comp)')
     + stat(`${(use.calls || 0).toLocaleString()} / ${(s.daily_limit || 0).toLocaleString()}`, `Card Hedge calls today (${pct}%)`, pct >= 80)
@@ -145,8 +147,25 @@ function paRowHTML(r, i) {
   const why = r.status === 'error' ? `Card Hedge didn't answer (${r.attempts || 0} tries)`
     : r.status === 'no_match' ? 'No confident match in Card Hedge'
     : r.status === 'ignored' ? 'Hidden: no comp shown'
-    : r.status === 'manual' ? `Matched by hand${r.card_id ? ' · card ' + r.card_id : ''}` : '';
-  const actions = _paFilter === 'open'
+    : r.reason === 'parallel_unconfirmed' ? 'Hidden from buyers: Card Hedge\'s card doesn\'t name this parallel or print run'
+    : r.reason === 'value_far_off' ? 'Hidden from buyers: the value is far from the asking price'
+    : r.status === 'review' ? 'Hidden from buyers until checked'
+    : r.status === 'manual' ? `Matched by hand${r.card_id ? ' · card ' + r.card_id : ''}`
+    : r.status === 'matched' ? 'Matched automatically' : '';
+  // The card Card Hedge matched, with its value next to the asking price.
+  const matched = (r.status === 'review' || r.status === 'matched') && (r.match_title || r.card_id)
+    ? `<div class="dir-row-meta">Card Hedge: <strong>${_escHtml(r.match_title || 'card ' + r.card_id)}</strong>`
+      + `${r.value_cents != null ? ` · value ${paMoney(r.value_cents)}` : ' · no value for this grade'}`
+      + `${r.price_cents != null ? ` · asking ${paMoney(r.price_cents)}` : ''}</div>` : '';
+  const actions = _paFilter === 'check'
+    ? `<button class="btn btn-primary dir-btn" onclick="paResolve(${i}, 'confirm')" title="It's the same card: show this value to buyers">Looks right</button>
+       <button class="btn btn-ghost dir-btn" onclick="paToggleFind(${i})">${_paOpen === i ? 'Close' : 'Wrong card'}</button>
+       <button class="btn btn-ghost dir-btn" onclick="paResolve(${i}, 'ignore')" title="Show no online comp for this card">Hide</button>`
+    : _paFilter === 'auto'
+    ? `<button class="btn btn-ghost dir-btn" onclick="paToggleFind(${i})">${_paOpen === i ? 'Close' : 'Wrong card'}</button>
+       <button class="btn btn-ghost dir-btn" onclick="paResolve(${i}, 'retry')" title="Match it again automatically">Try again</button>
+       <button class="btn btn-ghost dir-btn" onclick="paResolve(${i}, 'ignore')" title="Show no online comp for this card">Hide</button>`
+    : _paFilter === 'open'
     ? `<button class="btn btn-primary dir-btn" onclick="paToggleFind(${i})">${_paOpen === i ? 'Close' : 'Find match'}</button>
        <button class="btn btn-ghost dir-btn" onclick="paResolve(${i}, 'retry')" title="Send it back to the automatic match">Try again</button>
        <button class="btn btn-ghost dir-btn" onclick="paResolve(${i}, 'ignore')" title="Show no online comp for this card">Hide</button>`
@@ -160,7 +179,8 @@ function paRowHTML(r, i) {
         <div class="dir-row-name">${_escHtml(name)}</div>
         ${facts && facts !== name ? `<div class="dir-row-meta">${_escHtml(facts)}</div>` : ''}
         <div class="dir-row-meta">${r.listings} listing${r.listings === 1 ? '' : 's'} · ${r.dealers} dealer${r.dealers === 1 ? '' : 's'}${grades ? ' · ' + _escHtml(grades) : ''}</div>
-        ${why ? `<div class="${r.status === 'error' ? 'dir-warn' : 'dir-row-meta'}">${_escHtml(why)}</div>` : ''}
+        ${matched}
+        ${why ? `<div class="${r.status === 'error' || r.reason ? 'dir-warn' : 'dir-row-meta'}">${_escHtml(why)}</div>` : ''}
       </div>
       <div class="dir-row-actions">${actions}</div>
       ${_paOpen === i ? paFindHTML(r, i) : ''}
@@ -205,7 +225,8 @@ function paRender() {
   if (filters) {
     const s = _paSummary || {};
     const f = (key, label, n) => `<button class="dir-filter${_paFilter === key ? ' active' : ''}" onclick="paSetFilter('${key}')">${label}${n != null ? `<span>${n}</span>` : ''}</button>`;
-    filters.innerHTML = paNotes(_paSummary) + f('open', 'Couldn\'t match', s.unmatched) + f('manual', 'Matched by hand', s.manual) + f('ignored', 'Hidden', s.ignored);
+    filters.innerHTML = paNotes(_paSummary) + f('check', 'Needs a check', s.check) + f('open', 'Couldn\'t match', s.unmatched)
+      + f('auto', 'Matched automatically', s.auto) + f('manual', 'Matched by hand', s.manual) + f('ignored', 'Hidden', s.ignored);
   }
   const list = document.getElementById('paList');
   if (!list) return;
@@ -217,6 +238,8 @@ function paRender() {
   });
   if (!rows.length) {
     list.innerHTML = `<div class="dir-empty">${term ? 'No cards match that search.'
+      : _paFilter === 'check' ? 'Nothing to check. Every automatic match shown to buyers names the right parallel and is close to its asking price.'
+      : _paFilter === 'auto' ? 'No automatic matches yet.'
       : _paFilter === 'open' ? 'Nothing to fix. Every listed card either has a comp or is waiting for the automatic match.'
       : _paFilter === 'manual' ? 'No cards matched by hand yet.' : 'No hidden cards.'}</div>`;
     return;
@@ -263,7 +286,7 @@ async function paResolve(i, action) {
   if (action === 'ignore' && !confirm('Hide this card? Its listings will show no online comp, and it won\'t be matched automatically. You can bring it back from Hidden.')) return;
   try {
     await paApi(action, { identity: r.identity });
-    showToast(action === 'ignore' ? 'Hidden' : 'Sent back to the automatic match');
+    showToast(action === 'ignore' ? 'Hidden' : action === 'confirm' ? 'Confirmed · buyers see this value now' : 'Sent back to the automatic match');
     paLoad();
   } catch (e) {
     showToast('Couldn\'t update: ' + paErr(e), '#ef4444');

@@ -433,6 +433,14 @@ function mkCemComp(card) {
     return;
   }
   const price = Math.round((parseFloat(card.Price) || 0) * 100);
+  // Same rule as the buyer site (_comp_visible): an automatic comp that isn't confirmed, or is far from the
+  // asking price (under 1/5 or over 5 times), is being checked and isn't offered as a price.
+  const ratio = price > 0 ? price / comp : null;
+  const st = card.PricingMatchStatus;
+  if (st && st !== 'manual' && (st !== 'matched' || ratio == null || ratio < 0.2 || ratio > 5)) {
+    el.innerHTML = '<span class="mk-comp-muted">Online comp: being checked by CardShow</span>';
+    return;
+  }
   const pct = price > 0 ? Math.round((price / comp) * 100) : null;
   const rel = pct == null ? '' : pct < 100 ? ` · your price is ${100 - pct}% under` : pct > 100 ? ` · your price is ${pct - 100}% over` : ' · your price matches';
   el.innerHTML = `Online comp: <b>${_mkMoney(comp)}</b>${rel} <span class="mk-comp-muted">(${mkCompAge(card.CompRefreshedAt)})</span>`

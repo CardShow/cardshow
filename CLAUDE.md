@@ -115,6 +115,7 @@ js/pricing-admin.js               → Admin "💲 Pricing" tab (platform owner):
 buyer/                            → Marketplace buyer site (Astro, server-rendered, its own Netlify site "cardshow-buyer", base dir buyer/); getcardshow.com proxies /search, /c/*, /d/*, /account, /_astro/* to it — see "Buyer site" and buyer/README.md
 supabase/migrations/20261203120000_marketplace_buyer_site.sql → inventory.public_photo_path/_capture_id (server-managed), public listing-photos bucket, listing_photos_due()/listing_photo_set(), _listing_json() adds photo_path + dealer WhatsApp/Instagram on the listing page
 supabase/migrations/20261204120000_marketplace_photo_ranking.sql → search_listings(): listings with the dealer's own (public) photo rank first; default sort is 'best' for every search
+supabase/migrations/20261205120000_pricing_review.sql → wrong comps stay off the buyer site: match status 'review', _comp_visible() (1/5–5× the asking price), Pricing tab "Needs a check" / "Matched automatically" / confirm
 netlify/lib/listing-photos.js     → Copies listed cards' seller photos to the public listing-photos bucket and deletes them when delisted/sold/flagged/replaced
 netlify/functions/sync-listing-photos.js → Scheduled (every 5 min, needs MARKETPLACE_ENABLED=true): runs the photo sync
 netlify/functions/listing-photos-now.js  → POST {ids} with a seller session: sync the caller's own cards now (called by the dealer app after List / Take off)
@@ -401,7 +402,9 @@ Then `20261202120000_pricing_admin.sql` (access fix + Pricing tab; run in produc
 Then `20261203120000_marketplace_buyer_site.sql` (public listing photos, dealer contact on listing pages). Until it runs, the buyer
 site shows only catalog images and no WhatsApp/Instagram, and the photo sync functions fail with a console error.
 Then `20261204120000_marketplace_photo_ranking.sql` (search puts the dealer's own photos first). Until it runs, search order is
-unchanged (newest first without a query).
+unchanged (newest first without a query). Both ran in production 2026-11-22.
+Then `20261205120000_pricing_review.sql` (comps checked before buyers see them, see "Pricing admin"). Run it before the app deploy
+that sends `p_reason` to `pricing_record_match`; until it runs, the pricing job's 'review' calls fail and those cards are retried.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6829,9 +6832,25 @@ Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pric
 - **Tests:** `pricing-admin.test.sh` (14 checks: organizer locked out, platform owner reads, queue + summary, ignore
   hidden from the job, manual match fills comps by grade and stores the query, job doesn't overwrite it, change match,
   retry, anon), `pricing-admin.e2e.mjs` (17 checks on iPhone 13 + Pixel 7, function faked in-page).
-- **Not built:** fixing a wrong *automatic* match from here (only unmatched / hand-matched / hidden cards are listed;
-  editing the card's details re-queues it); Card Hedge returns one best match per search, so there's no list of
-  candidates to pick from.
+- **Wrong comps kept off the buyer site** (session 2026-11-22, `20261205120000_pricing_review.sql`). Found on production:
+  a raw C.J. Stroud numbered /49 (Parallel field "17/49") got the base card's value, $0.69, shown as "5,697% over market".
+  1. **Parallel check** (`parallelCheck()` in `netlify/lib/card-values.js`): a card with a print run ("17/49", "/49" in the
+     parallel or title) or a named parallel ("Fuchsia Refractor"; generic words like base/rookie/auto ignored) only counts
+     as matched when Card Hedge's matched title names the print run ("/49") or every distinctive parallel word. Otherwise
+     `pricing_record_match(..., 'review', ..., p_reason => 'parallel_unconfirmed')`: card linked, values stored, not shown.
+     The query sends a serial as its print run ("17/49" → "/49").
+  2. **Far-off values hidden**: `_comp_visible(status, pct_of_comp)` = 'manual', or 'matched' with price between 1/5 and 5×
+     the comp. Used by `_listing_json()` (comp, pct_of_comp, deal), `search_listings()` (deals filter and sort, comp
+     filters), the summary's "priced" count, and the dealer's Edit Card comp line (`mkCemComp()`, "being checked by
+     CardShow", no Use button; `dbRowToCard()` reads `PricingMatchStatus`).
+  3. **Pricing tab**: filters **Needs a check** (default; 'review' rows + automatic matches outside the band, with the
+     matched card's title, its value and the asking price, and the reason), Couldn't match, **Matched automatically**,
+     Matched by hand, Hidden. Needs a check: **Looks right** (`confirm` → status 'manual', value shown even if far off),
+     **Wrong card** (Find match), Hide. Matched automatically: Wrong card, Try again, Hide. `retry` now works on automatic
+     matches too. "Need a check" stat in the summary; Run now reports how many need a check.
+  - Tests: `pricing-admin.test.sh` 23 checks (15–23 new), `marketplace-pricing.test.mjs` 34 (6 new), `pricing-admin.e2e.mjs`.
+- **Not built:** Card Hedge returns one best match per search, so there's no list of candidates to pick from. The
+  1/5–5× band is fixed in `_comp_visible()` (an immutable function can't read settings).
 
 ### Show geocoding (session 2026-11-20)
 "Cards at shows within X miles" needs coordinates on shows. Stephen chose the **US Census** (free, no key).

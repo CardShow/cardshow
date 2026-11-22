@@ -8100,8 +8100,8 @@
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261122a"></script>
-<script src="/js/marketplace-dealer.js?v=20261122a"></script>
-<script src="/js/pricing-admin.js?v=20261122a"></script>
+<script src="/js/marketplace-dealer.js?v=20261122b"></script>
+<script src="/js/pricing-admin.js?v=20261122b"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -23037,6 +23037,7 @@ function dbRowToCard(row) {
     SaleModes:          Array.isArray(row.sale_modes) ? row.sale_modes : null,
     // Online comp from the marketplace pricing service (Card Hedge). Written only by CardShow's server.
     CompValueCents:     row.comp_value_cents     != null ? row.comp_value_cents : null,
+    PricingMatchStatus: row.pricing_match_status || null,
     CompRefreshedAt:    row.comp_refreshed_at    || null,
     _shows:          new Set(),
   };

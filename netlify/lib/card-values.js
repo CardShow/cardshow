@@ -64,13 +64,50 @@ function pricesToValues(prices) {
   return [...out.values()];
 }
 
+// A serial like "17/49" says nothing about which parallel it is; Card Hedge only needs the print run ("/49").
+function queryParallel(parallel) {
+  return String(parallel ?? '').replace(/\b\d+\s*\/\s*(\d+)\b/g, '/$1').trim();
+}
+
+// The print run a card is numbered to: "17/49" or "/49" in the parallel or title → 49.
+function printRun(card) {
+  const c = card || {};
+  for (const t of [c.parallel, c.title]) {
+    const m = String(t ?? '').match(/(?:^|[\s#(])\d*\s*\/\s*(\d{1,5})\b/);
+    if (m) return Number(m[1]);
+  }
+  const n = Number(c.print_run);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// Words that don't tell one parallel from another.
+const GENERIC_PARALLEL_WORDS = new Set(['base', 'parallel', 'variant', 'variation', 'card', 'cards', 'rookie', 'rc', 'auto',
+  'autograph', 'autographs', 'the', 'and', 'of', 'ssp', 'sp', 'numbered', 'serial']);
+
+// Is the card Card Hedge matched the same parallel? A card with no parallel and no print run always passes.
+// Otherwise the matched title must name the print run ("/49") or every distinctive word of the parallel
+// ("Fuchsia Refractor"). Anything else goes to the Pricing tab's "Needs a check" instead of buyers.
+function parallelCheck(card, matchedTitle) {
+  const c = card || {};
+  const run = printRun(c);
+  const words = String(c.parallel ?? '').toLowerCase().replace(/\d*\s*\/\s*\d+/g, ' ')
+    .split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !/^\d+$/.test(w) && !GENERIC_PARALLEL_WORDS.has(w));
+  if (!run && !words.length) return { ok: true };
+  const title = String(matchedTitle ?? '').toLowerCase();
+  if (!title) return { ok: false, reason: 'parallel_unconfirmed' };
+  if (run && new RegExp(`/\\s*0*${run}\\b`).test(title)) return { ok: true };
+  if (words.length && words.every(w => title.includes(w))) return { ok: true };
+  return { ok: false, reason: 'parallel_unconfirmed' };
+}
+
 // The text Card Hedge matches on. Grade is left out on purpose: one match covers every grade.
 function buildMatchQuery(card) {
   const c = card || {};
   const num = c.number ? String(c.number).replace(/^#/, '') : '';
+  const par = queryParallel(c.parallel);
   const parts = c.player || c.set
-    ? [c.year, c.set, c.player, num ? `#${num}` : '', c.parallel]
-    : [c.title, c.parallel];
+    ? [c.year, c.set, c.player, num ? `#${num}` : '', par]
+    : [c.title, par];
   return parts.map(v => String(v ?? '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
@@ -142,7 +179,7 @@ async function maybeAlert(db, calls, { fetchImpl = fetch } = {}) {
 // Stops at 90% of the daily limit, at the per-minute pace, or when the time budget runs out.
 async function runRefresh(db, { budgetMs = 20000, fetchImpl = fetch, now = () => Date.now(), sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
   const started = now();
-  const summary = { matched: 0, no_match: 0, match_errors: 0, refreshed: 0, refresh_errors: 0, calls: 0, stopped: null };
+  const summary = { matched: 0, review: 0, no_match: 0, match_errors: 0, refreshed: 0, refresh_errors: 0, calls: 0, stopped: null };
   const limit = dailyLimit();
   const stopAt = Math.floor(limit * STOP_AT_PCT);
   let used = (await usageToday(db)).calls || 0;
@@ -205,8 +242,16 @@ async function runRefresh(db, { budgetMs = 20000, fetchImpl = fetch, now = () =>
       await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'no_match' });
       summary.no_match += 1; return;
     }
-    await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'matched', p_card_id: res.cardId, p_query: query, p_title: res.title });
-    summary.matched += 1;
+    // Same card, but is it the same parallel? If CardShow can't tell, the value is stored but not shown.
+    const check = parallelCheck(m.card, res.title);
+    if (check.ok) {
+      await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'matched', p_card_id: res.cardId, p_query: query, p_title: res.title });
+      summary.matched += 1;
+    } else {
+      await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'review', p_card_id: res.cardId, p_query: query,
+                                             p_title: res.title, p_reason: check.reason });
+      summary.review += 1;
+    }
     // The match call already returned every grade's price: store them now (no second call).
     if (res.values.length) {
       await db.rpc('pricing_apply_values', { p_card_id: res.cardId, p_values: res.values, p_error: null });
@@ -230,6 +275,6 @@ async function runRefresh(db, { budgetMs = 20000, fetchImpl = fetch, now = () =>
 }
 
 module.exports = {
-  normalizeGrade, pricesToValues, buildMatchQuery, cardHedgeMatch, runRefresh, maybeAlert, dailyLimit, bumpUsage,
+  normalizeGrade, pricesToValues, buildMatchQuery, parallelCheck, printRun, cardHedgeMatch, runRefresh, maybeAlert, dailyLimit, bumpUsage,
   MATCH_MIN_CONFIDENCE, STOP_AT_PCT, ALERT_AT_PCT,
 };

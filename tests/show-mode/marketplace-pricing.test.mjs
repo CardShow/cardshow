@@ -56,7 +56,7 @@ let db = fakeDb({
 });
 chCalls = [];
 let s = await CV.runRefresh(db, { fetchImpl: cardHedge(q => {
-  if (q.includes('Charizard')) return { match: { card_id: 'ch-zard', confidence: 0.97, description: 'Charizard', prices: [{ grade: 'PSA 10', price: '210' }, { grade: 'Raw', price: '50' }] } };
+  if (q.includes('Charizard')) return { match: { card_id: 'ch-zard', confidence: 0.97, description: '1999 Pokemon Base Set Charizard #4 Holo', prices: [{ grade: 'PSA 10', price: '210' }, { grade: 'Raw', price: '50' }] } };
   if (q.includes('Someone')) return { match: { card_id: 'ch-x', confidence: 0.6, prices: [] } };
   if (q === 'hot card') return { match: { card_id: 'ch-hot', confidence: 0.99, prices: [{ grade: 'PSA 9', price: 90 }] } };
   if (q === 'old card') return { match: { card_id: 'ch-other', confidence: 0.99, prices: [{ grade: 'PSA 9', price: 90 }] } };
@@ -66,6 +66,20 @@ check('on-demand refresh runs first', chCalls[0] === 'hot card', JSON.stringify(
 const rpcs = db.state.rpc.filter(([n]) => n !== 'pricing_bump_usage');
 const rec = rpcs.filter(([n]) => n === 'pricing_record_match').map(([, a]) => [a.p_identity, a.p_status, a.p_card_id || null]);
 check('confident match recorded; weak match → no_match', JSON.stringify(rec) === JSON.stringify([['zard', 'matched', 'ch-zard'], ['weak', 'no_match', null]]));
+
+// Parallels: Card Hedge's card must name the parallel or the print run, or the match waits for a check.
+{
+  const S = { player: 'C.J. Stroud', year: 2024, set: 'Panini Select', number: '42', parallel: '17/49', title: '2024 Panini Select C.J. Stroud /49' };
+  check('serial "17/49" sent to Card Hedge as the print run "/49"', CV.buildMatchQuery(S) === '2024 Panini Select C.J. Stroud #42 /49', CV.buildMatchQuery(S));
+  check('numbered card matched to the base card → needs a check', CV.parallelCheck(S, '2024 Panini Select C.J. Stroud #42').ok === false
+    && CV.parallelCheck(S, '2024 Panini Select C.J. Stroud #42').reason === 'parallel_unconfirmed');
+  check('numbered card matched to a /49 card → ok', CV.parallelCheck(S, '2024 Panini Select CJ Stroud Gold #/49').ok);
+  const C = { player: 'Dylan Crews', parallel: 'Fuchsia Refractor' };
+  check('named parallel needs every distinctive word', !CV.parallelCheck(C, 'Dylan Crews Refractor').ok && CV.parallelCheck(C, 'Dylan Crews Fuchsia Refractor /299').ok);
+  check('no parallel and no print run → ok; "Base" counts as none', CV.parallelCheck({ player: 'Joe Burrow', title: '2025 Topps Chrome Joe Burrow' }, 'Joe Burrow').ok
+    && CV.parallelCheck({ parallel: 'Base' }, 'anything').ok);
+  check('no matched title for a parallel → needs a check', !CV.parallelCheck(C, null).ok);
+}
 const applied = rpcs.filter(([n]) => n === 'pricing_apply_values').map(([, a]) => [a.p_card_id, a.p_error, (a.p_values || []).length]);
 check('match call stores every grade at once (no 2nd call); a refresh that comes back as a different card keeps old values',
   JSON.stringify(applied) === JSON.stringify([['ch-hot', null, 1], ['ch-zard', null, 2], ['ch-old', 'card_changed', 0]]), JSON.stringify(applied));
