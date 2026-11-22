@@ -166,3 +166,29 @@ update inventory set status = 'Sold' where id = 'a0000000-0000-0000-0000-0000000
 set session authorization authenticator; set role service_role;
 select pg_temp.ok('sold: on the remove list', 'a0000000-0000-0000-0000-000000000001' = any(pg_temp.due_ids(listing_photos_due(), 'remove')));
 reset role; reset session authorization;
+
+-- 5. search ranking (20261204120000_marketplace_photo_ranking.sql): the dealer's own photo first
+\set ON_ERROR_STOP 1
+\i ../../supabase/migrations/20261204120000_marketplace_photo_ranking.sql
+\i ../../supabase/migrations/20261204120000_marketplace_photo_ranking.sql
+\set ON_ERROR_STOP 0
+update inventory set listed_at = now() - interval '1 hour' * (case id::text
+  when 'a0000000-0000-0000-0000-000000000003' then 1 when 'a0000000-0000-0000-0000-000000000004' then 2
+  when 'a0000000-0000-0000-0000-000000000005' then 3 else 4 end);
+set session authorization authenticator; set role service_role;
+select listing_photo_set('a0000000-0000-0000-0000-000000000005', 'c0000000-0000-0000-0000-000000000005',
+                         'a0000000-0000-0000-0000-000000000005/c0000000-0000-0000-0000-000000000005.jpg');
+reset role; reset session authorization;
+set session authorization authenticator; set role anon;
+select pg_temp.ok('default order: the listing with a dealer photo first (the oldest), then newest',
+  (select array_agg(e->>'id' order by n) from jsonb_array_elements(search_listings('{}')->'results') with ordinality x(e, n))
+    = array['a0000000-0000-0000-0000-000000000005','a0000000-0000-0000-0000-000000000003',
+            'a0000000-0000-0000-0000-000000000004']);
+select pg_temp.ok('sort newest stays strictly newest',
+  (search_listings('{"sort":"newest"}')->'results'->0->>'id') = 'a0000000-0000-0000-0000-000000000003');
+reset role; reset session authorization;
+update inventory set primary_capture_id = null where id = 'a0000000-0000-0000-0000-000000000005';
+set session authorization authenticator; set role anon;
+select pg_temp.ok('stale photo: back to newest first',
+  (search_listings('{}')->'results'->0->>'id') = 'a0000000-0000-0000-0000-000000000003');
+reset role; reset session authorization;

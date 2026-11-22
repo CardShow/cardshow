@@ -114,6 +114,7 @@ netlify/functions/pricing-admin.js → Platform owner POST {action: summary|queu
 js/pricing-admin.js               → Admin "💲 Pricing" tab (platform owner): pricing summary + queue of cards Card Hedge couldn't match — loaded after js/marketplace-dealer.js
 buyer/                            → Marketplace buyer site (Astro, server-rendered, its own Netlify site "cardshow-buyer", base dir buyer/); getcardshow.com proxies /search, /c/*, /d/*, /account, /_astro/* to it — see "Buyer site" and buyer/README.md
 supabase/migrations/20261203120000_marketplace_buyer_site.sql → inventory.public_photo_path/_capture_id (server-managed), public listing-photos bucket, listing_photos_due()/listing_photo_set(), _listing_json() adds photo_path + dealer WhatsApp/Instagram on the listing page
+supabase/migrations/20261204120000_marketplace_photo_ranking.sql → search_listings(): listings with the dealer's own (public) photo rank first; default sort is 'best' for every search
 netlify/lib/listing-photos.js     → Copies listed cards' seller photos to the public listing-photos bucket and deletes them when delisted/sold/flagged/replaced
 netlify/functions/sync-listing-photos.js → Scheduled (every 5 min, needs MARKETPLACE_ENABLED=true): runs the photo sync
 netlify/functions/listing-photos-now.js  → POST {ids} with a seller session: sync the caller's own cards now (called by the dealer app after List / Take off)
@@ -399,6 +400,8 @@ Both ran in production 2026-11-20 (the pricing one after a fix: Supabase refuses
 Then `20261202120000_pricing_admin.sql` (access fix + Pricing tab; run in production 2026-11-21, four read policies confirmed). Until it runs the Pricing tab can't load.
 Then `20261203120000_marketplace_buyer_site.sql` (public listing photos, dealer contact on listing pages). Until it runs, the buyer
 site shows only catalog images and no WhatsApp/Instagram, and the photo sync functions fail with a console error.
+Then `20261204120000_marketplace_photo_ranking.sql` (search puts the dealer's own photos first). Until it runs, search order is
+unchanged (newest first without a query).
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -4792,6 +4795,32 @@ Back (`qaBack()`, via `QA_PARENT`) and Cancel on every screen; Escape closes. On
 sheet is centered. `#view-seller` gets 5rem bottom padding on mobile so the pill never covers the
 last row.
 
+### Use a photo I already have (session 2026-11-21)
+Seller request: add cards from a photo already on the phone or computer, not only the camera.
+- **Add menu:** new choice **Use a photo I already have** → screen `photo` ("What's in the photo?", Back to Add):
+  **A photo of one card** (`qaGo('photoOne')` → `#cardPhotoLibraryInput`) or **A photo of a whole case**
+  (`qaGo('photoCase')` → `#bulkScanLibraryInput` → the existing `handleBulkScanFile()` review).
+- Both inputs are `accept="image/*"` **without** `capture`, so phones open the photo library and computers a file
+  picker (the camera inputs keep `capture="environment"`).
+- Also offered as **🖼️ Use a photo I already have** in the card scanner (`#scanLibraryBtn`, closes the camera) and
+  under SCAN CARD in Add Card, and in the Feature guide.
+- `addCardFromPhotoFile(input)`: opens Add Card if needed, resizes with `_posCompressImage()` (1024px JPEG), then the
+  same `_callVisionScan()` as Take Photo. `_visionFromUpload` makes `_handleVisionFailure()` show a toast and focus
+  Player instead of the scanner's retry buttons (no scanner is open). A photo the browser can't decode (e.g. HEIC on
+  desktop Chrome) gets "That photo couldn't be opened. Try a JPG or PNG."
+- **The identify photo becomes the card's photo** (same session): Take Photo in the card scanner and "Use a photo I
+  already have" keep the photo (`cpSetAddPhoto()` in `js/card-photo.js`, 1400px JPEG; from the scanner it's the video
+  frame being read). Add Card shows it (`#ac_photo_note`, "Your photo will be saved with this card", **Remove**).
+  `saveAddCard()` takes it (`cpTakeAddPhoto()`) and, once `insertCardToDB()` returns the id, attaches it as the card's
+  seller photo (`cpAttachNewCardPhoto()`: `smSaveCapture` + `attach_capture`, the same path as Edit Card's photo). So it
+  satisfies the listing photo rule (graded cards need the seller's slab photo) and is the photo the buyer site shows.
+  Dropped by Remove, Clear scan data, a new Add Card, or closing without saving. Not done for: a card saved while the
+  insert fails (offline in the classic view saves nothing anyway), Scan-to-Sell / Manual Sale (sold at once, never
+  listed), and the classic whole-case bulk scan (one photo of many cards; Show Mode's case scan already crops per card).
+- **Tests:** `tests/show-mode/photo-upload.e2e.mjs` (iPhone 13 + Pixel 7: menu, one card, unreadable photo, Add Card
+  link, scanner button, whole case → review, photo saved as the card's photo for upload and fake-camera Take Photo,
+  Remove, close without saving).
+
 ### Key functions (app.html)
 `openQuickActions(screen?)` / `closeQuickActions()` / `qaShow(screen)` / `qaBack()` /
 `qaGo(kind)` / `qaRenderPick()` / `qaSellCard(idx)`. `qaGo()` starts the tool **before** closing
@@ -6758,6 +6787,15 @@ until launch, no dealer rating yet.
   replace, remove, failure per card, own-cards-only endpoint), `buyer/test/search.test.mjs` (`npm test`, 5),
   `buyer/test/site.e2e.mjs` (44 checks on iPhone 13 and Desktop Chrome: `astro dev` against `buyer/test/mock-supabase.mjs`).
   `marketplace-search.test.sql` still passes 49/49 with this migration loaded.
+- **Catalog images are small** (session 2026-11-22): CardSight's `/v1/images/cards/{id}` returns about 160–225px JPEGs and
+  has no size option (checked in SDK 4.4.0: only `format` and `default`). So the buyer site never stretches them: tiles
+  (`.tile-img.is-catalog`) and the listing page (`.media.is-catalog .frame`) show them at their own size, centered.
+  Listings with the dealer's own photo rank first (`20261204120000_marketplace_photo_ranking.sql`: 'best' adds 0.1 to the
+  text rank for a current public photo; with no query that means photos first, then newest; the search page's default
+  sort is labeled "Recommended"; `sort: 'newest'` is still strict, as alerts and storefronts use). The dealer app says
+  catalog images are low resolution: Edit Card's Photo section and catalog picker, and a "Using a catalog image" list in
+  the Marketplace panel. Asking CardSight for higher-resolution images is open (Stephen); if they exist it's a change in
+  `netlify/functions/card-image.js`.
 - **Not built:** sitemap.xml and a robots.txt for launch; buying (holds, offers, checkout: Phase 2+); dealer ratings;
   search by city/ZIP (only state or the browser's location); show pages on the buyer site (they link to `show.html`);
   storefront filters beyond sort; images resized for thumbnails (tiles load the full crop).

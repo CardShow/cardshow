@@ -105,7 +105,7 @@ function cpCemRender() {
 
   let msg;
   if (hasOwn) msg = 'Your photo of this card.';
-  else if (stockOk) msg = 'Catalog image (not your card). Buyers see it as a representative image. A photo of your own card is better.';
+  else if (stockOk) msg = 'Catalog image (not your card). It\'s low resolution and looks blurry to buyers. A photo of your own card sells better, and search shows cards with your own photo first.';
   else if (graded) {
     const fromTitle = cpGraderOnlyInTitle(card, true);
     msg = (fromTitle ? `The title says ${fromTitle}, so this looks like a graded card. Set the Grader field if it is. ` : '')
@@ -114,7 +114,7 @@ function cpCemRender() {
   }
   else if (sealed) msg = 'Optional. Sealed product can be listed without a photo.';
   else if (cpItemType(card) === 'lot') msg = 'Add a photo of the lot.';
-  else msg = 'No photo yet. Take one, or pick a catalog image of this card.';
+  else msg = 'No photo yet. Take one (it sells best), or pick a catalog image of this card.';
   status.textContent = msg;
 
   take.textContent = hasOwn ? '📷 Replace photo' : (graded ? '📷 Photo of the slab' : '📷 Take or choose a photo');
@@ -222,7 +222,7 @@ async function cpFindCatalog() {
   const parNote = isParallel && results.length
     ? ' Catalog images show the base version, so a color or numbered parallel looks different from your card.' : '';
   const head = results.length
-    ? `<div class="cp-note">Catalog images, not your card. Pick the one that matches exactly: same year, set and number.${parNote}</div>
+    ? `<div class="cp-note">Catalog images, not your card, and low resolution: a photo of your own card looks sharper to buyers. Pick the one that matches exactly: same year, set and number.${parNote}</div>
        <div class="cp-grid cp-grid--match" id="cem_photo_grid">${results.map(tile).join('')}</div>`
     : `<div class="cp-note" id="cem_photo_nomatch">No exact catalog match for this card. Take a photo instead${others.length ? ', or check the card details if one of the cards below is it' : ''}.</div>`;
   const rest = others.length ? `
@@ -279,5 +279,75 @@ async function _cpSetStock(catalogId) {
   } finally {
     _cpBusy = false;
     if (_cpCard === card) { cpCemRender(); _cpRefreshMarketplace(card); }
+  }
+}
+
+// ── Add Card: the photo used to identify the card becomes the card's photo ──
+// Take Photo (card scanner) or "Use a photo I already have" keeps the photo here while the seller checks
+// the details. When Add Card is saved and the card has an id, it's attached as the card's seller photo
+// (same path as Edit Card's photo), so it's the photo used when the card is listed on the marketplace.
+// Clear scan data, a new Add Card, or closing without saving drops it.
+let _cpAddPhoto = null;   // { blob, url }
+
+async function cpSetAddPhoto(source) {
+  try {
+    let bmp;
+    if (source instanceof Blob) {
+      try { bmp = await createImageBitmap(source, { imageOrientation: 'from-image' }); }
+      catch (_) { bmp = await createImageBitmap(source); }
+    } else {
+      bmp = await createImageBitmap(source);   // the scanner's <video>: the frame being read
+    }
+    const crop = await _smCanvasBlob(_smDrawScaled(bmp, 0, 0, bmp.width, bmp.height, 1400));
+    if (bmp.close) bmp.close();
+    if (!crop) return;
+    cpClearAddPhoto();
+    _cpAddPhoto = { blob: crop, url: URL.createObjectURL(crop) };
+    cpRenderAddPhoto();
+  } catch (e) {
+    console.warn('[card-photo] scan photo not kept', e);
+  }
+}
+
+function cpClearAddPhoto() {
+  if (_cpAddPhoto && _cpAddPhoto.url) URL.revokeObjectURL(_cpAddPhoto.url);
+  _cpAddPhoto = null;
+  cpRenderAddPhoto();
+}
+
+// Hands the kept photo to saveAddCard() (before the modal closes and clears it).
+function cpTakeAddPhoto() {
+  const p = _cpAddPhoto;
+  _cpAddPhoto = null;          // the blob URL stays alive until the card's photo is saved
+  cpRenderAddPhoto();
+  return p;
+}
+
+function cpRenderAddPhoto() {
+  const box = document.getElementById('ac_photo_note');
+  if (!box) return;
+  if (!_cpAddPhoto) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'flex';
+  box.innerHTML = `<img src="${_cpAddPhoto.url}" alt="Your photo of this card">
+    <span><strong>Your photo will be saved with this card.</strong> It's the photo buyers see if you list it.</span>
+    <button type="button" onclick="cpClearAddPhoto()">Remove</button>`;
+}
+
+async function cpAttachNewCardPhoto(card, photo) {
+  if (!photo || !photo.blob || !card || !card._dbId) return;
+  if (typeof smSaveCapture !== 'function' || typeof smEnqueue !== 'function') return;
+  try {
+    const cap = await smSaveCapture({ crop: photo.blob, original: null, entryPoint: 'case_scan' });
+    await smUpdateCapture(cap.id, { attachedTo: card._dbId });
+    smThumbUrl(cap.id, photo.blob);
+    _smCaptureIndex.set(card._dbId, cap.id);
+    card._captureId = cap.id;
+    await smEnqueue({ type: 'attach_capture', captureId: cap.id, inventoryId: card._dbId, replace: false });
+    if (typeof applyInventoryFilters === 'function') applyInventoryFilters();
+  } catch (e) {
+    console.warn('[card-photo] photo not saved with the new card', e);
+    showToast('The card was added, but its photo didn\'t save. Add it again in Edit Card.', '#f59e0b');
+  } finally {
+    if (photo.url) setTimeout(() => URL.revokeObjectURL(photo.url), 60000);
   }
 }

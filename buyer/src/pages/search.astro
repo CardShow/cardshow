@@ -80,7 +80,7 @@ const saveParams = forSaving(p);
           </div>
           <label class="field">Sort
             <select name="sort">
-              <option value="">{p.q ? 'Best match' : 'Newest'}</option>
+              <option value="">{p.q ? 'Best match' : 'Recommended'}</option>
               {Object.entries(SORTS).filter(([k]) => k !== 'best' && (k !== 'distance' || form.lat)).map(([k, v]) =>
                 <option value={k} selected={form.sort === k}>{v}</option>)}
             </select>

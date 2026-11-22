@@ -9,7 +9,7 @@ const pct = l.comp ? pctLabel(l.pct_of_comp) : '';
 const show = l.show;
 ---
 <a class="tile" href={l.url} data-listing={l.id}>
-  <div class="tile-img">
+  <div class={img?.kind === 'catalog' ? 'tile-img is-catalog' : 'tile-img'}>
     {img ? <img src={img.url} alt={l.title} loading="lazy" decoding="async" /> : <span class="ph">CardShow</span>}
     {img?.kind === 'catalog' && <span class="chip tag">Catalog image</span>}
   </div>

@@ -70,8 +70,10 @@ const jsonLd = found ? {
 
   {found && (
     <article class="listing" data-id={l.id} data-status={status}>
-      <div class="media">
-        {img ? <img src={img.url} alt={l.title} width="500" height="700" /> : <div class="ph">No photo yet</div>}
+      <div class={img?.kind === 'catalog' ? 'media is-catalog' : 'media'}>
+        {img?.kind === 'catalog'
+          ? <div class="frame"><img src={img.url} alt={l.title} /></div>
+          : img ? <img src={img.url} alt={l.title} width="500" height="700" /> : <div class="ph">No photo yet</div>}
         {img?.kind === 'catalog' && <p class="muted small">Catalog image. The dealer’s card may differ (centering, corners).</p>}
       </div>
 
@@ -144,6 +146,10 @@ const jsonLd = found ? {
   .gone { text-align: center; padding: 48px 0; }
   .listing { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 28px; margin-top: 20px; }
   .media img { width: 100%; height: auto; max-height: 78vh; object-fit: contain; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+  /* Catalog images are small: shown at their own size in a frame instead of stretched and blurry. */
+  .media.is-catalog .frame { display: flex; align-items: center; justify-content: center; padding: 32px 16px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .media.is-catalog .frame img { width: auto; height: auto; max-width: 100%; max-height: none; border: 0; border-radius: 4px; background: none; }
   .media .ph { aspect-ratio: 5 / 7; display: flex; align-items: center; justify-content: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted); }
   .small { font-size: 13px; margin: 6px 0 0; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
