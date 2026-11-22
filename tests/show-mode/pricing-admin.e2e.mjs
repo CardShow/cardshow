@@ -20,7 +20,12 @@ const state = {
       { identity: 'wemby|2023|prizm|136||', status: 'error', listings: 1, dealers: 1, attempts: 3, grades: ['BGS 9.5'],
         card: { title: 'Wemby Prizm', player: 'Victor Wembanyama', year: 2023, set: 'Prizm', number: '136' } },
     ],
-    manual: [], ignored: [],
+    manual: [], ignored: [], auto: [],
+    check: [
+      { identity: 'stroud|2024|panini select|42|17/49|', status: 'review', reason: 'parallel_unconfirmed', listings: 1, dealers: 1,
+        grades: ['Raw'], card_id: 'ch-stroud-base', match_title: '2024 Panini Select C.J. Stroud #42', value_cents: 69, price_cents: 4000,
+        card: { title: '2024 Panini Select C.J. Stroud /49', player: 'C.J. Stroud', year: 2024, set: 'Panini Select', number: '42', parallel: '17/49' } },
+    ],
   },
 };
 function fakePricing(route) {
@@ -28,7 +33,7 @@ function fakePricing(route) {
   state.calls.push(b);
   const ok = body => route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
   if (b.action === 'summary') return ok({ listed: 120, priced: 90, waiting: 25, unmatched: state.rows.open.reduce((n, r) => n + r.listings, 0),
-    ignored: state.rows.ignored.length, manual: state.rows.manual.length, cards: { high: 3, normal: 40 }, failing_refreshes: 1,
+    ignored: state.rows.ignored.length, manual: state.rows.manual.length, check: state.rows.check.length, auto: state.rows.auto.length, cards: { high: 3, normal: 40 }, failing_refreshes: 1,
     last_refresh: new Date().toISOString(), usage_today: { cardhedge: { calls: 4100, uncached: 100, errors: 2 } },
     daily_limit: 5000, cardhedge_key: true, enabled: false });
   if (b.action === 'queue') return ok({ rows: state.rows[b.status || 'open'] });
@@ -44,8 +49,14 @@ function fakePricing(route) {
     state.rows.manual.push({ ...r, status: 'manual', card_id: b.card_id });
     return ok({ ok: true, listings: r.listings, values: (b.values || []).length });
   }
+  if (b.action === 'confirm') {
+    const i = state.rows.check.findIndex(r => r.identity === b.identity);
+    const [r] = state.rows.check.splice(i, 1);
+    state.rows.manual.push({ ...r, status: 'manual' });
+    return ok({ ok: true, listings: r.listings });
+  }
   if (b.action === 'ignore' || b.action === 'retry') {
-    for (const k of ['open', 'manual', 'ignored']) {
+    for (const k of ['open', 'manual', 'ignored', 'check', 'auto']) {
       const i = state.rows[k].findIndex(r => r.identity === b.identity);
       if (i >= 0) { const [r] = state.rows[k].splice(i, 1); if (b.action === 'ignore') state.rows.ignored.push({ ...r, status: 'ignored' }); }
     }
@@ -97,6 +108,14 @@ const sum = await page.textContent('#paSummary');
 check('summary: listed, priced, waiting, couldn\'t match, calls today vs limit', /120/.test(sum) && /90/.test(sum) && /25/.test(sum)
   && /4,100 \/ 5,000/.test(sum) && /82%/.test(sum) && /1 card failing to refresh/.test(sum), sum);
 check('note: automatic pricing is off, manual matches still work', /Automatic pricing is off/.test(await page.textContent('#paFilters')));
+const chk = await page.textContent('#paList');
+check('opens on Needs a check: the matched card, its value next to the asking price, and why it\'s hidden',
+  /Needs a check/.test(await page.textContent('.dir-filter.active')) && /Card Hedge: 2024 Panini Select C\.J\. Stroud #42/.test(chk)
+  && /value \$0\.69 · asking \$40/.test(chk) && /doesn't name this parallel or print run/.test(chk), chk);
+await page.click('#paList button:has-text("Looks right")'); await wait(500);
+check('Looks right confirms the automatic match', state.calls.some(c => c.action === 'confirm' && c.identity === 'stroud|2024|panini select|42|17/49|')
+  && /Nothing to check/.test(await page.textContent('#paList')));
+await page.click('.dir-filter:has-text("Couldn\'t match")'); await wait(400);
 check('queue lists both cards, biggest first, with why', (await page.locator('#paList .dir-row').count()) === 2
   && /4 listings · 2 dealers · PSA 10, Raw/.test(await page.textContent('[data-pa-idx="0"]'))
   && /didn't answer \(3 tries\)/.test(await page.textContent('[data-pa-idx="1"]')));

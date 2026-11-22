@@ -161,3 +161,69 @@ do $$ begin perform pricing_admin_summary(); raise notice 'x'; exception when ot
 reset role; reset session authorization;
 select pg_temp.ok('13 anon cannot call the admin functions', not has_function_privilege('anon', 'public.pricing_admin_summary()', 'execute'));
 select pg_temp.ok('14 old pricing_set_match still works through the same rules', (select pricing_set_match((select pricing_identity from inventory where id = 'a0000000-0000-0000-0000-000000000005'), 'ch-w')->>'ok')::boolean);
+
+-- ── 20261205120000_pricing_review.sql: wrong comps stay off the buyer site until checked ──
+\set ON_ERROR_STOP 1
+\i ../../supabase/migrations/20261203120000_marketplace_buyer_site.sql
+\i ../../supabase/migrations/20261204120000_marketplace_photo_ranking.sql
+\i ../../supabase/migrations/20261205120000_pricing_review.sql
+\i ../../supabase/migrations/20261205120000_pricing_review.sql
+\set ON_ERROR_STOP 0
+select pg_temp.ok('15 automatic comp near the asking price is shown (Jayden $250, comp $300)',
+  (_listing_json('a0000000-0000-0000-0000-000000000002')->'comp'->>'value_cents')::int = 30000);
+-- Card Hedge's value is far off ($25,000 for a $250 card): hidden, not a "deal", listed under Needs a check.
+set session authorization authenticator; set role service_role;
+select pricing_apply_values('ch-jd', '[{"grade":"PSA 9","value_cents":2500000}]'::jsonb);
+reset role; reset session authorization;
+select pg_temp.ok('16 far-off automatic comp hidden: no comp, no % of comp, not a deal',
+  _listing_json('a0000000-0000-0000-0000-000000000002')->'comp' is null
+  and _listing_json('a0000000-0000-0000-0000-000000000002')->'pct_of_comp' is null
+  and (_listing_json('a0000000-0000-0000-0000-000000000002')->>'deal')::boolean = false
+  and (_listing_json('a0000000-0000-0000-0000-000000000002')->>'comp_unavailable')::boolean);
+set session authorization authenticator; set role anon;
+select pg_temp.ok('17 deals filter and comp filter skip it',
+  not exists (select 1 from jsonb_array_elements(search_listings('{"deals_only":true}')->'results') x
+               where x->>'id' = 'a0000000-0000-0000-0000-000000000002')
+  and not exists (select 1 from jsonb_array_elements(search_listings('{"comp_min_cents":100000}')->'results') x
+               where x->>'id' = 'a0000000-0000-0000-0000-000000000002'));
+reset role; reset session authorization;
+set session authorization authenticator; set role authenticated;
+set request.jwt.claim.sub = 'ffffffff-0000-0000-0000-00000000000f';
+select pg_temp.ok('18 Needs a check lists it with the matched card, its value and the asking price',
+  exists (select 1 from jsonb_array_elements(pricing_unmatched('check', 10)) x
+           where x->>'reason' = 'value_far_off' and x->>'card_id' = 'ch-jd' and x->>'match_title' = 't'
+             and (x->>'value_cents')::int = 2500000 and (x->>'price_cents')::int = 25000)
+  and (pricing_admin_summary()->>'check')::int = 1 and (pricing_admin_summary()->>'auto')::int = 1
+  and jsonb_array_length(pricing_unmatched('auto', 10)) = 1);
+select pricing_admin_resolve((select pricing_identity from inventory where id = 'a0000000-0000-0000-0000-000000000002'), 'confirm');
+reset role; reset session authorization;
+select pg_temp.ok('19 Looks right: status manual, value shown even far from the price, gone from Needs a check',
+  (select pricing_match_status from inventory where id = 'a0000000-0000-0000-0000-000000000002') = 'manual'
+  and (_listing_json('a0000000-0000-0000-0000-000000000002')->'comp'->>'value_cents')::int = 2500000
+  and (select count(*) from inventory where pricing_match_status = 'review') = 0);
+-- Parallel not confirmed: the job records 'review'; values stored but not shown.
+set session authorization authenticator; set role service_role;
+select pricing_record_match((select pricing_identity from inventory where id = 'a0000000-0000-0000-0000-000000000001'), 'review',
+                            'ch-base', 'q', 'Charizard base', 'parallel_unconfirmed');
+select pricing_apply_values('ch-base', '[{"grade":"PSA 10","value_cents":20000}]'::jsonb);
+reset role; reset session authorization;
+select pg_temp.ok('20 review: card linked and value stored, but not shown to buyers',
+  (select pricing_match_status from inventory where id = 'a0000000-0000-0000-0000-000000000001') = 'review'
+  and (select pricing_review_reason from inventory where id = 'a0000000-0000-0000-0000-000000000001') = 'parallel_unconfirmed'
+  and (select comp_value_cents from inventory where id = 'a0000000-0000-0000-0000-000000000001') = 20000
+  and _listing_json('a0000000-0000-0000-0000-000000000001')->'comp' is null);
+set session authorization authenticator; set role authenticated;
+set request.jwt.claim.sub = 'ffffffff-0000-0000-0000-00000000000f';
+select pg_temp.ok('21 review rows are in Needs a check with their reason',
+  exists (select 1 from jsonb_array_elements(pricing_unmatched('check', 10)) x where x->>'reason' = 'parallel_unconfirmed' and x->>'match_title' = 'Charizard base'));
+select pricing_admin_resolve((select pricing_identity from inventory where id = 'a0000000-0000-0000-0000-000000000001'), 'retry');
+select pg_temp.ok('22 Try again works on a review row: back to the automatic queue, reason cleared',
+  (select bool_and(pricing_match_status is null and pricing_review_reason is null and comp_value_cents is null)
+     from inventory where pricing_identity = (select pricing_identity from inventory where id = 'a0000000-0000-0000-0000-000000000001')));
+-- a seller can't set the review reason themselves
+set request.jwt.claim.sub = 'aaaaaaaa-0000-0000-0000-000000000001';
+do $$ begin
+  update inventory set pricing_review_reason = 'x' where id = 'a0000000-0000-0000-0000-000000000006';
+  raise notice 'FAIL 23 seller wrote pricing_review_reason';
+exception when others then raise notice 'PASS 23 seller cannot write pricing_review_reason (%)', sqlerrm; end $$;
+reset role; reset session authorization;
