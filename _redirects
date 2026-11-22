@@ -9,6 +9,10 @@
 /c/*         https://cardshow-buyer.netlify.app/c/:splat    200
 /d/*         https://cardshow-buyer.netlify.app/d/:splat    200
 /_astro/*    https://cardshow-buyer.netlify.app/_astro/:splat  200
+# robots.txt and sitemap.xml for the whole domain are made by the buyer site (noindex/closed until
+# BUYER_SITE_INDEXING=true there). Cloudflare adds its own content-signals comment block on top.
+/robots.txt  https://cardshow-buyer.netlify.app/robots.txt  200
+/sitemap.xml https://cardshow-buyer.netlify.app/sitemap.xml 200
 # The buyer site's source is in this repo (published here as plain files); don't serve it.
 /buyer/*     /buyer-source-not-served  404!
 
