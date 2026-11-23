@@ -80,7 +80,7 @@ function mkUpdateEntry(tab) {
 // ── Defaults for cards listed from the panel (per seller, on this device) ──
 function _mkDefaultsKey() { return 'mkDefaults:' + (currentSeller || ''); }
 function mkDefaults() {
-  const d = { acceptsOffers: true, minPct: '', autoPct: '', ship: true, pickup: false };
+  const d = { acceptsOffers: true, minPct: '', autoPct: '', ship: true, pickup: false, shipPrice: '', pickupShow: '' };
   try { Object.assign(d, JSON.parse(localStorage.getItem(_mkDefaultsKey()) || '{}')); } catch (_) {}
   return d;
 }
@@ -95,6 +95,30 @@ function _mkScope() {
 }
 
 function _mkEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+// Shows this seller is in that haven't ended, soonest first: the choices for "Pickup at".
+function mkPickupShows() {
+  if (typeof shows === 'undefined' || !currentSeller) return [];
+  return Object.values(shows).filter(sh => {
+    if (!sh || !sh.id) return false;
+    const sellers = sh.sellers instanceof Set ? sh.sellers : new Set(sh.sellers || []);
+    if (!sellers.has(currentSeller)) return false;
+    return typeof _showStatusFromDates !== 'function' || _showStatusFromDates(sh) !== 'past';
+  }).sort((a, b) => String(a.startDate || '9999').localeCompare(String(b.startDate || '9999')));
+}
+function mkPickupOptionsHTML(selected) {
+  const list = mkPickupShows();
+  if (selected && !list.some(sh => sh.id === selected) && typeof shows !== 'undefined' && shows[selected]) list.unshift(shows[selected]);
+  return `<option value="">The next show I'm at</option>` + list.map(sh =>
+    `<option value="${_mkEsc(sh.id)}" ${sh.id === selected ? 'selected' : ''}>${_mkEsc(sh.name || sh.id)}${sh.date ? ' · ' + _mkEsc(sh.date) : ''}</option>`).join('');
+}
+// '' → null (ask me); otherwise whole cents, or NaN when it isn't a price.
+function _mkShipCents(v) {
+  v = String(v == null ? '' : v).trim().replace(/^\$/, '');
+  if (v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 && n <= 1000 ? Math.round(n * 100) : NaN;
+}
+
 function _mkMoney(cents) { return '$' + (cents / 100).toLocaleString(undefined, { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 }); }
 
 // ── Panel ──
@@ -199,8 +223,15 @@ function _mkRenderPanel(result) {
               <span class="mk-pct"><input type="number" id="mkAutoPct" inputmode="decimal" min="1" max="100" step="1" placeholder="Never" value="${_mkEsc(d.autoPct)}"><span>% of asking</span></span></label>
           </div>
           <div class="mk-row">
-            <label class="mk-check"><input type="checkbox" id="mkShip" ${d.ship ? 'checked' : ''}> Ship to buyer</label>
-            <label class="mk-check"><input type="checkbox" id="mkPickup" ${d.pickup ? 'checked' : ''}> Pickup at a show</label>
+            <label class="mk-check"><input type="checkbox" id="mkShip" ${d.ship ? 'checked' : ''} onchange="_mkToggleDeliveryRows()"> Ship to buyer</label>
+            <label class="mk-check"><input type="checkbox" id="mkPickup" ${d.pickup ? 'checked' : ''} onchange="_mkToggleDeliveryRows()"> Pickup at a show</label>
+          </div>
+          <div class="mk-grid">
+            <label id="mkShipRow" style="${d.ship ? '' : 'display:none'}">Shipping price
+              <span class="mk-pct"><span>$</span><input type="number" id="mkShipPrice" inputmode="decimal" min="0" step="0.01" placeholder="Ask me" value="${_mkEsc(d.shipPrice)}"></span>
+              <span class="mk-hint">0 = free shipping. Blank = buyers ask you.</span></label>
+            <label id="mkPickupRow" style="${d.pickup ? '' : 'display:none'}">Pickup at
+              <select id="mkPickupShow" class="show-input" style="margin:0">${mkPickupOptionsHTML(d.pickupShow)}</select></label>
           </div>
           <div class="cost-field-err" id="mkErr"></div>
         </div>
@@ -213,6 +244,11 @@ function _mkRenderPanel(result) {
         <button type="button" class="btn btn-primary" id="mkListBtn" ${toList.length ? '' : 'disabled'} onclick="mkListFromPanel()">List ${toList.length} card${toList.length === 1 ? '' : 's'}</button>
       </div>
     </div>`;
+}
+
+function _mkToggleDeliveryRows() {
+  document.getElementById('mkShipRow').style.display = document.getElementById('mkShip').checked ? '' : 'none';
+  document.getElementById('mkPickupRow').style.display = document.getElementById('mkPickup').checked ? '' : 'none';
 }
 
 function _mkToggleOfferRows() {
@@ -230,12 +266,15 @@ function mkSettingsFromPct(card, opts) {
     min_offer_cents: opts.acceptsOffers ? pct(opts.minPct) : null,
     auto_accept_cents: opts.acceptsOffers ? pct(opts.autoPct) : null,
     sale_modes: modes,
+    shipping_options: opts.ship && _mkShipCents(opts.shipPrice) != null ? { flat_cents: _mkShipCents(opts.shipPrice) } : null,
+    pickup_show_id: opts.pickup && opts.pickupShow ? opts.pickupShow : null,
   };
 }
 
 // Checks shared by the panel and the Edit Card section. Returns an error message or ''.
 function mkValidate(s, priceCents) {
   if (!s.sale_modes.length) return 'Pick at least one way for buyers to get the card.';
+  if (s.shipping_options && !Number.isFinite(s.shipping_options.flat_cents)) return 'Shipping must be a price from $0 to $1,000 (or blank).';
   if (s.min_offer_cents != null && !(s.min_offer_cents > 0)) return 'The lowest offer must be more than $0.';
   if (s.min_offer_cents != null && priceCents && s.min_offer_cents > priceCents) return 'The lowest offer can\'t be above your asking price.';
   if (s.auto_accept_cents != null && !(s.auto_accept_cents > 0)) return 'The auto-accept price must be more than $0.';
@@ -252,6 +291,8 @@ function _mkReadPanelOpts() {
     minPct: v('mkMinPct'), autoPct: v('mkAutoPct'),
     ship: document.getElementById('mkShip').checked,
     pickup: document.getElementById('mkPickup').checked,
+    shipPrice: v('mkShipPrice'),
+    pickupShow: document.getElementById('mkPickupShow')?.value || '',
   };
 }
 
@@ -272,6 +313,7 @@ async function mkListFromPanel() {
     err.textContent = 'Auto-accept must be at or above the lowest offer you\'ll consider.'; return;
   }
   if (!opts.ship && !opts.pickup) { err.textContent = 'Pick at least one way for buyers to get the card.'; return; }
+  if (opts.ship && Number.isNaN(_mkShipCents(opts.shipPrice))) { err.textContent = 'Shipping must be a price from $0 to $1,000 (or blank).'; return; }
   err.textContent = '';
   _mkSaveDefaults(opts);
   const cards = _mkScope().filter(c => mkListing(c) !== 'active' && !mkCantList(c));
@@ -304,6 +346,8 @@ async function _mkRun(btn, label, fn) {
 
 function _mkErrText(e) {
   const m = (e && (e.message || e.code)) || String(e);
+  if (/pickup_show_not_joined/.test(m)) return 'You aren\'t in that pickup show any more. Pick another show or "The next show I\'m at".';
+  if (/inventory_shipping_options_check/.test(m)) return 'Shipping must be a price from $0 to $1,000 (or blank).';
   return MK_MISSING_RE.test(m) ? 'The marketplace isn\'t set up on the server yet.' : 'Couldn\'t update your listings: ' + _mkEsc(m);
 }
 
@@ -373,6 +417,8 @@ function _mkApplySettings(card, s) {
   card.MinOfferCents = s.min_offer_cents;
   card.AutoAcceptCents = s.auto_accept_cents;
   card.SaleModes = s.sale_modes;
+  if ('shipping_options' in s) card.ShippingCents = s.shipping_options ? s.shipping_options.flat_cents : null;
+  if ('pickup_show_id' in s) card.PickupShowId = s.pickup_show_id;
 }
 
 function _mkAfterChange() {
@@ -411,9 +457,12 @@ function mkCemFill(card) {
   const modes = Array.isArray(card.SaleModes) && card.SaleModes.length ? card.SaleModes : ['ship'];
   document.getElementById('cem_mk_ship').checked = modes.includes('ship');
   document.getElementById('cem_mk_pickup').checked = modes.includes('local_pickup');
+  document.getElementById('cem_mk_ship_price').value = card.ShippingCents != null ? (card.ShippingCents / 100) : '';
+  document.getElementById('cem_mk_pickup_show').innerHTML = mkPickupOptionsHTML(card.PickupShowId || '');
+  mkCemToggleDelivery();
   document.getElementById('cem_mk_offer_rows').style.display = accepts ? '' : 'none';
   document.getElementById('cem_mk_err').textContent = '';
-  box.querySelectorAll('input').forEach(i => { i.disabled = s === 'reserved' || s === 'sold'; });
+  box.querySelectorAll('input, select').forEach(i => { i.disabled = s === 'reserved' || s === 'sold'; });
   box.open = s === 'active';
 }
 
@@ -454,6 +503,11 @@ function mkUseComp(cents) {
   showToast(`Price set to ${_mkMoney(cents)} — Save to keep it`);
 }
 
+function mkCemToggleDelivery() {
+  document.getElementById('cem_mk_ship_row').style.display = document.getElementById('cem_mk_ship').checked ? '' : 'none';
+  document.getElementById('cem_mk_pickup_row').style.display = document.getElementById('cem_mk_pickup').checked ? '' : 'none';
+}
+
 function mkCemToggleOffers() {
   document.getElementById('cem_mk_offer_rows').style.display = document.getElementById('cem_mk_accept').checked ? '' : 'none';
 }
@@ -472,6 +526,9 @@ function mkCemRead(card) {
     sale_modes: [document.getElementById('cem_mk_ship').checked && 'ship',
                  document.getElementById('cem_mk_pickup').checked && 'local_pickup'].filter(Boolean),
   };
+  const ship = s.sale_modes.includes('ship') ? _mkShipCents(document.getElementById('cem_mk_ship_price').value) : null;
+  s.shipping_options = ship == null ? null : { flat_cents: ship };
+  s.pickup_show_id = s.sale_modes.includes('local_pickup') ? (document.getElementById('cem_mk_pickup_show').value || null) : null;
   const priceInput = document.getElementById('cem_price');
   const priceCents = Math.round(Number((priceInput && priceInput.value) || card.Price || 0) * 100);
   const err = (Number.isNaN(s.min_offer_cents) || Number.isNaN(s.auto_accept_cents)) ? 'Enter prices as numbers.' : mkValidate(s, priceCents);
@@ -480,7 +537,9 @@ function mkCemRead(card) {
   const same = (card.AcceptsOffers !== false) === s.accepts_offers
     && (card.MinOfferCents ?? null) === s.min_offer_cents
     && (card.AutoAcceptCents ?? null) === s.auto_accept_cents
-    && JSON.stringify(Array.isArray(card.SaleModes) && card.SaleModes.length ? card.SaleModes : ['ship']) === JSON.stringify(s.sale_modes);
+    && JSON.stringify(Array.isArray(card.SaleModes) && card.SaleModes.length ? card.SaleModes : ['ship']) === JSON.stringify(s.sale_modes)
+    && (card.ShippingCents ?? null) === (s.shipping_options ? s.shipping_options.flat_cents : null)
+    && (card.PickupShowId || null) === s.pickup_show_id;
   return same ? null : s;
 }
 

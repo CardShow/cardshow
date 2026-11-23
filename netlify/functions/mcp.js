@@ -18,6 +18,8 @@ const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 const { publicPhotoUrl } = require('../lib/listing-photos');
 const { lookupPlace } = require('../lib/us-places');
+let ZIPS = null;
+const zipPoint = z => (ZIPS ??= require('../lib/us-zips.json'))[z] || null;
 
 const SERVER = { name: 'cardshow', title: 'CardShow', version: '1.0.0' };
 const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
@@ -27,7 +29,8 @@ const SITE = () => (process.env.MARKETPLACE_SITE_URL || 'https://getcardshow.com
 
 const INSTRUCTIONS = 'CardShow lists trading cards for sale at physical card shows and card shops, plus cards dealers ship. ' +
   'Use search_cards to find listings (prices in US cents; "comp" is the online market value from Card Hedge, and ' +
-  'pct_of_comp is the asking price as a share of it). Use list_upcoming_shows and get_show_inventory to find cards at ' +
+  'pct_of_comp is the asking price as a share of it; shipping_cents is the dealer\'s shipping price, 0 = free, missing = ask the dealer; ' +
+  'show.pickup means the dealer picked that show for pickup). Use list_upcoming_shows and get_show_inventory to find cards at ' +
   'shows near a place and date. This server is read-only: send the person to the listing URL to buy, hold or make an offer.';
 
 const FILTER_PROPS = {
@@ -46,8 +49,8 @@ const FILTER_PROPS = {
   deals_only: { type: 'boolean', description: 'Only listings priced 10%+ under their online comp' },
   sale_mode: { type: 'string', enum: ['ship', 'local_pickup'] },
   state: { type: 'string', description: 'Two-letter US state of the show the card is at' },
-  near: { type: 'object', description: 'Cards at shows near a place: a US city and state, or lat/lng', properties: {
-    city: { type: 'string', description: 'e.g. Anaheim' }, state: { type: 'string', description: 'Two-letter state, e.g. CA' },
+  near: { type: 'object', description: 'Cards at shows near a place: a US ZIP code, a city and state, or lat/lng', properties: {
+    zip: { type: 'string', description: '5-digit US ZIP code, e.g. 95814' }, city: { type: 'string', description: 'e.g. Anaheim' }, state: { type: 'string', description: 'Two-letter state, e.g. CA' },
     lat: { type: 'number' }, lng: { type: 'number' }, miles: { type: 'number', description: 'Default 25' } } },
   date_from: { type: 'string', description: 'YYYY-MM-DD: show runs on or after' },
   date_to: { type: 'string', description: 'YYYY-MM-DD: show starts on or before' },
@@ -129,7 +132,7 @@ function shapeListing(l, client) {
     const photo = publicPhotoUrl(process.env.SUPABASE_URL, l.image.photo_path);
     if (photo) out.image.photo_url = photo;
   }
-  if (l.show?.id) out.show = { ...l.show, url: linkify(`/show.html?id=${l.show.id}`, client) };
+  if (l.show?.id) out.show = { ...l.show, url: linkify(l.show.url || `/show.html?id=${l.show.id}`, client) };
   return out;
 }
 
@@ -142,19 +145,25 @@ function searchParams(args) {
   return p;
 }
 
-// near: {city, state} → {lat, lng} from the Census Gazetteer. Throws a tool error for an unknown place.
+// near: {zip} or {city, state} → {lat, lng} from the Census Gazetteer. Throws a tool error for an unknown place.
 function resolveNear(near) {
   if (!near || typeof near !== 'object') return undefined;
   const miles = near.miles;
   if (Number.isFinite(Number(near.lat)) && Number.isFinite(Number(near.lng)) && near.lat !== '' && near.lng !== '') {
     return { lat: Number(near.lat), lng: Number(near.lng), ...(miles != null ? { miles } : {}) };
   }
+  if (near.zip != null && near.zip !== '') {
+    const z = /^(\d{5})(?:-\d{4})?$/.exec(String(near.zip).trim());
+    const pt = z && zipPoint(z[1]);
+    if (!pt) throw toolError(`Couldn't find ZIP code ${near.zip}. Use a 5-digit US ZIP code.`);
+    return { lat: pt[0], lng: pt[1], ...(miles != null ? { miles } : {}) };
+  }
   if (near.city && near.state) {
     const p = lookupPlace(near.city, near.state);
     if (!p) throw toolError(`Couldn't find ${near.city}, ${near.state}. Use a US city and its two-letter state.`);
     return { lat: p.lat, lng: p.lng, ...(miles != null ? { miles } : {}) };
   }
-  throw toolError('near needs a city and state, or lat and lng');
+  throw toolError('near needs a ZIP code, a city and state, or lat and lng');
 }
 
 // ── tool calls ─────────────────────────────────────────────────────────────

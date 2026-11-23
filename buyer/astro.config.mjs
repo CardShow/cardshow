@@ -12,4 +12,7 @@ export default defineConfig({
   build: { format: 'file' },
   devToolbar: { enabled: false },
   security: { checkOrigin: true },
+  // Grid tiles use Netlify's image service for small copies of dealer photos. It only exists on Netlify,
+  // so it's on for builds made there (NETLIFY=true) and off for astro dev / tests. BUYER_IMAGE_CDN=false turns it off.
+  vite: { define: { __CS_IMAGE_CDN__: JSON.stringify(process.env.NETLIFY === 'true' && process.env.BUYER_IMAGE_CDN !== 'false') } },
 });

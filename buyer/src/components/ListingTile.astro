@@ -4,7 +4,7 @@ import { money, gradeLabel, pctLabel, imageFor, dateRange, place } from '../lib/
 import { env } from '../lib/env.js';
 interface Props { l: any }
 const { l } = Astro.props;
-const img = imageFor(l, { supabaseUrl: env.supabaseUrl(), siteUrl: env.siteUrl() });
+const img = imageFor(l, { supabaseUrl: env.supabaseUrl(), siteUrl: env.siteUrl(), thumb: 480, cdn: env.imageCdn() });
 const pct = l.comp ? pctLabel(l.pct_of_comp) : '';
 const show = l.show;
 ---

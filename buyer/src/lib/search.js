@@ -56,9 +56,15 @@ export function fromQuery(input, { today = new Date() } = {}) {
     const to = new Date(today); to.setDate(to.getDate() + 30);
     p.date_from = iso(today); p.date_to = iso(to); p.when = 'month'; form.when = 'month';
   }
+  // Near a ZIP code or city (loc, resolved by the page with geo.js) or the browser's location (lat/lng).
+  // A typed place wins over coordinates. p.near.lat is empty until the page resolves loc.
+  const miles = MILES.includes(Number(g('miles'))) ? Number(g('miles')) : 50;
+  const loc = g('loc').slice(0, 80);
   const lat = num(g('lat')), lng = num(g('lng'));
-  if (lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
-    const miles = MILES.includes(Number(g('miles'))) ? Number(g('miles')) : 50;
+  if (loc) {
+    p.near = { label: loc, miles };
+    form.loc = loc; form.miles = String(miles);
+  } else if (lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
     p.near = { lat: Math.round(lat * 1000) / 1000, lng: Math.round(lng * 1000) / 1000, miles };
     form.lat = String(p.near.lat); form.lng = String(p.near.lng); form.miles = String(miles);
   }
@@ -80,7 +86,8 @@ export function toQuery(p = {}) {
   if (p.deals_only) set('deals', '1');
   if (p.sale_mode === 'ship') set('how', 'ship'); else if (p.sale_mode === 'local_pickup') set('how', 'pickup');
   set('state', p.state); set('show', p.show_id); set('when', p.when);
-  if (p.near) { set('lat', p.near.lat); set('lng', p.near.lng); set('miles', p.near.miles); }
+  if (p.near?.label) { set('loc', p.near.label); set('miles', p.near.miles); }
+  else if (p.near) { set('lat', p.near.lat); set('lng', p.near.lng); set('miles', p.near.miles); }
   set('sort', p.sort);
   return sp.toString();
 }
@@ -107,7 +114,7 @@ export function describe(p = {}) {
   if (p.sale_mode === 'ship') parts.push('ships');
   if (p.sale_mode === 'local_pickup') parts.push('pickup');
   if (p.state) parts.push(p.state);
-  if (p.near) parts.push(`within ${p.near.miles} mi`);
+  if (p.near) parts.push(p.near.label ? `within ${p.near.miles} mi of ${p.near.label}` : `within ${p.near.miles} mi`);
   if (p.when === 'weekend') parts.push('this weekend');
   if (p.when === 'month') parts.push('next 30 days');
   return (parts.join(' · ') || 'All listings').slice(0, 120);

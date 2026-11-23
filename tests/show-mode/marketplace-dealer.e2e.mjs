@@ -113,6 +113,12 @@ let S = await srv();
 check('auto-accept below lowest offer is refused, nothing listed', /at or above/.test(await page.textContent('#mkErr')) && !S.inventory.some(r => r.listing_status === 'active'));
 
 await page.fill('#mkMinPct', '80'); await page.fill('#mkAutoPct', '90'); await page.check('#mkPickup');
+check('pickup show list: shows the seller is in', await page.evaluate(() =>
+  [...document.querySelectorAll('#mkPickupShow option')].map(o => o.value).join(',') === ',show_a'));
+await page.fill('#mkShipPrice', '-3');
+await page.click('#mkListBtn'); await wait(300);
+check('negative shipping refused', /Shipping must be a price/.test(await page.textContent('#mkErr')));
+await page.fill('#mkShipPrice', '4.50'); await page.selectOption('#mkPickupShow', 'show_a');
 await page.click('#mkListBtn'); await wait(700);
 S = await srv();
 check('c1 and c2 listed on the server', row(S, 'c1').listing_status === 'active' && row(S, 'c2').listing_status === 'active');
@@ -120,6 +126,8 @@ check('blocked cards stay unlisted', ['c7', 'c8', 'c9', 'c10', 'c12', 'c13'].eve
 check('sealed box listed without a photo', row(S, 'c11').listing_status === 'active');
 check('offer settings from percentages of asking (c1 $120)', row(S, 'c1').min_offer_cents === 9600 && row(S, 'c1').auto_accept_cents === 10800, JSON.stringify(row(S, 'c1')));
 check('ship + pickup saved', JSON.stringify(row(S, 'c2').sale_modes) === '["ship","local_pickup"]');
+check('shipping price and pickup show saved', row(S, 'c2').shipping_options?.flat_cents === 450 && row(S, 'c2').pickup_show_id === 'show_a',
+  JSON.stringify(row(S, 'c2')));
 check('settings written before listing', await page.evaluate(() => {
   const L = window.__mockLog; const u = L.findIndex(e => e.table === 'inventory' && e.op === 'update' && e.payload && 'min_offer_cents' in e.payload);
   const p = L.findIndex(e => e.op === 'publish_listings'); return u >= 0 && p > u; }));
@@ -143,15 +151,18 @@ await page.click('.mk-x'); await wait(200);
 // ── Edit Card section ──
 await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c1'); await wait(200);
 check('Edit Card shows the Marketplace section', await page.isVisible('#cem_mk_details'));
-check('Edit Card filled from the card', await page.evaluate(() => document.getElementById('cem_mk_min').value === '96' && document.getElementById('cem_mk_pickup').checked));
+check('Edit Card filled from the card', await page.evaluate(() => document.getElementById('cem_mk_min').value === '96' && document.getElementById('cem_mk_pickup').checked
+  && document.getElementById('cem_mk_ship_price').value === '4.5' && document.getElementById('cem_mk_pickup_show').value === 'show_a'));
 await page.evaluate(() => { document.getElementById('cem_mk_details').open = true; });
 await page.fill('#cem_mk_auto', '500');
 await page.evaluate(() => saveCEM()); await wait(300);
 check('auto-accept above asking blocks Save', /above your asking/.test(await page.textContent('#cem_mk_err')) && await page.isVisible('#cardEditOverlay.open'));
-await page.fill('#cem_mk_auto', '110'); await page.uncheck('#cem_mk_pickup');
+await page.fill('#cem_mk_auto', '110'); await page.uncheck('#cem_mk_pickup'); await page.fill('#cem_mk_ship_price', '0');
+check('pickup show hidden when pickup is off', !(await page.isVisible('#cem_mk_pickup_row')));
 await page.evaluate(() => saveCEM()); await wait(600);
 S = await srv();
 check('Edit Card saves offer settings', row(S, 'c1').auto_accept_cents === 11000 && JSON.stringify(row(S, 'c1').sale_modes) === '["ship"]', JSON.stringify(row(S, 'c1')));
+check('Edit Card: free shipping, pickup show cleared', row(S, 'c1').shipping_options?.flat_cents === 0 && row(S, 'c1').pickup_show_id === null);
 
 await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c2'); await wait(200);
 await page.evaluate(() => { document.getElementById('cem_mk_details').open = true; });

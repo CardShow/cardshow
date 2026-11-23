@@ -2626,6 +2626,8 @@
   .mk-pct { display: flex; align-items: center; gap: 0.35rem; }
   .mk-pct input { width: 4.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 0.45rem; font-size: 0.9rem; }
   .mk-pct span { font-size: 0.72rem; color: var(--muted); }
+  .mk-hint { font-size: 0.7rem; color: var(--muted); }
+  .mk-grid select.show-input { font-size: 0.85rem; padding: 0.45rem; }
   .mk-blocked { margin: 0.45rem 0; }
   .mk-blocked-head { font-size: 0.8rem; color: var(--text); font-weight: 600; }
   .mk-blocked-cards { display: flex; flex-wrap: wrap; gap: 0.3rem 0.6rem; margin-top: 0.2rem; }
@@ -6962,8 +6964,18 @@
               </div>
             </div>
             <div class="mk-row">
-              <label class="mk-check"><input type="checkbox" id="cem_mk_ship"> Ship to buyer</label>
-              <label class="mk-check"><input type="checkbox" id="cem_mk_pickup"> Pickup at a show</label>
+              <label class="mk-check"><input type="checkbox" id="cem_mk_ship" onchange="mkCemToggleDelivery()"> Ship to buyer</label>
+              <label class="mk-check"><input type="checkbox" id="cem_mk_pickup" onchange="mkCemToggleDelivery()"> Pickup at a show</label>
+            </div>
+            <div class="cost-grid">
+              <div id="cem_mk_ship_row">
+                <div class="section-label" style="margin-bottom:0.3rem">Shipping <span class="cost-opt">0 = free · blank = ask me</span></div>
+                <div class="cost-input-wrap"><span>$</span><input id="cem_mk_ship_price" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Ask me"></div>
+              </div>
+              <div id="cem_mk_pickup_row">
+                <div class="section-label" style="margin-bottom:0.3rem">Pickup at</div>
+                <select class="show-input" id="cem_mk_pickup_show" style="margin:0"></select>
+              </div>
             </div>
             <div class="cost-field-err" id="cem_mk_err"></div>
             <button type="button" class="btn btn-ghost mk-cem-btn" id="cem_mk_btn" onclick="mkCemListToggle()">List on marketplace</button>
@@ -8100,7 +8112,7 @@
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261122a"></script>
-<script src="/js/marketplace-dealer.js?v=20261122b"></script>
+<script src="/js/marketplace-dealer.js?v=20261122c"></script>
 <script src="/js/pricing-admin.js?v=20261122b"></script>
 <script>
 // ── STATE ──
@@ -23035,6 +23047,8 @@ function dbRowToCard(row) {
     MinOfferCents:      row.min_offer_cents      != null ? row.min_offer_cents : null,
     AutoAcceptCents:    row.auto_accept_cents    != null ? row.auto_accept_cents : null,
     SaleModes:          Array.isArray(row.sale_modes) ? row.sale_modes : null,
+    PickupShowId:       row.pickup_show_id || null,
+    ShippingCents:      row.shipping_options && row.shipping_options.flat_cents != null ? row.shipping_options.flat_cents : null,
     // Online comp from the marketplace pricing service (Card Hedge). Written only by CardShow's server.
     CompValueCents:     row.comp_value_cents     != null ? row.comp_value_cents : null,
     PricingMatchStatus: row.pricing_match_status || null,

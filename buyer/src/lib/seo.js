@@ -1,11 +1,11 @@
 // robots.txt and sitemap.xml for getcardshow.com. The buyer site makes both; the main site proxies
 // /robots.txt and /sitemap.xml to it (repo _redirects), so one robots.txt covers the whole domain.
 // Before launch (BUYER_SITE_INDEXING not "true") crawlers are kept off the marketplace pages and no
-// sitemap is advertised; the main site's own pages (landing page, show pages, privacy) stay crawlable as before.
+// sitemap is advertised; the main site's own pages (landing page, show.html, privacy) stay crawlable as before.
 
 // Never useful to a search engine, before or after launch.
 const PRIVATE = ['/app', '/app.html', '/account', '/.netlify/', '/mcp', '/trade-board', '/seller-browse'];
-const MARKETPLACE = ['/search', '/c/', '/d/'];
+const MARKETPLACE = ['/search', '/c/', '/d/', '/s/'];
 
 export function buildRobots({ indexing, site }) {
   const lines = ['# getcardshow.com', 'User-agent: *', 'Allow: /'];

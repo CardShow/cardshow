@@ -13,3 +13,8 @@
   for = "/_astro/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# Netlify Image CDN: the buyer site's grid tiles load resized dealer photos from /.netlify/images.
+# getcardshow.com serves those requests itself (this file and buyer/netlify.toml both allow the source).
+[images]
+  remote_images = ["https://qtnqawqlmttogwnjieky\\.supabase\\.co/storage/v1/object/public/listing-photos/.*"]

@@ -39,7 +39,7 @@ test('collect: every page of listings, dealers once each, upcoming shows', async
       assert.equal(args.p.sort, 'newest'); assert.equal(args.p.limit, 50);
       return { total: all.length, results: all.slice(args.p.offset, args.p.offset + 50) };
     }
-    if (name === 'list_upcoming_shows') return [{ url: '/show.html?id=show_1' }];
+    if (name === 'list_upcoming_shows') return [{ url: '/s/show-1-2026' }];
     throw new Error('unexpected ' + name);
   };
   const entries = await collectSitemap({ rpc, site: SITE });
@@ -47,7 +47,7 @@ test('collect: every page of listings, dealers once each, upcoming shows', async
   assert.equal(locs.filter(l => l.includes('/c/')).length, 120);
   assert.deepEqual(calls.filter(([n]) => n === 'search_listings').map(([, o]) => o).sort((a, b) => a - b), [0, 50, 100]);
   assert.equal(locs.filter(l => l.endsWith('/d/dealer_a')).length, 1);
-  assert.ok(locs.includes(`${SITE}/d/dealer_b`) && locs.includes(`${SITE}/show.html?id=show_1`) && locs.includes(`${SITE}/`)
+  assert.ok(locs.includes(`${SITE}/d/dealer_b`) && locs.includes(`${SITE}/s/show-1-2026`) && locs.includes(`${SITE}/`)
     && locs.includes(`${SITE}/privacy`));
   assert.equal(entries.find(e => e.loc === `${SITE}/search`).lastmod, '2026-11-20');
 });

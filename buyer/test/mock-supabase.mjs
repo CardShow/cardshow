@@ -11,7 +11,8 @@ const iso = t => new Date(t).toISOString();
 const d = n => iso(now + n * day).slice(0, 10);
 
 export function listings() {
-  const show = { id: 'show_monster', name: 'Monster Show', start_date: d(2), end_date: d(4), venue: 'Cal Expo', city: 'Sacramento', state: 'CA', table_number: '12' };
+  const show = { id: 'show_monster', name: 'Monster Show', start_date: d(2), end_date: d(4), venue: 'Cal Expo', city: 'Sacramento', state: 'CA', table_number: '12',
+    url: '/s/monster-show-2026', pickup: true };
   const dealerA = { handle: 'dealer_a', display_name: 'Dealer A', url: '/d/dealer_a' };
   const dealerB = { handle: 'dealer_b', display_name: 'Dealer B', url: '/d/dealer_b' };
   return [
@@ -19,7 +20,7 @@ export function listings() {
       title: '1999 Pokemon Base Set Charizard Holo PSA 10', player: 'Charizard', year: 1999, set: 'Base Set', number: '4', parallel: 'Holo',
       grader: 'PSA', grade: 10, grade_key: 'PSA 10', cert_number: '12345678', category: 'TCG', subcategory: 'Pokémon',
       listing_status: 'active', price_cents: 1800000, comp: { value_cents: 2100000, low_cents: 1900000, high_cents: 2300000, sales_30d: 6, few_sales: false, refreshed_at: iso(now - 2 * day) },
-      pct_of_comp: 0.857, deal: true, accepts_offers: true, sale_modes: ['ship', 'local_pickup'], gtcr_clear: true,
+      pct_of_comp: 0.857, deal: true, accepts_offers: true, sale_modes: ['ship', 'local_pickup'], shipping_cents: 500, gtcr_clear: true,
       image: { photo_path: '11111111-1111-4111-8111-111111111111/cap.jpg', has_photo: true }, dealer: dealerA, show, listed_at: iso(now - day),
       _whatsapp: '15551234567', _instagram: 'dealer_a', features: ['RC'] },
     { id: '22222222-2222-4222-8222-222222222222', url: '/c/22222222-2222-4222-8222-222222222222-2024-prizm-jayden-daniels-silver',
@@ -64,6 +65,8 @@ export async function start({ port = 0 } = {}) {
         let rows = all.filter(l => l.listing_status === 'active');
         if (p.q) rows = rows.filter(l => p.q.toLowerCase().split(/\s+/).every(w => l.title.toLowerCase().includes(w)));
         if (p.dealer) rows = rows.filter(l => l.dealer.handle === p.dealer);
+        if (p.show_id) rows = rows.filter(l => l.show?.id === p.show_id);
+        if (p.near) rows = rows.filter(l => l.show).map(l => ({ ...l, miles: 3.2 }));
         if (p.raw === true) rows = rows.filter(l => l.grade_key === 'Raw');
         if (p.raw === false) rows = rows.filter(l => l.grade_key !== 'Raw');
         if (p.deals_only) rows = rows.filter(l => l.deal);
@@ -84,6 +87,17 @@ export async function start({ port = 0 } = {}) {
         if (h === 'dealer_b') return send(200, { handle: 'dealer_b', display_name: 'Dealer B', listings: 1, url: '/d/dealer_b' });
         return send(200, { error: 'not_found' });
       }
+      if (name === 'get_show_page') {
+        const k = String(j.p_key || '');
+        if (k === 'show_monster') return send(200, { redirect: '/s/monster-show-2026' });
+        if (k !== 'monster-show-2026') return send(200, { error: 'not_found' });
+        return send(200, { id: 'show_monster', key: k, url: '/s/' + k, name: 'Monster Show', start_date: d(2), end_date: d(4),
+          venue: 'Cal Expo', city: 'Sacramento', state: 'CA', street_address: '1600 Exposition Blvd', website: 'https://monster.example',
+          listed: true, ended: false, listed_cards: 1, show_page: '/show.html?id=show_monster',
+          dealers: [{ handle: 'dealer_a', display_name: 'Dealer A', table_number: '12', url: '/d/dealer_a', listings: 1 },
+                    { handle: 'dealer_b', display_name: 'Dealer B', url: '/d/dealer_b', listings: 0 }] });
+      }
+      if (name === 'list_upcoming_shows') return send(200, [{ id: 'show_monster', name: 'Monster Show', url: '/s/monster-show-2026' }]);
       if (name === 'request_card_value_refresh') { state.refresh.push(j.p_listing_id); return send(200, { ok: true }); }
       return send(404, { message: 'no such function' });
     }

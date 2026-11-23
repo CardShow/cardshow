@@ -115,6 +115,8 @@ js/pricing-admin.js               → Admin "💲 Pricing" tab (platform owner):
 buyer/                            → Marketplace buyer site (Astro, server-rendered, its own Netlify site "cardshow-buyer", base dir buyer/); getcardshow.com proxies /search, /c/*, /d/*, /account, /_astro/* to it — see "Buyer site" and buyer/README.md
 supabase/migrations/20261203120000_marketplace_buyer_site.sql → inventory.public_photo_path/_capture_id (server-managed), public listing-photos bucket, listing_photos_due()/listing_photo_set(), _listing_json() adds photo_path + dealer WhatsApp/Instagram on the listing page
 supabase/migrations/20261204120000_marketplace_photo_ranking.sql → search_listings(): listings with the dealer's own (public) photo rank first; default sort is 'best' for every search
+supabase/migrations/20261206120000_marketplace_show_pages.sql → get_show_page() (buyer /s/<key>), pickup show must be a joined show (cleared on leave), shipping_options {flat_cents}, show links → /s/<key>, _listing_json shipping_cents
+netlify/lib/us-zips.json          → ZIP → point (33,791 Census ZCTAs, built by scripts/build_us_zips.py); buyer "near a ZIP" search and MCP near:{zip}
 supabase/migrations/20261205120000_pricing_review.sql → wrong comps stay off the buyer site: match status 'review', _comp_visible() (1/5–5× the asking price), Pricing tab "Needs a check" / "Matched automatically" / confirm
 netlify/lib/listing-photos.js     → Copies listed cards' seller photos to the public listing-photos bucket and deletes them when delisted/sold/flagged/replaced
 netlify/functions/sync-listing-photos.js → Scheduled (every 5 min, needs MARKETPLACE_ENABLED=true): runs the photo sync
@@ -405,6 +407,8 @@ Then `20261204120000_marketplace_photo_ranking.sql` (search puts the dealer's ow
 unchanged (newest first without a query). Both ran in production 2026-11-22.
 Then `20261205120000_pricing_review.sql` (comps checked before buyers see them, see "Pricing admin"). Run it before the app deploy
 that sends `p_reason` to `pricing_record_match`; until it runs, the pricing job's 'review' calls fail and those cards are retried.
+Then `20261206120000_marketplace_show_pages.sql` (show pages, pickup show, shipping price; see "Show pages, near a ZIP, pickup + shipping").
+Until it runs, `/s/<show>` pages 404, listing links still go to `show.html`, and pickup show / shipping save but don't show to buyers.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6591,8 +6595,12 @@ PostgREST, so the guard's session check is exercised. Also checked: `trade-loggi
 - **Image requirement** (decided 2026-11-20 after a competitor review; refined the same day): see "Card photos" below.
   `mkImageOk()` mirrors the server rule; the blocked reason is "No photo" and Edit Card's Marketplace status
   points to the Photo section.
-- **Not built:** shipping costs (`shipping_options`), wholesale settings,
-  pickup show choice (`pickup_show_id`), and turning the switch on (wait for the buyer site).
+- **Shipping price and pickup show** (session 2026-11-22): panel and Edit Card. Shipping (shown when "Ship to buyer" is on):
+  a flat $ price, 0 = free, blank = ask me → `shipping_options = {flat_cents}` (null when blank). Pickup at (shown when
+  "Pickup at a show" is on): "The next show I'm at" (null) or one of the seller's joined shows that hasn't ended
+  (`mkPickupShows()`) → `pickup_show_id`. Read back as `card.ShippingCents` / `card.PickupShowId` (`dbRowToCard()`).
+  The server refuses a pickup show the dealer isn't in (`pickup_show_not_joined`) and clears it when they leave the show.
+- **Not built:** wholesale settings, and turning the switch on (wait for the buyer site).
 
 ### Card photos (session 2026-11-20)
 Edit Card has a **Photo** section at the top (`#cem_photo_box`, `js/card-photo.js`, cp*), shown for every seller
@@ -6803,17 +6811,36 @@ until launch, no dealer rating yet.
   `src/pages/sitemap.xml.js`) and served for the whole domain through the main site's `_redirects` (`/robots.txt`,
   `/sitemap.xml` → cardshow-buyer). Cloudflare (in front of getcardshow.com) adds its own content-signals comment block.
   - robots.txt always closes `/app`, `/app.html`, `/account`, `/.netlify/`, `/mcp`, `/trade-board`, `/seller-browse`
-    (duplicated by `/d/<handle>`). Before launch it also closes `/search`, `/c/`, `/d/` and has no Sitemap line; with
+    (duplicated by `/d/<handle>`). Before launch it also closes `/search`, `/c/`, `/d/`, `/s/` and has no Sitemap line; with
     `BUYER_SITE_INDEXING=true` those open and `Sitemap: https://getcardshow.com/sitemap.xml` is added.
   - sitemap.xml: landing page, `/search`, every public listing (newest 5,050: `search_listings` pages of 50, offset ≤ 5,000;
     past that add a database function returning ids/slugs/dates), each dealer's storefront, upcoming listed show pages
-    (`show.html?id=`), `/privacy`. `lastmod` = listing date. CDN-cached 1 hour; 503 + Retry-After if the database is down.
+    (`/s/<key>`), `/privacy`. `lastmod` = listing date. CDN-cached 1 hour; 503 + Retry-After if the database is down.
   - Tests: `buyer/test/seo.test.mjs` (5), 2 checks in `site.e2e.mjs`.
   - At launch: set `BUYER_SITE_INDEXING=true` on cardshow-buyer and redeploy; then submit the sitemap in Google Search
     Console / Bing Webmaster Tools.
-- **Not built:** buying (holds, offers, checkout: Phase 2+); dealer ratings;
-  search by city/ZIP (only state or the browser's location); show pages on the buyer site (they link to `show.html`);
-  storefront filters beyond sort; images resized for thumbnails (tiles load the full crop).
+- **Show pages, near a ZIP, pickup + shipping, thumbnails** (session 2026-11-22):
+  - **`/s/<key>`** (`src/pages/s/[key].astro`, proxied by the main site's `_redirects`): key = the show's slug, else its id
+    (an id for a show with a slug, or a merged show, → 301). Show name, dates, venue/city, website, link to `show.html`
+    (floor map + directory), the dealers there with table numbers and card counts (tap one → `?dealer=` filter), search /
+    category / graded / sort within the show, the show's cards (`search_listings({show_id})`), schema.org Event. noindex
+    when unlisted, ended, filtered or paged. Data: `get_show_page(p_key)`. Listing pages, tiles' shows, `list_upcoming_shows`
+    (so the sitemap and MCP) now link to `/s/<key>`.
+  - **Near a ZIP or city** (`src/lib/geo.js`): the search filter "Near" box takes `95814`, `Sacramento, CA`,
+    `sacramento ca`, `Sacramento, California`; a city alone works when only one state has it, else "add the state".
+    URL `loc=` (wins over lat/lng from Use my location); resolved server-side from `netlify/lib/us-zips.json` /
+    `us-places.json` (lazy-loaded chunks); unknown place → notice and search everywhere. Saved searches keep the label
+    (`near.label`), so opening one re-resolves it; alert emails use the stored lat/lng. MCP: `near: {zip}` too.
+  - **Pickup + shipping on listings:** `_listing_json` adds `shipping_cents`; `show.pickup` = the dealer's chosen pickup
+    show. Listing page: "Ships for $5.00" / "Free shipping" / "ask the dealer", "Pick up at <show>".
+  - **Thumbnails:** grid tiles load dealer photos through Netlify Image CDN (`/.netlify/images?url=…&w=480&q=72`,
+    `thumbUrl()` in `format.js`). Both netlify.toml files allow the `listing-photos` bucket under `[images] remote_images`
+    (getcardshow.com answers those requests itself). On only for builds made on Netlify (`__CS_IMAGE_CDN__`, astro.config.mjs);
+    `BUYER_IMAGE_CDN=false` turns it off. Listing pages still load the full photo. Catalog images are never resized.
+  - **Tests:** `tests/show-mode/show-pages.test.sh` (15 checks), `buyer/test/geo.test.mjs` + `format.test.mjs`, 16 new checks in
+    `site.e2e.mjs`, ZIP checks in `show-geocoding.test.mjs`, shipping/pickup in `marketplace-dealer.e2e.mjs`.
+- **Not built:** buying (holds, offers, checkout: Phase 2+); dealer ratings; storefront filters beyond sort;
+  a show list page on the buyer site (shows are reached from listings, search and the sitemap).
 
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only

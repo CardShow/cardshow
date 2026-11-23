@@ -72,5 +72,6 @@ TITO_FIXTURE_DIR=/path/to/csvs ./trades.test.sh # Trades + Show Home: Tito's Nov
 
 ## Buyer site support
 - `./buyer-site.test.sh` — public listing photos and dealer contact (`20261203120000_marketplace_buyer_site.sql`), 14 checks.
+- `./show-pages.test.sh` — show pages, pickup show, shipping price (`20261206120000_marketplace_show_pages.sql`), 15 checks.
 - `node listing-photos.test.mjs` — photo sync library and `listing-photos-now` against a fake Supabase, 11 checks.
 - The buyer site's own tests live in `buyer/test/` (see `buyer/README.md`).

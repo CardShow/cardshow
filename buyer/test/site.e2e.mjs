@@ -68,6 +68,26 @@ try {
   check('filters: raw only → the raw card, Clear shown', (await tiles()) === 1 && await page.isVisible('a.btn:has-text("Clear")'));
   check('filtered pages are noindex anyway', (await page.getAttribute('meta[name=robots]', 'content')).startsWith('noindex'));
 
+  // near a ZIP code or city
+  mock.state.calls.length = 0;
+  await page.goto(BASE + '/search?loc=95814&miles=25');
+  const nearCall = mock.state.calls.find(c => c.path.endsWith('/search_listings'));
+  check('near a ZIP: looked up, searched by distance, heading names it', nearCall && Math.abs(nearCall.body.p.near.lat - 38.58) < 0.05
+    && nearCall.body.p.near.miles === 25 && /Cards near 95814/.test(await page.textContent('h1')) && /3\.2 mi/.test(await page.textContent('.grid')),
+    JSON.stringify(nearCall?.body));
+  check('near a ZIP: Nearest sort offered, box keeps the ZIP', (await page.locator('select[name=sort] option[value=distance]').count()) === 1
+    && (await page.inputValue('#locInput')) === '95814');
+  await page.goto(BASE + '/search?loc=Nowhereville%2C%20CA');
+  check('unknown place: explained, searches everywhere', /couldn’t find “Nowhereville, CA”/.test(await page.textContent('#locError')) && (await tiles()) === 2);
+  await page.goto(BASE + '/search?loc=springfield');
+  check('city in several states: asks for the state', /Add the state/.test(await page.textContent('#locError')));
+  await page.goto(BASE + '/search');
+  if (!(await page.isVisible('#filterForm'))) await page.click('#filterBox summary');
+  await page.fill('#locInput', 'Sacramento, CA');
+  await Promise.all([page.waitForNavigation(), page.click('#filterForm button[type=submit]')]);
+  const nu = new URL(page.url());
+  check('typing a city in the filters', nu.searchParams.get('loc') === 'Sacramento, CA' && nu.searchParams.get('miles') === '50' && /Cards near Sacramento, CA/.test(await page.textContent('h1')), nu.search);
+
   // ── listing page ──
   res = await page.goto(BASE + CHAR_URL);
   check('listing: 200, title, price', res.status() === 200 && /Charizard Holo PSA 10/.test(await page.textContent('h1')) && (await page.textContent('.price')).trim() === '$18,000');
@@ -79,6 +99,9 @@ try {
   check('listing: how to buy — show, dates, table', /Monster Show/.test(buy) && /Table 12/.test(buy) && /Sacramento, CA/.test(buy), buy);
   const wa = await page.getAttribute('a:has-text("WhatsApp")', 'href');
   check('listing: WhatsApp link with a prefilled message', wa.startsWith('https://wa.me/15551234567?text=') && decodeURIComponent(wa).includes('$18,000'), wa);
+  const del = await page.textContent('.delivery');
+  check('listing: shipping price and pickup show', /Ships for \$5\.00/.test(del) && /Pick up at Monster Show/.test(del), del);
+  check('listing: show links to its show page', (await page.getAttribute('.show a', 'href')) === '/s/monster-show-2026' && /Pickup show/.test(buy));
   check('listing: Instagram link', (await page.getAttribute('a:has-text("Instagram")', 'href')) === 'https://instagram.com/dealer_a');
   const ld = JSON.parse(await page.textContent('script[type="application/ld+json"]'));
   check('listing: schema.org Product + Offer', ld['@type'] === 'Product' && ld.offers.price === '18000.00' && ld.offers.priceCurrency === 'USD'
@@ -112,7 +135,7 @@ try {
   res = await page.goto(BASE + '/c/55555555-5555-4555-8555-555555555555-gone');
   check('unknown listing → 404 page', res.status() === 404 && /isn’t listed any more/.test(await page.textContent('h1')));
   res = await page.goto(BASE + '/c/not-a-uuid');
-  check('bad id → 404', res.status() === 404);
+  check('bad id → 404', res.status() === 404, String(res.status()));
 
   // ── storefront ──
   res = await page.goto(BASE + '/d/dealer_a');
@@ -122,6 +145,26 @@ try {
   check('storefront: handle case → canonical', page.url() === BASE + '/d/dealer_a');
   res = await page.goto(BASE + '/d/nobody');
   check('storefront: unknown dealer → 404', res.status() === 404);
+
+  // ── show page ──
+  res = await page.goto(BASE + '/s/monster-show-2026');
+  check('show page: 200, name, dates, place, card count', res.status() === 200 && /Monster Show/.test(await page.textContent('h1'))
+    && /Cal Expo, Sacramento, CA/.test(await page.textContent('.when')) && /1\s*card listed/.test(await page.textContent('.count')));
+  check('show page: dealers with table numbers', (await page.locator('.dealer-chip').count()) === 2 && /Table 12/.test(await page.textContent('.dealer-chip >> nth=0')));
+  check('show page: its cards', (await tiles()) === 1 && (await page.locator(`.tile[data-listing="${CHAR}"]`).count()) === 1);
+  check('show page: links to the floor map and website', (await page.getAttribute('.links a >> nth=0', 'href')).endsWith('/show.html?id=show_monster')
+    && (await page.getAttribute('.links a >> nth=1', 'href')) === 'https://monster.example');
+  const ev = JSON.parse(await page.textContent('script[type="application/ld+json"]'));
+  check('show page: schema.org Event', ev['@type'] === 'Event' && ev.location.address.addressLocality === 'Sacramento' && ev.startDate, JSON.stringify(ev));
+  check('show page: no sideways scroll', await noSideScroll());
+  await Promise.all([page.waitForNavigation(), page.click('.dealer-chip >> nth=1')]);
+  check('show page: tap a dealer → only their cards here', /dealer=dealer_b/.test(page.url()) && (await tiles()) === 0 && /from Dealer B/.test(await page.textContent('#showResults')));
+  await page.goto(BASE + '/s/monster-show-2026?q=zzz');
+  check('show page: search within the show', (await tiles()) === 0 && /No cards match/.test(await page.textContent('main')));
+  await page.goto(BASE + '/s/show_monster?x=1');
+  check('show page: id → slug (301)', page.url() === BASE + '/s/monster-show-2026?x=1');
+  res = await page.goto(BASE + '/s/nope');
+  check('show page: unknown show → 404', res.status() === 404);
 
   // ── save a search (sign in first) ──
   await page.goto(BASE + '/search?q=charizard&deals=1');
@@ -170,14 +213,14 @@ try {
   let rr = await page.request.get(BASE + '/robots.txt');
   const robots = await rr.text();
   check('robots.txt before launch: marketplace closed, no sitemap line, private pages closed', rr.status() === 200
-    && /text\/plain/.test(rr.headers()['content-type']) && /^Disallow: \/c\/$/m.test(robots) && /^Disallow: \/account$/m.test(robots)
+    && /text\/plain/.test(rr.headers()['content-type']) && /^Disallow: \/c\/$/m.test(robots) && /^Disallow: \/s\/$/m.test(robots) && /^Disallow: \/account$/m.test(robots)
     && !/Sitemap:/.test(robots), robots);
   rr = await page.request.get(BASE + '/sitemap.xml');
   const sm = await rr.text();
   check('sitemap.xml: active listings, their dealers, search and the landing page; no sold or unlisted cards', rr.status() === 200
     && /xml/.test(rr.headers()['content-type']) && /<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/.test(sm)
     && sm.includes(`${mock.url}/c/${CHAR}-`) && sm.includes(`${mock.url}/d/`) && sm.includes(`<loc>${mock.url}/search</loc>`)
-    && sm.includes(`<loc>${mock.url}/</loc>`) && !sm.includes('44444444-4444-4444-8444-444444444444'), sm);
+    && sm.includes(`<loc>${mock.url}/</loc>`) && sm.includes(`<loc>${mock.url}/s/monster-show-2026</loc>`) && !sm.includes('44444444-4444-4444-8444-444444444444'), sm);
   check('no page errors', errors.length === 0, JSON.stringify(errors));
 } catch (e) {
   fails++; console.log('FAIL  crashed:', e.message);
