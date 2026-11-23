@@ -67,6 +67,7 @@ export async function start({ port = 0 } = {}) {
         if (p.dealer) rows = rows.filter(l => l.dealer.handle === p.dealer);
         if (p.show_id) rows = rows.filter(l => l.show?.id === p.show_id);
         if (p.near) rows = rows.filter(l => l.show).map(l => ({ ...l, miles: 3.2 }));
+        if (p.category) rows = rows.filter(l => l.category === p.category);
         if (p.raw === true) rows = rows.filter(l => l.grade_key === 'Raw');
         if (p.raw === false) rows = rows.filter(l => l.grade_key !== 'Raw');
         if (p.deals_only) rows = rows.filter(l => l.deal);
@@ -97,7 +98,13 @@ export async function start({ port = 0 } = {}) {
           dealers: [{ handle: 'dealer_a', display_name: 'Dealer A', table_number: '12', url: '/d/dealer_a', listings: 1 },
                     { handle: 'dealer_b', display_name: 'Dealer B', url: '/d/dealer_b', listings: 0 }] });
       }
-      if (name === 'list_upcoming_shows') return send(200, [{ id: 'show_monster', name: 'Monster Show', url: '/s/monster-show-2026' }]);
+      if (name === 'list_upcoming_shows') {
+        const p = j.p || {};
+        state.showArgs = p;
+        if (p.state && p.state !== 'CA') return send(200, []);
+        return send(200, [{ id: 'show_monster', name: 'Monster Show', url: '/s/monster-show-2026', start_date: d(2), end_date: d(4),
+          venue: 'Cal Expo', city: 'Sacramento', state: 'CA', listed_cards: 1, ...(p.near ? { miles: 4.1 } : {}) }]);
+      }
       if (name === 'request_card_value_refresh') { state.refresh.push(j.p_listing_id); return send(200, { ok: true }); }
       return send(404, { message: 'no such function' });
     }

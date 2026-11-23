@@ -100,6 +100,46 @@ s = await CV.runRefresh(db, { fetchImpl: cardHedge(q => (q === 'a' ? { status: 5
 const errs = db.state.rpc.filter(([n]) => n === 'pricing_apply_values').map(([, a]) => [a.p_card_id, a.p_error]);
 check('500 → error stored (value kept); 429 → run stops', JSON.stringify(errs) === JSON.stringify([['a', 'cardhedge_http_500'], ['b', 'cardhedge_http_429']]) && s.stopped === 'rate_limited' && chCalls.length === 2);
 
+// Retries with other wordings when the first finds nothing
+{
+  const crews = { player: 'Dylan Crews', year: 2024, set: 'Bowman Chrome Prospects', number: 'BCP-23', parallel: 'Fuchsia Refractor',
+                  title: '2024 Bowman Chrome Dylan Crews Fuchsia Refractor' };
+  const qs = CV.matchQueries(crews).map(q => q.query);
+  check('wordings: full, number without dash, seller title, then base card', qs.length === 4 && qs[0].includes('#BCP-23') && qs[1].includes('#BCP23')
+    && qs[2] === crews.title && !/Fuchsia/.test(qs[3]) && CV.matchQueries(crews)[3].baseOnly === true, JSON.stringify(qs));
+  check('a plain card gets no extra wordings', CV.matchQueries({ player: 'Someone', year: 2020, set: 'X' }).length === 1);
+
+  let mdb = fakeDb({ match: [{ identity: 'crews', card: crews }], refresh: [] });
+  chCalls = [];
+  let r = await CV.runRefresh(mdb, { fetchImpl: cardHedge(q => q.includes('BCP23')
+    ? { match: { card_id: 'ch-crews', confidence: 0.95, description: '2024 Bowman Chrome Prospects Dylan Crews Fuchsia Refractor /299', prices: [{ grade: 'PSA 10', price: 300 }] } }
+    : { match: { card_id: 'ch-wrong', confidence: 0.4, prices: [] } }) });
+  let rm = mdb.state.rpc.filter(([n]) => n === 'pricing_record_match').map(([, a]) => a);
+  check('second wording finds it → matched, with the query that worked', chCalls.length === 2 && rm.length === 1 && rm[0].p_status === 'matched'
+    && rm[0].p_query.includes('#BCP23') && r.retried === 1 && mdb.state.usage.calls === 2, JSON.stringify(rm));
+
+  mdb = fakeDb({ match: [{ identity: 'crews', card: crews }], refresh: [] });
+  chCalls = [];
+  await CV.runRefresh(mdb, { fetchImpl: cardHedge(q => /Fuchsia/.test(q)
+    ? { match: { card_id: 'x', confidence: 0.3, prices: [] } }
+    : { match: { card_id: 'ch-base', confidence: 0.96, description: '2024 Bowman Chrome Prospects Dylan Crews #BCP-23', prices: [{ grade: 'Raw', price: 12 }] } }) });
+  rm = mdb.state.rpc.filter(([n]) => n === 'pricing_record_match').map(([, a]) => a);
+  check('only the base card found → needs a check (base_value_only), values stored but hidden', chCalls.length === 4 && rm[0].p_status === 'review'
+    && rm[0].p_reason === 'base_value_only' && mdb.state.rpc.some(([n, a]) => n === 'pricing_apply_values' && a.p_card_id === 'ch-base'), JSON.stringify(rm));
+
+  mdb = fakeDb({ match: [{ identity: 'crews', card: crews }], refresh: [] });
+  chCalls = [];
+  await CV.runRefresh(mdb, { fetchImpl: cardHedge(() => ({ match: { card_id: 'x', confidence: 0.2, prices: [] } })) });
+  rm = mdb.state.rpc.filter(([n]) => n === 'pricing_record_match').map(([, a]) => a);
+  check('nothing found in any wording → no_match once, 4 calls', chCalls.length === 4 && rm.length === 1 && rm[0].p_status === 'no_match');
+
+  mdb = fakeDb({ match: [{ identity: 'crews', card: crews }], refresh: [] });
+  chCalls = [];
+  await CV.runRefresh(mdb, { fetchImpl: cardHedge(q => q.includes('BCP-23') && /Fuchsia/.test(q) ? { match: { card_id: 'x', confidence: 0.2 } } : { status: 500 }) });
+  rm = mdb.state.rpc.filter(([n]) => n === 'pricing_record_match').map(([, a]) => a);
+  check('an error on a retry stops the retries → error (tried again next run)', chCalls.length === 2 && rm[0].p_status === 'error');
+}
+
 // ── MCP ──
 process.env.MARKETPLACE_MCP_ENABLED = 'true';
 process.env.MARKETPLACE_SITE_URL = 'https://getcardshow.com';

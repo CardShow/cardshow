@@ -1,0 +1,124 @@
+---
+// /shows — upcoming card shows listed on CardShow, soonest first, with how many cards are listed for each.
+// Filters in the URL: state, loc (ZIP or "City, ST") + miles, when (weekend | month). Each show links to /s/<key>.
+import Base from '../layouts/Base.astro';
+import { rpc } from '../lib/api.js';
+import { fromQuery, toQuery, MILES, STATES } from '../lib/search.js';
+import { resolveLocation, locationMessage } from '../lib/geo.js';
+import { dateRange, place } from '../lib/format.js';
+
+const { p, form } = fromQuery(Astro.url.searchParams);
+let locError = '';
+if (p.near && p.near.lat == null) {
+  const r = await resolveLocation(p.near.label);
+  if (r.ok) p.near = { lat: r.lat, lng: r.lng, miles: p.near.miles, label: r.label };
+  else { locError = locationMessage(p.near.label, r); delete p.near; }
+}
+const args: any = { limit: 50 };
+if (p.state) args.state = p.state;
+if (p.near) args.near = { lat: p.near.lat, lng: p.near.lng, miles: p.near.miles };
+if (p.date_from) args.date_from = p.date_from;
+if (p.date_to) args.date_to = p.date_to;
+
+let shows: any[] = [], failed = false;
+try {
+  const res = await rpc('list_upcoming_shows', { p: args });
+  shows = Array.isArray(res) ? res : [];
+} catch (e: any) {
+  failed = true; console.error('[shows]', e?.message);
+  Astro.locals.cache = 0; Astro.response.status = 503;
+}
+const filtered = !!(p.state || p.near || p.when);
+const heading = p.near?.label ? `Card shows near ${p.near.label}` : p.state ? `Card shows in ${p.state}` : 'Upcoming card shows';
+---
+<Base title={heading} canonical={`/shows${filtered ? '?' + toQuery({ state: p.state, near: p.near, when: p.when }) : ''}`}
+      description="Upcoming sports card and TCG shows, with the cards dealers have listed for each one. Find a show near you and see prices before you go."
+      noindex={filtered}>
+  <div class="shows-head">
+    <div>
+      <h1>{heading}</h1>
+      <p class="muted">{failed ? 'Shows aren’t available right now.' : `${shows.length} ${shows.length === 1 ? 'show' : 'shows'}${shows.length === 50 ? ' (the next 50)' : ''}`}</p>
+    </div>
+  </div>
+
+  <form method="get" action="/shows" class="show-filters" id="showFilters">
+    <label class="field grow">Near<input name="loc" value={form.loc || ''} placeholder="ZIP code or city, state" maxlength="80" autocomplete="postal-code" /></label>
+    <label class="field">Distance
+      <select name="miles">{MILES.map(m => <option value={m} selected={String(m) === (form.miles || '50')}>Within {m} miles</option>)}</select>
+    </label>
+    <label class="field">State
+      <select name="state"><option value="">Any</option>{STATES.map(s => <option selected={form.state === s}>{s}</option>)}</select>
+    </label>
+    <label class="field">When
+      <select name="when">
+        <option value="">Any time</option>
+        <option value="weekend" selected={form.when === 'weekend'}>This weekend</option>
+        <option value="month" selected={form.when === 'month'}>Next 30 days</option>
+      </select>
+    </label>
+    <button class="btn btn-primary" type="submit">Show</button>
+    {filtered && <a class="btn" href="/shows">Clear</a>}
+  </form>
+
+  {locError && <div class="notice" id="locError" role="status">{locError} Showing shows everywhere.</div>}
+  {failed && <div class="notice">Something went wrong loading shows. Try again in a minute.</div>}
+  {!failed && shows.length === 0 && (
+    <div class="notice">{filtered ? 'No listed shows match. Try a bigger distance or another date.' : 'No upcoming shows are listed yet.'}</div>
+  )}
+
+  <ul class="show-list">
+    {shows.map(s => (
+      <li class="show-card" data-show={s.id}>
+        <a class="show-main" href={s.url}>
+          <span class="show-date">{s.start_date ? dateRange(s.start_date, s.end_date) : ''}</span>
+          <b class="show-name">{s.name}</b>
+          <span class="muted">{[s.venue, place(s)].filter(Boolean).join(' · ')}{s.miles != null ? ` · ${s.miles} mi` : ''}</span>
+        </a>
+        <div class="show-side">
+          <span class="show-count"><b>{(s.listed_cards || 0).toLocaleString('en-US')}</b> {s.listed_cards === 1 ? 'card' : 'cards'} listed</span>
+          <a class="btn" href={s.url}>See the show</a>
+        </div>
+      </li>
+    ))}
+  </ul>
+  {shows.length > 0 && <p class="muted small">Dealers keep adding cards up to the day of the show.</p>}
+</Base>
+
+<style>
+  .shows-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  .shows-head p { margin: 0; }
+  .show-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 16px 0; }
+  .show-filters .field { min-width: 140px; }
+  .show-filters .grow { flex: 1 1 220px; }
+  .notice { margin-bottom: 16px; }
+  .show-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+  .show-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
+  .show-card:hover { border-color: #33406a; }
+  .show-main { display: flex; flex-direction: column; gap: 2px; text-decoration: none; min-width: 0; }
+  .show-date { font-family: var(--font-mono); color: var(--accent); font-size: 13px; }
+  .show-name { font-size: 18px; overflow-wrap: anywhere; }
+  .show-side { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+  .show-count { color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .show-count b { color: var(--text); }
+  .small { font-size: 13px; margin-top: 14px; }
+  @media (max-width: 640px) {
+    .show-filters .field { flex: 1 1 calc(50% - 10px); min-width: 0; }
+    .show-filters .grow { flex-basis: 100%; }
+    .show-filters .btn { flex: 1 1 auto; }
+    .show-card { flex-direction: column; align-items: stretch; }
+    .show-side { justify-content: space-between; }
+  }
+</style>
+
+<script>
+  // Empty fields stay out of the URL; distance only with a place.
+  const f = document.getElementById('showFilters') as HTMLFormElement | null;
+  f?.addEventListener('submit', () => {
+    const loc = (f.elements.namedItem('loc') as HTMLInputElement).value.trim();
+    for (const el of Array.from(f.elements) as HTMLInputElement[]) {
+      if (el.name && !String(el.value).trim()) el.disabled = true;
+      if (el.name === 'miles' && !loc) el.disabled = true;
+    }
+  });
+</script>

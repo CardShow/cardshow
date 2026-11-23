@@ -148,6 +148,7 @@ function paRowHTML(r, i) {
     : r.status === 'no_match' ? 'No confident match in Card Hedge'
     : r.status === 'ignored' ? 'Hidden: no comp shown'
     : r.reason === 'parallel_unconfirmed' ? 'Hidden from buyers: Card Hedge\'s card doesn\'t name this parallel or print run'
+    : r.reason === 'base_value_only' ? 'Hidden from buyers: Card Hedge only found the base card, not this parallel. Looks right = show the base value'
     : r.reason === 'value_far_off' ? 'Hidden from buyers: the value is far from the asking price'
     : r.status === 'review' ? 'Hidden from buyers until checked'
     : r.status === 'manual' ? `Matched by hand${r.card_id ? ' · card ' + r.card_id : ''}`

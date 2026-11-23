@@ -112,7 +112,7 @@ supabase/migrations/20261201120000_show_geocoding.sql → shows.street_address/p
 supabase/migrations/20261202120000_pricing_admin.sql → pricing tables readable by the platform owner only (was every organizer), 'ignored' status, pricing_admin_summary/_unmatched/_resolve — see "Pricing admin"
 netlify/functions/pricing-admin.js → Platform owner POST {action: summary|queue|lookup|match|retry|ignore}: the Pricing tab's server (Card Hedge key stays here)
 js/pricing-admin.js               → Admin "💲 Pricing" tab (platform owner): pricing summary + queue of cards Card Hedge couldn't match — loaded after js/marketplace-dealer.js
-buyer/                            → Marketplace buyer site (Astro, server-rendered, its own Netlify site "cardshow-buyer", base dir buyer/); getcardshow.com proxies /search, /c/*, /d/*, /account, /_astro/* to it — see "Buyer site" and buyer/README.md
+buyer/                            → Marketplace buyer site (Astro, server-rendered, its own Netlify site "cardshow-buyer", base dir buyer/); getcardshow.com proxies /search, /shows, /c/*, /d/*, /s/*, /account, /_astro/* to it — see "Buyer site" and buyer/README.md
 supabase/migrations/20261203120000_marketplace_buyer_site.sql → inventory.public_photo_path/_capture_id (server-managed), public listing-photos bucket, listing_photos_due()/listing_photo_set(), _listing_json() adds photo_path + dealer WhatsApp/Instagram on the listing page
 supabase/migrations/20261204120000_marketplace_photo_ranking.sql → search_listings(): listings with the dealer's own (public) photo rank first; default sort is 'best' for every search
 supabase/migrations/20261206120000_marketplace_show_pages.sql → get_show_page() (buyer /s/<key>), pickup show must be a joined show (cleared on leave), shipping_options {flat_cents}, show links → /s/<key>, _listing_json shipping_cents
@@ -6811,9 +6811,9 @@ until launch, no dealer rating yet.
   `src/pages/sitemap.xml.js`) and served for the whole domain through the main site's `_redirects` (`/robots.txt`,
   `/sitemap.xml` → cardshow-buyer). Cloudflare (in front of getcardshow.com) adds its own content-signals comment block.
   - robots.txt always closes `/app`, `/app.html`, `/account`, `/.netlify/`, `/mcp`, `/trade-board`, `/seller-browse`
-    (duplicated by `/d/<handle>`). Before launch it also closes `/search`, `/c/`, `/d/`, `/s/` and has no Sitemap line; with
+    (duplicated by `/d/<handle>`). Before launch it also closes `/search`, `/shows`, `/c/`, `/d/`, `/s/` and has no Sitemap line; with
     `BUYER_SITE_INDEXING=true` those open and `Sitemap: https://getcardshow.com/sitemap.xml` is added.
-  - sitemap.xml: landing page, `/search`, every public listing (newest 5,050: `search_listings` pages of 50, offset ≤ 5,000;
+  - sitemap.xml: landing page, `/search`, `/shows`, every public listing (newest 5,050: `search_listings` pages of 50, offset ≤ 5,000;
     past that add a database function returning ids/slugs/dates), each dealer's storefront, upcoming listed show pages
     (`/s/<key>`), `/privacy`. `lastmod` = listing date. CDN-cached 1 hour; 503 + Retry-After if the database is down.
   - Tests: `buyer/test/seo.test.mjs` (5), 2 checks in `site.e2e.mjs`.
@@ -6839,8 +6839,15 @@ until launch, no dealer rating yet.
     `BUYER_IMAGE_CDN=false` turns it off. Listing pages still load the full photo. Catalog images are never resized.
   - **Tests:** `tests/show-mode/show-pages.test.sh` (15 checks), `buyer/test/geo.test.mjs` + `format.test.mjs`, 16 new checks in
     `site.e2e.mjs`, ZIP checks in `show-geocoding.test.mjs`, shipping/pickup in `marketplace-dealer.e2e.mjs`.
-- **Not built:** buying (holds, offers, checkout: Phase 2+); dealer ratings; storefront filters beyond sort;
-  a show list page on the buyer site (shows are reached from listings, search and the sitemap).
+- **Storefront filters + upcoming shows** (session 2026-11-23):
+  - `/d/<handle>` has search, category, graded/raw, min/max $, deals only and sort (same URL names as `/search`, the
+    dealer fixed); filtered pages are noindex.
+  - **`/shows`** (`src/pages/shows.astro`, proxied by `_redirects`; "Shows" link in the header): the next 50 listed
+    shows from `list_upcoming_shows`, filters Near (ZIP / city, via `geo.js`) + distance, state, this weekend / next 30
+    days; each card shows dates, venue, miles, listed card count and links to `/s/<key>`. In the sitemap; closed to
+    crawlers before launch like the other marketplace pages.
+  - Tests: 12 new checks in `site.e2e.mjs`.
+- **Not built:** buying (holds, offers, checkout: Phase 2+); dealer ratings.
 
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only
@@ -6888,6 +6895,13 @@ Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pric
      **Wrong card** (Find match), Hide. Matched automatically: Wrong card, Try again, Hide. `retry` now works on automatic
      matches too. "Need a check" stat in the summary; Run now reports how many need a check.
   - Tests: `pricing-admin.test.sh` 23 checks (15–23 new), `marketplace-pricing.test.mjs` 34 (6 new), `pricing-admin.e2e.mjs`.
+- **Other wordings when Card Hedge finds nothing** (session 2026-11-23, `matchQueries()` in `card-values.js`, no migration):
+  up to 4 calls per card (`MAX_MATCH_TRIES`), stopping at the first confident (≥ 0.9) match: the full query, the card
+  number without dashes/spaces ("BCP-23" → "BCP23"), the seller's title (+ parallel), and last, for a card with a
+  parallel or print run, the query without the parallel. A match on that last one is the **base card's** value, so it is
+  recorded as 'review' with reason `base_value_only` ("Needs a check": Looks right = show the base value). The query that
+  worked is the one stored for refreshes. An error on any try stops the tries (retried next run, as before). Run summary
+  counts `retried`. Tests: 5 new checks in `marketplace-pricing.test.mjs`.
 - **Not built:** Card Hedge returns one best match per search, so there's no list of candidates to pick from. The
   1/5–5× band is fixed in `_comp_visible()` (an immutable function can't read settings).
 

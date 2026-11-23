@@ -111,6 +111,36 @@ function buildMatchQuery(card) {
   return parts.map(v => String(v ?? '').trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
+// When Card Hedge finds nothing for the first wording, a few more, in order (at most MAX_MATCH_TRIES calls per card):
+//   1. the full query (buildMatchQuery)
+//   2. the card number without dashes or spaces ("BCP-23" → "BCP23")
+//   3. the seller's own title (often how the card is sold), plus the parallel
+//   4. without the parallel: that's the base card's value, so it is never shown to buyers on its own
+//      ('review', reason 'base_value_only'); the platform owner confirms or rejects it in the Pricing tab.
+// Duplicate wordings are dropped. Each entry: { query, baseOnly }.
+const MAX_MATCH_TRIES = 4;
+function matchQueries(card) {
+  const c = card || {};
+  const out = [];
+  const add = (query, baseOnly = false) => {
+    query = String(query ?? '').replace(/\s+/g, ' ').trim();
+    if (query && !out.some(q => q.query.toLowerCase() === query.toLowerCase())) out.push({ query, baseOnly });
+  };
+  add(buildMatchQuery(c));
+  const num = String(c.number ?? '').replace(/^#/, '').trim();
+  const flat = num.replace(/[\s-]+/g, '');
+  if (flat && flat !== num) add(buildMatchQuery({ ...c, number: flat }));
+  if (c.title && (c.player || c.set)) {
+    const par = queryParallel(c.parallel);
+    const t = String(c.title);
+    add(par && !t.toLowerCase().includes(par.toLowerCase()) ? `${t} ${par}` : t);
+  }
+  if ((String(c.parallel ?? '').trim() || printRun(c)) && (c.player || c.set)) {
+    add(buildMatchQuery({ ...c, parallel: '', title: '' }), true);
+  }
+  return out.slice(0, MAX_MATCH_TRIES);
+}
+
 // One Card Hedge call. Returns { ok, cardId, confidence, title, values } or { ok:false, status, error }.
 async function cardHedgeMatch(query, { fetchImpl = fetch, apiKey = process.env.CARDHEDGE_API_KEY, timeoutMs = 6000 } = {}) {
   if (!apiKey) return { ok: false, status: 0, error: 'missing_key' };
@@ -228,33 +258,40 @@ async function runRefresh(db, { budgetMs = 20000, fetchImpl = fetch, now = () =>
   };
 
   const doMatch = async (m) => {
-    const query = buildMatchQuery(m.card);
-    if (!query) { await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'no_match' }); summary.no_match += 1; return; }
-    const res = await call(query, true);
-    if (res.status === 401 || res.status === 403) { summary.stopped = 'auth_error'; throw Object.assign(new Error('cardhedge_auth'), { auth: true }); }
-    if (!res.ok) {
-      await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'error' });
-      summary.match_errors += 1;
-      if (res.status === 429) { summary.stopped = 'rate_limited'; throw Object.assign(new Error('rate_limited'), { rate: true }); }
-      return;
+    const tries = matchQueries(m.card);
+    if (!tries.length) { await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'no_match' }); summary.no_match += 1; return; }
+    let hit = null, used = null;
+    for (let i = 0; i < tries.length; i++) {
+      if (i > 0 && !canCall()) break;          // out of budget: what was tried counts as no match this time
+      const t = tries[i];
+      const res = await call(t.query, i === 0);
+      if (res.status === 401 || res.status === 403) { summary.stopped = 'auth_error'; throw Object.assign(new Error('cardhedge_auth'), { auth: true }); }
+      if (!res.ok) {
+        await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'error' });
+        summary.match_errors += 1;
+        if (res.status === 429) { summary.stopped = 'rate_limited'; throw Object.assign(new Error('rate_limited'), { rate: true }); }
+        return;
+      }
+      if (res.cardId && res.confidence != null && res.confidence >= MATCH_MIN_CONFIDENCE) { hit = res; used = t; break; }
     }
-    if (!res.cardId || res.confidence == null || res.confidence < MATCH_MIN_CONFIDENCE) {
+    if (!hit) {
       await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'no_match' });
       summary.no_match += 1; return;
     }
+    if (used !== tries[0]) summary.retried = (summary.retried || 0) + 1;
     // Same card, but is it the same parallel? If CardShow can't tell, the value is stored but not shown.
-    const check = parallelCheck(m.card, res.title);
+    const check = used.baseOnly ? { ok: false, reason: 'base_value_only' } : parallelCheck(m.card, hit.title);
     if (check.ok) {
-      await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'matched', p_card_id: res.cardId, p_query: query, p_title: res.title });
+      await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'matched', p_card_id: hit.cardId, p_query: used.query, p_title: hit.title });
       summary.matched += 1;
     } else {
-      await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'review', p_card_id: res.cardId, p_query: query,
-                                             p_title: res.title, p_reason: check.reason });
+      await db.rpc('pricing_record_match', { p_identity: m.identity, p_status: 'review', p_card_id: hit.cardId, p_query: used.query,
+                                             p_title: hit.title, p_reason: check.reason });
       summary.review += 1;
     }
     // The match call already returned every grade's price: store them now (no second call).
-    if (res.values.length) {
-      await db.rpc('pricing_apply_values', { p_card_id: res.cardId, p_values: res.values, p_error: null });
+    if (hit.values.length) {
+      await db.rpc('pricing_apply_values', { p_card_id: hit.cardId, p_values: hit.values, p_error: null });
     }
   };
 
@@ -275,6 +312,6 @@ async function runRefresh(db, { budgetMs = 20000, fetchImpl = fetch, now = () =>
 }
 
 module.exports = {
-  normalizeGrade, pricesToValues, buildMatchQuery, parallelCheck, printRun, cardHedgeMatch, runRefresh, maybeAlert, dailyLimit, bumpUsage,
+  normalizeGrade, pricesToValues, buildMatchQuery, matchQueries, MAX_MATCH_TRIES, parallelCheck, printRun, cardHedgeMatch, runRefresh, maybeAlert, dailyLimit, bumpUsage,
   MATCH_MIN_CONFIDENCE, STOP_AT_PCT, ALERT_AT_PCT,
 };

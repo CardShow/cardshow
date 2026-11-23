@@ -166,6 +166,45 @@ try {
   res = await page.goto(BASE + '/s/nope');
   check('show page: unknown show → 404', res.status() === 404);
 
+  // ── storefront filters ──
+  await page.goto(BASE + '/d/dealer_a');
+  await page.fill('#storeFilters [name=q]', 'zzz');
+  await Promise.all([page.waitForNavigation(), page.click('#storeFilters button[type=submit]')]);
+  let su = new URL(page.url());
+  check('storefront: search within a dealer, empty fields left out of the URL', su.pathname === '/d/dealer_a' && su.searchParams.get('q') === 'zzz'
+    && !su.searchParams.has('category') && !su.searchParams.has('sort') && (await tiles()) === 0 && /No cards match/.test(await page.textContent('main')), su.search);
+  check('storefront: filtered page is noindex, with a clear link', (await page.getAttribute('meta[name=robots]', 'content')).startsWith('noindex')
+    && (await page.getAttribute('#storeResults a', 'href')) === '/d/dealer_a');
+  mock.state.calls.length = 0;
+  await page.goto(BASE + '/d/dealer_a?category=TCG&graded=graded&max=20000');
+  const sc = mock.state.calls.find(c => c.path.endsWith('/search_listings'));
+  check('storefront: category, graded and price go to search with the dealer', sc && sc.body.p.dealer === 'dealer_a' && sc.body.p.category === 'TCG'
+    && sc.body.p.raw === false && sc.body.p.price_max_cents === 2000000 && (await tiles()) === 1, JSON.stringify(sc?.body));
+  await page.goto(BASE + '/d/dealer_a?graded=raw');
+  check('storefront: raw only → none for this dealer', (await tiles()) === 0);
+  check('storefront: no sideways scroll with filters', await noSideScroll());
+
+  // ── upcoming shows ──
+  res = await page.goto(BASE + '/shows');
+  check('shows: 200, the show with dates, place and card count, linked to its page', res.status() === 200
+    && /Upcoming card shows/.test(await page.textContent('h1')) && (await page.locator('.show-card').count()) === 1
+    && /Cal Expo · Sacramento, CA/.test(await page.textContent('.show-card')) && /1\s*card listed/.test(await page.textContent('.show-card'))
+    && (await page.getAttribute('.show-card .show-main', 'href')) === '/s/monster-show-2026');
+  check('header links to Shows', (await page.getAttribute('.site-head a[href="/shows"]', 'href')) === '/shows');
+  check('shows: no sideways scroll', await noSideScroll());
+  await page.fill('#showFilters [name=loc]', '95814');
+  await Promise.all([page.waitForNavigation(), page.click('#showFilters button[type=submit]')]);
+  check('shows near a ZIP: looked up, distance shown, heading names it', Math.abs(mock.state.showArgs.near.lat - 38.58) < 0.05
+    && mock.state.showArgs.near.miles === 50 && /near 95814/.test(await page.textContent('h1')) && /4\.1 mi/.test(await page.textContent('.show-card'))
+    && !new URL(page.url()).searchParams.has('state'));
+  await page.goto(BASE + '/shows?state=TX');
+  check('shows in another state: none, explained', (await page.locator('.show-card').count()) === 0 && /No listed shows match/.test(await page.textContent('main'))
+    && mock.state.showArgs.state === 'TX');
+  await page.goto(BASE + '/shows?when=weekend');
+  check('shows this weekend: date window sent', !!mock.state.showArgs.date_from && !!mock.state.showArgs.date_to);
+  await page.goto(BASE + '/shows?loc=Nowhereville%2C%20CA');
+  check('shows: unknown place explained', /couldn’t find/.test(await page.textContent('#locError')) && (await page.locator('.show-card').count()) === 1);
+
   // ── save a search (sign in first) ──
   await page.goto(BASE + '/search?q=charizard&deals=1');
   await page.click('#saveSearch');
@@ -213,14 +252,14 @@ try {
   let rr = await page.request.get(BASE + '/robots.txt');
   const robots = await rr.text();
   check('robots.txt before launch: marketplace closed, no sitemap line, private pages closed', rr.status() === 200
-    && /text\/plain/.test(rr.headers()['content-type']) && /^Disallow: \/c\/$/m.test(robots) && /^Disallow: \/s\/$/m.test(robots) && /^Disallow: \/account$/m.test(robots)
+    && /text\/plain/.test(rr.headers()['content-type']) && /^Disallow: \/c\/$/m.test(robots) && /^Disallow: \/s\/$/m.test(robots) && /^Disallow: \/shows$/m.test(robots) && /^Disallow: \/account$/m.test(robots)
     && !/Sitemap:/.test(robots), robots);
   rr = await page.request.get(BASE + '/sitemap.xml');
   const sm = await rr.text();
   check('sitemap.xml: active listings, their dealers, search and the landing page; no sold or unlisted cards', rr.status() === 200
     && /xml/.test(rr.headers()['content-type']) && /<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/.test(sm)
     && sm.includes(`${mock.url}/c/${CHAR}-`) && sm.includes(`${mock.url}/d/`) && sm.includes(`<loc>${mock.url}/search</loc>`)
-    && sm.includes(`<loc>${mock.url}/</loc>`) && sm.includes(`<loc>${mock.url}/s/monster-show-2026</loc>`) && !sm.includes('44444444-4444-4444-8444-444444444444'), sm);
+    && sm.includes(`<loc>${mock.url}/</loc>`) && sm.includes(`<loc>${mock.url}/s/monster-show-2026</loc>`) && sm.includes(`<loc>${mock.url}/shows</loc>`) && !sm.includes('44444444-4444-4444-8444-444444444444'), sm);
   check('no page errors', errors.length === 0, JSON.stringify(errors));
 } catch (e) {
   fails++; console.log('FAIL  crashed:', e.message);
