@@ -409,6 +409,43 @@ try {
   jay.accepts_offers = false; wem.listing_status = 'reserved';
   await page.goto(BASE + '/account'); await page.click('#signOut'); await wait(300);
 
+  // ── + Bundle on search / storefront / show tiles ──
+  await page.goto(BASE + '/search'); await page.waitForSelector('.grid .tile');
+  check('tiles: + Bundle only on active cards that take offers', (await page.locator(`.tile-bundle[data-id="${CHAR}"]`).count()) === 1
+    && (await page.locator(`.tile-bundle[data-id="${JAY}"]`).count()) === 0 && (await page.locator('.grid .tile').count()) >= 2);
+  await page.click(`.tile-bundle[data-id="${CHAR}"]`); await wait(250);
+  check('tiles: tapping + Bundle adds the card without opening it; bar + message', /\/search$/.test(page.url())
+    && (await page.getAttribute(`.tile-bundle[data-id="${CHAR}"]`, 'aria-pressed')) === 'true'
+    && /1 card from Dealer A/.test(await page.textContent('#bundleBar')) && /Added/.test(await page.textContent('#bundleMsg')));
+  check('tiles: no sideways scroll with the bundle bar', await noSideScroll());
+  jay.accepts_offers = true; wem.listing_status = 'active';
+  await page.goto(BASE + '/search'); await page.waitForSelector(`.tile-bundle[data-id="${JAY}"]`);
+  check('tiles: the bundle is remembered across pages', (await page.getAttribute(`.tile-bundle[data-id="${CHAR}"]`, 'aria-pressed')) === 'true');
+  await page.click(`.tile-bundle[data-id="${JAY}"]`); await wait(250);   // another dealer → "start a new bundle?" (accepted)
+  const nb = await page.evaluate(() => JSON.parse(localStorage.getItem('cardshowBundle') || 'null'));
+  check('tiles: a card from another dealer starts a new bundle instead of mixing dealers', nb?.dealer?.handle === 'dealer_b'
+    && JSON.stringify(nb.items.map(i => i.id)) === JSON.stringify([JAY])
+    && (await page.getAttribute(`.tile-bundle[data-id="${CHAR}"]`, 'aria-pressed')) === 'false', JSON.stringify(nb));
+  await page.goto(BASE + '/d/dealer_b'); await page.waitForSelector(`.tile-bundle[data-id="${WEM}"]`);
+  await page.click(`.tile-bundle[data-id="${WEM}"]`); await wait(250);
+  check('storefront tiles: second card from the same dealer → 2 cards, total', /2 cards from Dealer B · asking \$945/.test(await page.textContent('#bundleBar')));
+  await page.click(`.tile-bundle[data-id="${WEM}"]`); await wait(250);
+  check('storefront tiles: tapping again takes it out', /1 card from Dealer B/.test(await page.textContent('#bundleBar'))
+    && (await page.getAttribute(`.tile-bundle[data-id="${WEM}"]`, 'aria-pressed')) === 'false');
+  await page.click(`.tile-bundle[data-id="${WEM}"]`); await wait(250);
+  await page.goto(BASE + '/d/dealer_a'); await wait(300);
+  check('another dealer\'s storefront doesn\'t show dealer B\'s bundle bar', await page.isHidden('#bundleBar'));
+  // an old saved bundle that mixes dealers: the bundle page marks the stray card and won't send
+  await page.evaluate(([a, c]) => localStorage.setItem('cardshowBundle', JSON.stringify({ dealer: { handle: 'dealer_b', name: 'Dealer B' },
+    items: [{ id: a, title: 'JD', price_cents: 4500, url: '/c/' + a }, { id: c, title: 'Charizard', price_cents: 1800000, url: '/c/' + c }] })), [JAY, CHAR]);
+  await page.goto(BASE + '/bundle'); await page.waitForFunction(() => /one dealer’s cards/.test(document.getElementById('bList')?.textContent || ''));
+  check('bundle page: a card from another dealer is marked and sending is blocked', await page.isDisabled('#bSubmit')
+    && /From Dealer A, not Dealer B/.test(await page.textContent('#bList')));
+  await page.goto(BASE + '/search'); await page.waitForSelector('#bundleBar:not([hidden])');
+  await page.click('#bundleClear'); await wait(250);
+  check('bundle bar: Clear empties the bundle', await page.isHidden('#bundleBar') && (await page.evaluate(() => localStorage.getItem('cardshowBundle'))) === null);
+  jay.accepts_offers = false; wem.listing_status = 'reserved';
+
   // ── search down ──
   mock.state.failSearch = true;
   res = await page.goto(BASE + '/search?q=down');

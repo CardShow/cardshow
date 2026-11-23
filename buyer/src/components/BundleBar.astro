@@ -1,33 +1,54 @@
 ---
-// Bar shown while a bundle offer is being put together for this dealer: count, total asking, link to /bundle.
-interface Props { dealer: string }
-const { dealer } = Astro.props;
+// Bar shown while a bundle offer is being put together: count, dealer, total asking, link to /bundle.
+// With a dealer (their card page, their storefront) it only shows for that dealer's bundle; without one (search,
+// show pages) it shows whichever dealer's bundle is in progress. A bundle is always one dealer's cards.
+// Also announces what the "+ Bundle" buttons on tiles did (event 'cardshow-bundle-msg').
+interface Props { dealer?: string }
+const { dealer = '' } = Astro.props;
 ---
+<p class="bundle-msg" id="bundleMsg" role="status" aria-live="polite" hidden></p>
 <div class="bundle-bar" id="bundleBar" data-dealer={dealer} hidden>
   <span id="bundleBarText"></span>
-  <a class="btn btn-primary" href="/bundle">Make a bundle offer</a>
+  <span class="bundle-actions">
+    <button class="linkish" type="button" id="bundleClear">Clear</button>
+    <a class="btn btn-primary" href="/bundle">Make a bundle offer</a>
+  </span>
 </div>
 
 <style>
   .bundle-bar { position: sticky; bottom: 12px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
     gap: 8px 12px; margin-top: 16px; padding: 10px 14px; background: var(--card); border: 1px solid var(--accent); border-radius: var(--radius); }
-  .bundle-bar[hidden] { display: none; }
-  @media (max-width: 600px) { .bundle-bar .btn { flex: 1 1 100%; } }
+  .bundle-bar[hidden], .bundle-msg[hidden] { display: none; }
+  .bundle-actions { display: flex; align-items: center; gap: 14px; }
+  .bundle-msg { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 6; max-width: calc(100vw - 32px);
+    margin: 0; padding: 8px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: 14px; }
+  @media (max-width: 600px) { .bundle-actions { flex: 1 1 100%; } .bundle-actions .btn { flex: 1; } }
 </style>
 
 <script>
-  import { getBundle } from '../lib/browser.js';
+  import { getBundle, emptyBundle } from '../lib/browser.js';
   const bar = document.getElementById('bundleBar') as HTMLElement | null;
+  const msg = document.getElementById('bundleMsg') as HTMLElement | null;
   const money = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
   const render = () => {
     if (!bar) return;
     const b = getBundle();
-    if (!b || b.dealer?.handle !== bar.dataset.dealer || !b.items.length) { bar.hidden = true; return; }
+    const only = bar.dataset.dealer;
+    if (!b || !b.items.length || (only && b.dealer?.handle !== only)) { bar.hidden = true; return; }
     const total = b.items.reduce((s: number, i: any) => s + (i.price_cents || 0), 0);
     document.getElementById('bundleBarText')!.textContent =
       `Bundle: ${b.items.length} ${b.items.length === 1 ? 'card' : 'cards'} from ${b.dealer.name || b.dealer.handle} · asking ${money(total)}`;
     bar.hidden = false;
   };
+  let t: any;
+  window.addEventListener('cardshow-bundle-msg', (e: any) => {
+    if (!msg) return;
+    msg.textContent = e.detail || ''; msg.hidden = !e.detail;
+    clearTimeout(t); t = setTimeout(() => { msg.hidden = true; }, 3500);
+  });
+  document.getElementById('bundleClear')?.addEventListener('click', () => {
+    if (confirm('Clear your bundle?')) emptyBundle();
+  });
   render();
   window.addEventListener('cardshow-bundle', render);
   window.addEventListener('storage', render);

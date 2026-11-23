@@ -4,6 +4,7 @@
 // an id for a show with a slug, or a merged show, redirects. show.html keeps the floor map and directory.
 import Base from '../../layouts/Base.astro';
 import ListingTile from '../../components/ListingTile.astro';
+import BundleBar from '../../components/BundleBar.astro';
 import { rpc } from '../../lib/api.js';
 import { env } from '../../lib/env.js';
 import { fromQuery, PAGE_SIZE, SORTS, CATEGORIES } from '../../lib/search.js';
@@ -140,6 +141,7 @@ const jsonLd = found && show.start_date ? {
           {page < pages ? <a class="btn" href={qs({ page: page + 1 })} rel="next">Next →</a> : <span />}
         </nav>
       )}
+      <BundleBar />
     </>
   )}
 </Base>

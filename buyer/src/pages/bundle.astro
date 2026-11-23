@@ -84,17 +84,22 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
     no_listings: 'Your bundle is empty.',
   };
 
-  function okCard(id: string) { const l = live[id]; return l && l.listing_status === 'active' && l.accepts_offers !== false; }
+  // A bundle is one dealer's cards: a card whose dealer isn't the bundle's (an old saved bundle, a card that changed hands)
+  // is marked and can't be sent. The server refuses mixed dealers too (make_bundle_offer → multiple_dealers).
+  const otherDealer = (id: string) => { const l = live[id]; const b = getBundle(); return !!(l && b && l.dealer?.handle && l.dealer.handle !== b.dealer?.handle); };
+  function okCard(id: string) { const l = live[id]; return l && l.listing_status === 'active' && l.accepts_offers !== false && !otherDealer(id); }
 
   function render(flag: string[] = []) {
     const b = getBundle();
     if (!b || !b.items.length) { $('bEmpty').hidden = false; $('bBody').hidden = true; return; }
     $('bEmpty').hidden = true; $('bBody').hidden = false;
     $('bDealer').textContent = `From ${b.dealer.name || b.dealer.handle}`;
+    $('bDealer').insertAdjacentHTML('beforeend', ` <span class="muted small">· a bundle is always one dealer’s cards</span>`);
     $('bList').innerHTML = b.items.map((i: any) => {
       const l = live[i.id];
       const price = l?.price_cents ?? i.price_cents;
-      const why = l === null || (l && l.listing_status !== 'active') ? 'No longer for sale'
+      const why = otherDealer(i.id) ? `From ${l.dealer.display_name || l.dealer.handle}, not ${b.dealer.name || b.dealer.handle}: a bundle is one dealer’s cards`
+        : l === null || (l && l.listing_status !== 'active') ? 'No longer for sale'
         : l && l.accepts_offers === false ? 'The dealer doesn’t take offers on this card'
         : flag.includes(i.id) ? 'Not available' : '';
       return `<li class="${why ? 'gone' : ''}" data-id="${esc(i.id)}"><span class="meta"><a href="${esc(i.url || '#')}">${esc(l?.title || i.title)}</a>

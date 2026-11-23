@@ -3,6 +3,7 @@
 // saved (saved_searches + hourly email alerts) and opened by AI assistants.
 import Base from '../layouts/Base.astro';
 import ListingTile from '../components/ListingTile.astro';
+import BundleBar from '../components/BundleBar.astro';
 import { rpc } from '../lib/api.js';
 import { resolveLocation, locationMessage } from '../lib/geo.js';
 import { fromQuery, toQuery, PAGE_SIZE, SORTS, CATEGORIES, GRADERS, MILES, STATES, forSaving, describe } from '../lib/search.js';
@@ -139,6 +140,7 @@ const saveParams = forSaving(p);
           {page < pages ? <a class="btn" href={pageHref(page + 1)} rel="next">Next →</a> : <span />}
         </nav>
       )}
+      <BundleBar />
     </section>
   </div>
 </Base>

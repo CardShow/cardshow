@@ -7017,8 +7017,20 @@ offers like any card; this adds one offer covering **2–20 cards from one deale
 - **Tests:** `marketplace-bundle-offers.test.sh` (25 SQL checks; `marketplace-offers.test.sh` now also loads this migration,
   43/43), `offer-notices.test.mjs` (+2), `marketplace-offers.e2e.mjs` (+6: bundle display, counter limit, accept → one hold,
   split + bundle sale), 13 bundle checks in `buyer/test/site.e2e.mjs` (iPhone 13 + Desktop Chrome).
-- **Not built:** bundle buttons on search / storefront tiles (add from the card page); a bundle across dealers; Show Mode
-  "sold to the holder" for bundles.
+- **+ Bundle on tiles** (session 2026-11-23): every grid tile (search, storefronts, show pages; `ListingTile.astro`) of an
+  active card that takes offers has a **+ Bundle** pill over its image (a button beside the link, so tapping it never opens
+  the card; `✓ In bundle` when added, tap again to take it out). One delegated click listener per page. Messages
+  ("Added. 2 cards in your bundle.") show in `BundleBar.astro`'s status line (event `cardshow-bundle-msg`). The bar now
+  also shows on search and show pages (any dealer's bundle; on a dealer's storefront or card page only theirs) and has
+  **Clear**.
+- **One dealer only, everywhere** (Stephen, 2026-11-23: "Do not allow bundles or lots to be bought from multiple sellers
+  yet"): `addToBundle()` refuses a card from another dealer; the tile and card page then ask to start a new bundle with
+  that dealer (never mixing; No keeps the current bundle). `/bundle` marks a card whose dealer isn't the bundle's ("From
+  Dealer A, not Dealer B: a bundle is one dealer's cards") and won't send. The server refuses mixed dealers too
+  (`make_bundle_offer` → `multiple_dealers`), and holds/offers are always one dealer's (`listing_reservations.dealer_id`).
+  A lot listed as one card is one seller's by definition.
+- Tests: 12 tile checks in `buyer/test/site.e2e.mjs` (iPhone 13 + Desktop Chrome).
+- **Not built:** a bundle across dealers (deliberately); Show Mode "sold to the holder" for bundles.
 
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only
