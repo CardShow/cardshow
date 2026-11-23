@@ -19,6 +19,7 @@ seller-browse.html                → Buyer-facing seller storefront (QR scan de
 _redirects                        → Netlify routing rules
 netlify.toml                      → Disables pretty URLs (critical for show.html hash routing); functions = "netlify/functions"
 netlify/functions/psa-lookup.js   → Serverless: POST {cert, grader} → normalized card object (PSA + CGC APIs)
+netlify/functions/marketplace-waitlist.js → Serverless: POST {email, company(honeypot)} → sets Loops contact field marketplaceWaitlist = true (creates the contact if new); the landing page's "Get notified" form
 netlify/functions/vision-scan.js         → Serverless: POST {image, mediaType} → normalized card object via Claude vision (Sprint 2)
 netlify/functions/scan-card.js           → Serverless: POST {image_base64, media_type} → structured card object + per-field 0-1 confidence, used by Photo Scan & Card Fingerprinting (Scan-to-Sell POS + Manual Sale modal); separate from vision-scan.js because this prompt distinguishes a slab's cert number from the card's own printed serial number
 netlify/functions/trading-card-lookup.js → Serverless: POST {query, sport?} → card search results from Trading Card API (Sprint 3); write-through cache via card_search_cache table (7-day TTL)
@@ -962,7 +963,7 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `MCP_RATE_PER_MINUTE` / `MCP_RATE_PER_DAY` | MCP tool calls allowed per client IP (defaults 60 / 2000) |
 | `LOOPS_API_KEY` | Loops API key (pricing alert + saved-search emails) |
 | `LOOPS_PRICING_ALERT_ID` / `PRICING_ALERT_EMAIL` | Loops transactional email id and recipient for the 80%-of-daily-limit pricing alert |
-| `LOOPS_HOLD_DEALER_ID` / `LOOPS_HOLD_BUYER_ID` | Loops transactional email ids for hold emails ("Hold - Dealer" `cmwss1o5t103l0j43x31gw0yp`, "Hold - Buyer" `cmwss1ovf1ng50j1znutx5yz7`, created 2026-11-23). Without them hold emails wait (nothing lost while the hold is still relevant) |
+| `LOOPS_HOLD_DEALER_ID` / `LOOPS_HOLD_BUYER_ID` | Loops transactional email ids for hold emails ("Hold - Dealer" / "Hold - Buyer" in Loops, created 2026-11-23; copy the ids from Loops). Without them hold emails wait (nothing lost while the hold is still relevant). **Never write an env var's value into a repo file**: Netlify's secrets scan fails the build when it finds one (2026-11-23, these two ids in this file) |
 | `LOOPS_SAVED_SEARCH_ID` | Loops transactional email id for saved-search alerts (data variables: searchName, count, firstTitle, firstPrice, firstUrl, listText, searchUrl) |
 
 ### Credential Injection (no build step workaround)
@@ -2763,6 +2764,26 @@ engagement.
 
 **Also fixed:** the page scrolled sideways on phones. `.final-cta` now has
 `overflow: hidden` (its 800px glow overflowed), and the footer stacks at ≤600px.
+
+## Landing Page: Marketplace Coming Soon (session 2026-11-23)
+`index.html` now opens with a "CardShow Marketplace · Coming soon" section (`.mk-hero`, `#marketplace`): headline
+"The show that never stops.", four tags (the last, "Every slab theft-checked", outlined; never "verified", see GTCR),
+and a "Get notified" email form. The old hero follows it as a regular section (`.hero.hero--secondary`, its headline
+an `<h2>`, no scroll hint); every section below is unchanged.
+- **Form:** posts `{email, company}` to `netlify/functions/marketplace-waitlist.js`, which validates the email and marks
+  the Loops contact with the custom boolean field **`marketplaceWaitlist = true`** (created in Loops 2026-11-23). The waitlist
+  is the audience filtered on that field. New email: `POST contacts/create` with `source: marketplace-waitlist` + the field.
+  Existing contact (409 / "already"): `PUT contacts/update` with only the field, so its `source` and `userGroup` (Seller /
+  Organizer roles) are kept. `userGroup` is never set by the form.
+  `company` is a hidden honeypot: filled → `{ok:true}`, nothing saved. Needs `LOOPS_API_KEY` (already set for hold emails).
+  States: "Adding you...", success text replaces the form, error text; all in an `aria-live` region. No rate limit.
+- **Styles:** the new section uses `--accent` (added to `:root`, same gold) and `--mk-body` `#aab2cc` (the page's
+  `--muted` fails 4.5:1 on the background). Desktop (≥768px) shows a CSS phone mockup with placeholder values.
+- **Head:** title "CardShow Marketplace | Coming Soon", description, `og:` and `twitter:` tags (no og:image yet).
+- **Mobile sticky bar** shows once the marketplace section is off screen, hidden while the old hero or final CTA is on screen.
+- Copy rules for this section: no em dashes, no emoji, no "repacker", no fees / pricing / pilot / launch dates.
+- **Tests:** `tests/show-mode/marketplace-waitlist.test.mjs` (18 checks, Loops stubbed).
+- When the marketplace opens, replace the badge and form with a link to `/search`.
 
 ## Landing Page CTA Streamlining (session 2026-10-16)
 Mobile feedback: the top of `index.html` showed four competing buttons. Open Demo and Start for
