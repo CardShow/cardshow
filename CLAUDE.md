@@ -19,7 +19,7 @@ seller-browse.html                → Buyer-facing seller storefront (QR scan de
 _redirects                        → Netlify routing rules
 netlify.toml                      → Disables pretty URLs (critical for show.html hash routing); functions = "netlify/functions"
 netlify/functions/psa-lookup.js   → Serverless: POST {cert, grader} → normalized card object (PSA + CGC APIs)
-netlify/functions/marketplace-waitlist.js → Serverless: POST {email, company(honeypot)} → adds the email to Loops (source/userGroup marketplace-waitlist); the landing page's "Get notified" form
+netlify/functions/marketplace-waitlist.js → Serverless: POST {email, company(honeypot)} → sets Loops contact field marketplaceWaitlist = true (creates the contact if new); the landing page's "Get notified" form
 netlify/functions/vision-scan.js         → Serverless: POST {image, mediaType} → normalized card object via Claude vision (Sprint 2)
 netlify/functions/scan-card.js           → Serverless: POST {image_base64, media_type} → structured card object + per-field 0-1 confidence, used by Photo Scan & Card Fingerprinting (Scan-to-Sell POS + Manual Sale modal); separate from vision-scan.js because this prompt distinguishes a slab's cert number from the card's own printed serial number
 netlify/functions/trading-card-lookup.js → Serverless: POST {query, sport?} → card search results from Trading Card API (Sprint 3); write-through cache via card_search_cache table (7-day TTL)
@@ -2770,8 +2770,11 @@ engagement.
 "The show that never stops.", four tags (the last, "Every slab theft-checked", outlined; never "verified", see GTCR),
 and a "Get notified" email form. The old hero follows it as a regular section (`.hero.hero--secondary`, its headline
 an `<h2>`, no scroll hint); every section below is unchanged.
-- **Form:** posts `{email, company}` to `netlify/functions/marketplace-waitlist.js`, which validates the email and calls
-  Loops `POST /api/v1/contacts/create` with `source` and `userGroup` = `marketplace-waitlist` (409 / "already" = success).
+- **Form:** posts `{email, company}` to `netlify/functions/marketplace-waitlist.js`, which validates the email and marks
+  the Loops contact with the custom boolean field **`marketplaceWaitlist = true`** (created in Loops 2026-11-23). The waitlist
+  is the audience filtered on that field. New email: `POST contacts/create` with `source: marketplace-waitlist` + the field.
+  Existing contact (409 / "already"): `PUT contacts/update` with only the field, so its `source` and `userGroup` (Seller /
+  Organizer roles) are kept. `userGroup` is never set by the form.
   `company` is a hidden honeypot: filled → `{ok:true}`, nothing saved. Needs `LOOPS_API_KEY` (already set for hold emails).
   States: "Adding you...", success text replaces the form, error text; all in an `aria-live` region. No rate limit.
 - **Styles:** the new section uses `--accent` (added to `:root`, same gold) and `--mk-body` `#aab2cc` (the page's
@@ -2779,7 +2782,7 @@ an `<h2>`, no scroll hint); every section below is unchanged.
 - **Head:** title "CardShow Marketplace | Coming Soon", description, `og:` and `twitter:` tags (no og:image yet).
 - **Mobile sticky bar** shows once the marketplace section is off screen, hidden while the old hero or final CTA is on screen.
 - Copy rules for this section: no em dashes, no emoji, no "repacker", no fees / pricing / pilot / launch dates.
-- **Tests:** `tests/show-mode/marketplace-waitlist.test.mjs` (13 checks, Loops stubbed).
+- **Tests:** `tests/show-mode/marketplace-waitlist.test.mjs` (18 checks, Loops stubbed).
 - When the marketplace opens, replace the badge and form with a link to `/search`.
 
 ## Landing Page CTA Streamlining (session 2026-10-16)

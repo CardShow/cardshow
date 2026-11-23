@@ -6,7 +6,10 @@ const { handle } = require('../../netlify/functions/marketplace-waitlist.js')._t
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('PASS', m); } else { fail++; console.log('FAIL', m); } };
 const ev = (body, method = 'POST') => ({ httpMethod: method, body: typeof body === 'string' ? body : JSON.stringify(body) });
-const stub = (status, text = '{}') => { const calls = []; const f = async (url, opts) => { calls.push({ url, opts }); return { ok: status < 300, status, text: async () => text }; }; f.calls = calls; return f; };
+// stub(status, text) or stub([[status, text], ...]) for successive calls
+const stub = (status, text = '{}') => { const calls = []; const seq = Array.isArray(status) ? status : [[status, text]];
+  const f = async (url, opts) => { const [st, tx = '{}'] = seq[Math.min(calls.length, seq.length - 1)]; calls.push({ url, opts, body: JSON.parse(opts.body) });
+    return { ok: st < 300, status: st, text: async () => tx }; }; f.calls = calls; return f; };
 
 process.env.LOOPS_API_KEY = 'test-key';
 let f = stub(200);
@@ -14,13 +17,22 @@ let r = await handle(ev({ email: ' Test@Example.com ' }), { fetchImpl: f });
 ok(r.statusCode === 200 && JSON.parse(r.body).ok === true, 'valid email → ok');
 const sent = JSON.parse(f.calls[0].opts.body);
 ok(f.calls[0].url === 'https://app.loops.so/api/v1/contacts/create', 'posts to contacts/create');
-ok(sent.email === 'test@example.com' && sent.source === 'marketplace-waitlist' && sent.userGroup === 'marketplace-waitlist', 'payload');
+ok(sent.email === 'test@example.com' && sent.source === 'marketplace-waitlist' && sent.marketplaceWaitlist === true, 'payload');
+ok(!('userGroup' in sent), 'userGroup not sent');
+ok(f.calls.length === 1, 'new contact: one call');
 ok(f.calls[0].opts.headers.Authorization === 'Bearer test-key', 'bearer key');
 
-r = await handle(ev({ email: 'a@b.co' }), { fetchImpl: stub(409, '{"success":false,"message":"Email or userId is already on your audience."}') });
-ok(JSON.parse(r.body).ok === true, 'already a contact (409) → ok');
-r = await handle(ev({ email: 'a@b.co' }), { fetchImpl: stub(400, '{"message":"Email address already exists"}') });
-ok(JSON.parse(r.body).ok === true, 'already-exists message → ok');
+f = stub([[409, '{"success":false,"message":"Email or userId is already on your audience."}'], [200]]);
+r = await handle(ev({ email: 'seller@b.co' }), { fetchImpl: f });
+ok(JSON.parse(r.body).ok === true, 'existing contact (409) → ok');
+ok(f.calls.length === 2 && f.calls[1].url.endsWith('/contacts/update') && f.calls[1].opts.method === 'PUT', 'existing contact → update');
+ok(JSON.stringify(Object.keys(f.calls[1].body).sort()) === '["email","marketplaceWaitlist"]' && f.calls[1].body.marketplaceWaitlist === true,
+   'update sends only email + field (source and userGroup kept)');
+f = stub([[400, '{"message":"Email address already exists"}'], [200]]);
+r = await handle(ev({ email: 'a@b.co' }), { fetchImpl: f });
+ok(JSON.parse(r.body).ok === true && f.calls.length === 2, 'already-exists message → update → ok');
+r = await handle(ev({ email: 'a@b.co' }), { fetchImpl: stub([[409, 'already'], [500, 'boom']]) });
+ok(r.statusCode === 502 && JSON.parse(r.body).ok === false, 'update fails → ok false');
 r = await handle(ev({ email: 'a@b.co' }), { fetchImpl: stub(500, 'boom') });
 ok(r.statusCode === 502 && JSON.parse(r.body).ok === false, 'Loops error → ok false');
 r = await handle(ev({ email: 'a@b.co' }), { fetchImpl: async () => { throw new Error('net'); } });
