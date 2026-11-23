@@ -162,6 +162,7 @@ function _mhRenderPanel() {
     <div class="mh-hold" data-hold="${_mkEsc(h.id)}">
       <div class="mh-head"><b>${_mkEsc(h.buyer_name || 'A buyer')}</b><span class="mh-left">${_mkEsc(_mhLeft(h.expires_at))} · until ${_mkEsc(_mhWhen(h.expires_at))}</span></div>
       <div class="mh-contact">${mhContactHTML(h.buyer_contact)}</div>
+      ${h.agreed_cents ? `<div class="mo-line">From an offer: agreed ${_mkEsc(_mkMoney(h.agreed_cents))}</div>` : ''}
       ${h.buyer_note ? `<div class="mh-note">“${_mkEsc(h.buyer_note)}”</div>` : ''}
       ${(h.cards || []).map(_mhCardLine).join('')}
       <div class="mh-actions">
@@ -238,7 +239,10 @@ function mhSdFill(card) {
   const ticked = _mhSdHoldId === h.id;
   _mhSdHoldId = h.id;
   document.getElementById('sdHoldTo').checked = ticked;
-  document.getElementById('sdHoldText').textContent = `Sold to ${h.buyer_name || 'the buyer'} (holding this card until ${_mhWhen(h.expires_at)})`;
+  document.getElementById('sdHoldText').textContent = `Sold to ${h.buyer_name || 'the buyer'} (holding this card until ${_mhWhen(h.expires_at)}`
+    + `${h.agreed_cents ? `, agreed ${_mkMoney(h.agreed_cents)}` : ''})`;
+  // "Sold to them" on a hold from an accepted offer: the agreed price goes in the sold price.
+  if (ticked && h.agreed_cents) document.getElementById('sdPrice').value = String(h.agreed_cents / 100);
   document.getElementById('sdHoldNote').textContent = ticked ? ''
     : `Not ticked: the card goes to someone else, ${h.buyer_name || 'the buyer'}'s hold ends and they get an email.`;
   wrap.style.display = '';

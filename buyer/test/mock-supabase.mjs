@@ -26,7 +26,7 @@ export function listings() {
     { id: '22222222-2222-4222-8222-222222222222', url: '/c/22222222-2222-4222-8222-222222222222-2024-prizm-jayden-daniels-silver',
       title: '2024 Prizm Jayden Daniels Silver', player: 'Jayden Daniels', year: 2024, set: 'Prizm', number: '331', parallel: 'Silver',
       grade_key: 'Raw', category: 'Sports', subcategory: 'Football', listing_status: 'active', price_cents: 4500, comp_unavailable: true,
-      deal: false, sale_modes: ['ship'], gtcr_clear: false,
+      deal: false, sale_modes: ['ship'], gtcr_clear: false, accepts_offers: false,
       image: { stock_image_url: '/.netlify/functions/card-image?id=abc', catalog_image: true }, dealer: dealerB, listed_at: iso(now - 3 * day) },
     { id: '33333333-3333-4333-8333-333333333333', url: '/c/33333333-3333-4333-8333-333333333333-wemby-prizm-bgs-9-5',
       title: 'Wemby Prizm BGS 9.5', player: 'Victor Wembanyama', grader: 'BGS', grade: 9.5, grade_key: 'BGS 9.5', cert_number: '999',
@@ -38,7 +38,7 @@ export function listings() {
 }
 
 export async function start({ port = 0 } = {}) {
-  const state = { calls: [], saved: [], refresh: [], holds: [], holdCalls: [], users: { 'buyer@example.test': 'password123' }, failSearch: false };
+  const state = { calls: [], saved: [], refresh: [], holds: [], holdCalls: [], offers: [], offerCalls: [], users: { 'buyer@example.test': 'password123' }, failSearch: false };
   const all = listings();
   const pub = l => { const { _whatsapp, _instagram, features, ...rest } = l; return rest; };
   const server = http.createServer(async (req, res) => {
@@ -128,6 +128,50 @@ export async function start({ port = 0 } = {}) {
           created_at: iso(Date.now()), expires_at: iso(Date.now() + day), name: j.p_name, contact: j.p_contact, note: j.p_note };
         state.holds.push(h); state.holdCalls.push(j); l.listing_status = 'reserved';
         return send(200, { ok: true, reservation_id: h.id, expires_at: h.expires_at });
+      }
+      // offers (enough of 20261208120000_marketplace_offers.sql; tests move the dealer's side by editing state.offers)
+      if (['make_offer', 'my_offers', 'buyer_respond_offer', 'withdraw_offer'].includes(name)) {
+        if (!/tok-buyer/.test(req.headers.authorization || '')) return send(401, { message: 'JWT required' });
+        state.offerCalls.push({ name, ...j });
+        const full = l => { const { _whatsapp, _instagram, ...rest } = l;
+          return { ...rest, dealer: { ...l.dealer, ...(_whatsapp ? { whatsapp: _whatsapp } : {}), ...(_instagram ? { instagram: _instagram } : {}) } }; };
+        const accept = (o, l) => {
+          const h = { id: `ac000000-0000-4000-8000-00000000000${state.holds.length}`, listing_id: l.id, status: 'active', created_at: iso(Date.now()),
+            expires_at: iso(Date.now() + day), agreed_cents: o.amount_cents, from_offer: true };
+          state.holds.push(h); l.listing_status = 'reserved';
+          Object.assign(o, { status: 'accepted', updated_at: iso(Date.now()), hold: { id: h.id, status: 'active', expires_at: h.expires_at } });
+          return { ok: true, status: 'accepted', offer_id: o.id, reservation_id: h.id, hold_expires_at: h.expires_at, agreed_cents: o.amount_cents };
+        };
+        if (name === 'my_offers') return send(200, state.offers.map(o => ({ ...o, can_counter: o.moves < 3, card: full(all.find(x => x.id === o.listing_id)) })));
+        const o = state.offers.find(x => x.id === j.p_offer_id);
+        if (name === 'withdraw_offer') { if (!o) return send(200, { error: 'not_found' }); o.status = 'withdrawn'; return send(200, { ok: true, status: 'withdrawn' }); }
+        if (name === 'buyer_respond_offer') {
+          if (!o) return send(200, { error: 'not_found' });
+          if (o.status !== 'countered') return send(200, { error: 'not_your_turn' });
+          const l = all.find(x => x.id === o.listing_id);
+          if (j.p_action === 'accept') return send(200, accept(o, l));
+          if (j.p_action === 'decline') { o.status = 'declined'; o.decided_by = 'buyer'; return send(200, { ok: true, status: 'declined' }); }
+          if (o.moves >= 3) return send(200, { error: 'no_more_counters' });
+          const last = Math.max(...o.history.filter(h => h.by === 'buyer').map(h => h.cents));
+          if (!(j.p_counter_cents > last && j.p_counter_cents < o.amount_cents)) return send(200, { error: 'bad_counter' });
+          Object.assign(o, { status: 'pending', amount_cents: j.p_counter_cents, last_by: 'buyer', moves: o.moves + 1, updated_at: iso(Date.now()),
+            history: [...o.history, { by: 'buyer', cents: j.p_counter_cents }] });
+          return send(200, { ok: true, status: 'pending', amount_cents: j.p_counter_cents });
+        }
+        const l = all.find(x => x.id === j.p_listing_id);
+        if (!l) return send(200, { error: 'not_found' });
+        if (l.accepts_offers === false) return send(200, { error: 'no_offers' });
+        if (l.listing_status !== 'active') return send(200, { error: 'unavailable' });
+        if (!(j.p_amount_cents >= 100)) return send(200, { error: 'bad_amount' });
+        if (j.p_amount_cents > l.price_cents) return send(200, { error: 'above_price' });
+        const open = state.offers.find(x => x.listing_id === l.id && ['pending', 'countered'].includes(x.status));
+        if (open) return send(200, { error: 'already_open', offer_id: open.id });
+        const n = { id: `0f000000-0000-4000-8000-00000000000${state.offers.length}`, listing_id: l.id, status: 'pending', amount_cents: j.p_amount_cents,
+          offer_cents: j.p_amount_cents, asking_cents: l.price_cents, last_by: 'buyer', moves: 1, history: [{ by: 'buyer', cents: j.p_amount_cents }],
+          expires_at: iso(Date.now() + day), created_at: iso(Date.now()), updated_at: iso(Date.now()), buyer_name: j.p_name };
+        state.offers.push(n);
+        if (state.autoAcceptCents && j.p_amount_cents >= state.autoAcceptCents) return send(200, accept(n, l));
+        return send(200, { ok: true, status: 'pending', offer_id: n.id, expires_at: n.expires_at });
       }
       if (name === 'request_card_value_refresh') { state.refresh.push(j.p_listing_id); return send(200, { ok: true }); }
       return send(404, { message: 'no such function' });

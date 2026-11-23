@@ -126,6 +126,7 @@ const jsonLd = found ? {
               {status === 'reserved' && <p class="hold-other" id="holdOther">Another buyer is holding this card. If they don’t buy it, it goes back on sale within a day.</p>}
               <div id="holdMine" class="hold-mine" hidden>
                 <b>✓ On hold for you</b>
+                <span id="holdPrice" hidden></span>
                 <span id="holdUntil"></span>
                 <span class="muted small">Pay the dealer when you meet{show ? `, at ${show.name}${show.table_number ? ` (table ${show.table_number})` : ''}` : ''}. They have your contact details.</span>
                 <button class="linkish" type="button" id="holdCancel">Cancel my hold</button>
@@ -146,6 +147,42 @@ const jsonLd = found ? {
                 </div>
               </form>
               <p class="notice small" id="holdMsg" role="status" hidden></p>
+              {status === 'active' && l.accepts_offers !== false && (
+                <div class="offer" id="offerBox" data-price={l.price_cents}>
+                  <div id="offerStart">
+                    <button class="btn" type="button" id="offerBtn">Make an offer</button>
+                  </div>
+                  <div id="offerMine" class="offer-mine" hidden>
+                    <b id="offerHead"></b>
+                    <span id="offerSub" class="muted small"></span>
+                    <div id="offerAnswer" class="hold-actions" hidden>
+                      <button class="btn btn-primary" type="button" id="offerAccept">Accept</button>
+                      <button class="btn" type="button" id="offerCounterBtn">Counter</button>
+                      <button class="btn" type="button" id="offerDecline">Decline</button>
+                    </div>
+                    <form id="offerCounterForm" class="hold-form" hidden>
+                      <label class="field">Your counter ($)<input name="amount" inputmode="decimal" autocomplete="off" required /></label>
+                      <div class="hold-actions">
+                        <button class="btn btn-primary" type="submit" id="offerCounterSend">Send counter</button>
+                        <button class="btn" type="button" id="offerCounterBack">Cancel</button>
+                      </div>
+                    </form>
+                    <button class="linkish" type="button" id="offerWithdraw" hidden>Withdraw my offer</button>
+                  </div>
+                  <form id="offerForm" class="hold-form" hidden>
+                    <label class="field">Your offer ($)<input name="amount" inputmode="decimal" autocomplete="off" placeholder={`Asking ${money(l.price_cents)}`} required /></label>
+                    <label class="field">Your name<input name="name" maxlength="60" autocomplete="name" required /></label>
+                    <label class="field">How the dealer can reach you<input name="contact" maxlength="120" placeholder="Phone, email or Instagram" required /></label>
+                    <label class="field">Note for the dealer (optional)<textarea name="note" maxlength="300" rows="2" placeholder="When you can meet, questions…"></textarea></label>
+                    <div class="hold-actions">
+                      <button class="btn btn-primary" type="submit" id="offerSubmit">Send offer</button>
+                      <button class="btn" type="button" id="offerBack">Cancel</button>
+                    </div>
+                    <p class="muted small">The dealer has 24 hours to accept, decline or counter. If they accept, the card is held for you for 24 hours at that price and you pay them when you meet.</p>
+                  </form>
+                  <p class="notice small" id="offerMsg" role="status" hidden></p>
+                </div>
+              )}
             </div>
             <p class="muted small">Or reach the dealer directly{show ? ' or find them at the show' : ''}.</p>
             {show && (
@@ -219,9 +256,14 @@ const jsonLd = found ? {
   .hold-form textarea { font: inherit; }
   .hold-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .linkish { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 0; align-self: flex-start; font: inherit; font-size: 14px; }
-  #holdMsg { margin: 0; }
+  #holdMsg, #offerMsg { margin: 0; }
+  .offer { display: flex; flex-direction: column; gap: 8px; }
+  .offer [hidden] { display: none !important; }
+  .offer-mine { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+  .offer-mine.is-turn { border-color: var(--accent); }
+  #offerBtn { align-self: flex-start; }
   @media (max-width: 760px) {
-    .hold-actions .btn, #holdBtn { flex: 1 1 100%; width: 100%; }
+    .hold-actions .btn, #holdBtn, #offerBtn { flex: 1 1 100%; width: 100%; }
     .listing { grid-template-columns: minmax(0, 1fr); gap: 16px; }
     .media img { max-height: 60vh; }
     .contact .btn { flex: 1 1 100%; }
@@ -239,9 +281,11 @@ const jsonLd = found ? {
     let myHoldId = '';
     const say = (t: string) => { const m = $('holdMsg'); m.hidden = !t; m.textContent = t; };
     const until = (iso: string) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    const showMine = (id: string, expires: string) => {
+    const showMine = (id: string, expires: string, agreedCents?: number | null) => {
       myHoldId = id;
       $('holdMine').hidden = false; $('holdUntil').textContent = `Until ${until(expires)}.`;
+      $('holdPrice').hidden = !agreedCents; if (agreedCents) $('holdPrice').textContent = `At your agreed price of ${dollars(agreedCents)}.`;
+      if ($('offerBox')) $('offerBox').hidden = true;
       if ($('holdStart')) $('holdStart').hidden = true; $('holdForm').hidden = true;
       if ($('holdOther')) $('holdOther').hidden = true;
       document.querySelector('.chip-hold')?.remove();
@@ -249,7 +293,9 @@ const jsonLd = found ? {
     const showStart = () => {
       myHoldId = ''; $('holdMine').hidden = true; $('holdForm').hidden = true;
       if ($('holdStart')) $('holdStart').hidden = false;
+      if ($('offerBox')) $('offerBox').hidden = false;
     };
+    const dollars = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
     const notify = async (reservationId: string) => {
       try {
         const { data } = await sb().auth.getSession();
@@ -321,10 +367,162 @@ const jsonLd = found ? {
       try {
         const { data } = await sb().rpc('my_holds');
         const mine = (Array.isArray(data) ? data : []).find((h: any) => h.status === 'active' && (h.cards || []).some((c: any) => c.id === listingId));
-        if (mine) { showMine(mine.id, mine.expires_at); return; }
+        if (mine) { showMine(mine.id, mine.expires_at, mine.agreed_cents); return; }
       } catch {}
       if (new URLSearchParams(location.search).get('hold') === '1' && box.dataset.status === 'active') openForm();
     })();
+
+    // ── Offers: the dealer accepts, declines or counters; an accepted offer becomes a hold at that price. ──
+    const ob = document.getElementById('offerBox') as HTMLElement | null;
+    if (ob) {
+      const price = Number(ob.dataset.price || 0);
+      let offer: any = null;
+      const osay = (t: string) => { const m = $('offerMsg'); m.hidden = !t; m.textContent = t; };
+      const toCents = (v: string) => { const n = parseFloat(String(v).replace(/[$,\s]/g, '')); return Number.isFinite(n) ? Math.round(n * 100) : NaN; };
+      const notifyOffer = async (offerId: string) => {
+        try {
+          const { data } = await sb().auth.getSession();
+          const t = data?.session?.access_token; if (!t) return;
+          fetch('/.netlify/functions/offer-notify-now', { method: 'POST', keepalive: true,
+            headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ offer_id: offerId }) }).catch(() => {});
+        } catch {}
+      };
+      const OERR: Record<string, string> = {
+        bad_amount: 'Enter an amount of at least $1.',
+        above_price: 'That’s more than the asking price. Hold the card instead.',
+        already_open: 'You already have an offer on this card.',
+        offer_limit_day: 'You’ve made a lot of offers today. Try again tomorrow.',
+        no_offers: 'This dealer isn’t taking offers on this card.',
+        unavailable: 'Someone else just held or bought this card.',
+        own_listing: 'This is your own card.',
+        early_access: 'This card isn’t open for offers yet.',
+        not_found: 'This card isn’t listed any more.',
+        missing_name: 'Add your name.',
+        missing_contact: 'Add a phone number, email or Instagram so the dealer can reach you.',
+        bad_counter: 'Your counter has to be more than your last offer and less than the dealer’s.',
+        no_more_counters: 'You can only accept or decline now.',
+        expired: 'This offer ran out. You can make a new one.',
+        not_your_turn: 'The dealer is still deciding.',
+      };
+      const showOfferStart = () => {
+        offer = null; $('offerStart').hidden = false; $('offerMine').hidden = true; $('offerForm').hidden = true;
+      };
+      const showOffer = (o: any) => {
+        offer = o;
+        $('offerForm').hidden = true; $('offerCounterForm').hidden = true;
+        const open = o.status === 'pending' || o.status === 'countered';
+        $('offerStart').hidden = open;
+        $('offerMine').hidden = false;
+        $('offerMine').classList.toggle('is-turn', o.status === 'countered');
+        $('offerAnswer').hidden = o.status !== 'countered';
+        $('offerWithdraw').hidden = !open;
+        $('offerCounterBtn').hidden = !o.can_counter;
+        const by = o.expires_at ? `Answer by ${until(o.expires_at)}.` : '';
+        if (o.status === 'pending') {
+          $('offerHead').textContent = `Your offer: ${dollars(o.amount_cents)}`;
+          $('offerSub').textContent = `Waiting for the dealer. They have until ${until(o.expires_at)} to answer.`;
+        } else if (o.status === 'countered') {
+          $('offerHead').textContent = `The dealer countered at ${dollars(o.amount_cents)}`;
+          const mine = (o.history || []).filter((h: any) => h.by === 'buyer').pop();
+          $('offerSub').textContent = `${mine ? `You offered ${dollars(mine.cents)}. ` : ''}${by}`;
+          $('offerAccept').textContent = `Accept ${dollars(o.amount_cents)}`;
+        } else if (o.status === 'declined') {
+          $('offerHead').textContent = `Your offer of ${dollars(o.amount_cents)} was declined`;
+          $('offerSub').textContent = o.decided_by === 'auto' ? 'The dealer doesn’t take offers that low on this card.' : 'You can make another offer.';
+        } else if (o.status === 'expired') {
+          $('offerHead').textContent = `Your offer of ${dollars(o.amount_cents)} ran out`;
+          $('offerSub').textContent = 'You can make another offer.';
+        } else { showOfferStart(); }
+      };
+      const openOfferForm = async () => {
+        const user = await currentUser();
+        if (!user) { location.href = `/account?next=${encodeURIComponent(box.dataset.url + '?offer=1')}`; return; }
+        const f = $('offerForm') as HTMLFormElement;
+        let saved: any = {}; try { saved = JSON.parse(localStorage.getItem('cardshowHoldContact') || '{}'); } catch {}
+        (f.elements.namedItem('name') as HTMLInputElement).value ||= saved.name || '';
+        (f.elements.namedItem('contact') as HTMLInputElement).value ||= saved.contact || user.email || '';
+        $('offerStart').hidden = true; f.hidden = false; osay('');
+        (f.elements.namedItem('amount') as HTMLInputElement).focus();
+      };
+      $('offerBtn').addEventListener('click', openOfferForm);
+      $('offerBack').addEventListener('click', () => { $('offerForm').hidden = true; $('offerStart').hidden = false; osay(''); });
+      $('offerForm').addEventListener('submit', async (e: Event) => {
+        e.preventDefault();
+        const f = e.target as HTMLFormElement;
+        const cents = toCents((f.elements.namedItem('amount') as HTMLInputElement).value);
+        const name = (f.elements.namedItem('name') as HTMLInputElement).value.trim();
+        const contact = (f.elements.namedItem('contact') as HTMLInputElement).value.trim();
+        const note = (f.elements.namedItem('note') as HTMLTextAreaElement).value.trim();
+        if (!(cents >= 100)) { osay(OERR.bad_amount); return; }
+        if (price && cents > price) { osay(OERR.above_price); return; }
+        const btn = $('offerSubmit') as HTMLButtonElement; btn.disabled = true; osay('');
+        try {
+          const { data, error } = await sb().rpc('make_offer', { p_listing_id: listingId, p_amount_cents: cents, p_name: name, p_contact: contact, p_note: note || null });
+          if (error) throw error;
+          if (data?.ok) {
+            try { localStorage.setItem('cardshowHoldContact', JSON.stringify({ name, contact })); } catch {}
+            f.hidden = true;
+            if (data.status === 'accepted') {
+              showMine(data.reservation_id, data.hold_expires_at, data.agreed_cents);
+              say(`Accepted! The card is on hold for you at ${dollars(data.agreed_cents)}. The dealer has been told and will contact you.`);
+              notifyOffer(data.offer_id);
+            } else if (data.status === 'declined') {
+              showOffer({ status: 'declined', amount_cents: cents, decided_by: 'auto' });
+            } else {
+              showOffer({ id: data.offer_id, status: 'pending', amount_cents: cents, expires_at: data.expires_at, history: [{ by: 'buyer', cents }] });
+              osay('Offer sent. The dealer has been told.');
+              notifyOffer(data.offer_id);
+            }
+          } else {
+            osay(OERR[data?.error] || 'Couldn’t send your offer. Try again.');
+            if (data?.error === 'already_open') { f.hidden = true; loadOffer(); }
+          }
+        } catch { osay('Couldn’t send your offer. Check your connection and try again.'); }
+        finally { btn.disabled = false; }
+      });
+      const answer = async (action: string, cents?: number) => {
+        if (!offer?.id) return;
+        const { data, error } = await sb().rpc('buyer_respond_offer', { p_offer_id: offer.id, p_action: action, p_counter_cents: cents ?? null });
+        if (error) { osay('Couldn’t send that. Check your connection and try again.'); return; }
+        if (data?.error) { osay(OERR[data.error] || 'Couldn’t send that. Try again.'); if (data.error === 'expired') loadOffer(); return; }
+        notifyOffer(offer.id);
+        if (action === 'accept' && data.status === 'accepted') {
+          showMine(data.reservation_id, data.hold_expires_at, data.agreed_cents);
+          osay(''); say(`Done. The card is on hold for you at ${dollars(data.agreed_cents)}. The dealer has been told.`);
+        } else if (action === 'decline') { showOffer({ ...offer, status: 'declined', decided_by: 'buyer' }); osay('Counter declined. The card stays on sale.'); }
+        else { await loadOffer(); osay('Counter sent. The dealer has been told.'); }
+      };
+      $('offerAccept').addEventListener('click', () => { if (offer && confirm(`Accept ${dollars(offer.amount_cents)}? The card is held for you for 24 hours and you pay the dealer when you meet.`)) answer('accept'); });
+      $('offerDecline').addEventListener('click', () => { if (confirm('Decline the dealer’s counter?')) answer('decline'); });
+      $('offerCounterBtn').addEventListener('click', () => { $('offerAnswer').hidden = true; $('offerCounterForm').hidden = false; osay('');
+        ($('offerCounterForm').elements.namedItem('amount') as HTMLInputElement).focus(); });
+      $('offerCounterBack').addEventListener('click', () => { $('offerCounterForm').hidden = true; $('offerAnswer').hidden = false; });
+      $('offerCounterForm').addEventListener('submit', async (e: Event) => {
+        e.preventDefault();
+        const cents = toCents(($('offerCounterForm').elements.namedItem('amount') as HTMLInputElement).value);
+        if (!(cents >= 100)) { osay(OERR.bad_amount); return; }
+        const btn = $('offerCounterSend') as HTMLButtonElement; btn.disabled = true;
+        try { await answer('counter', cents); } finally { btn.disabled = false; }
+      });
+      $('offerWithdraw').addEventListener('click', async () => {
+        if (!offer?.id || !confirm('Withdraw your offer?')) return;
+        const { data, error } = await sb().rpc('withdraw_offer', { p_offer_id: offer.id });
+        if (error || data?.error) { osay('Couldn’t withdraw. Try again.'); return; }
+        showOfferStart(); osay('Offer withdrawn.');
+      });
+      const loadOffer = async () => {
+        const user = await currentUser();
+        if (!user) { if (new URLSearchParams(location.search).get('offer') === '1') openOfferForm(); return; }
+        try {
+          const { data } = await sb().rpc('my_offers');
+          const mine = (Array.isArray(data) ? data : []).filter((o: any) => o.listing_id === listingId)
+            .sort((a: any, b: any) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
+          if (mine && ['pending', 'countered', 'declined', 'expired'].includes(mine.status)) { showOffer(mine); return; }
+        } catch {}
+        if (new URLSearchParams(location.search).get('offer') === '1') openOfferForm();
+      };
+      loadOffer();
+    }
   }
 
   // Ask for a fresh market value when someone looks at an active card (never waits; the pricing job

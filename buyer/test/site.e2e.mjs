@@ -288,6 +288,72 @@ try {
   check('a sold card has no hold box', (await page.locator('#holdBox').count()) === 0);
   await page.goto(BASE + '/account'); await page.click('#signOut'); await wait(300);
 
+  // ── offers ──
+  const onotes = [];
+  await page.route('**/.netlify/functions/offer-notify-now', r => { onotes.push(JSON.parse(r.request().postData() || '{}')); r.fulfill({ body: '{}' }); });
+  await page.goto(BASE + CHAR_URL);
+  check('offer: Make an offer shown on an active card that takes offers', await page.isVisible('#offerBtn'));
+  await page.click('#offerBtn');
+  await page.waitForURL(/\/account\?next=/);
+  await page.fill('#authForm [name=email]', 'buyer@example.test'); await page.fill('#authForm [name=password]', 'password123');
+  await page.click('#authSubmit');
+  await page.waitForURL(/offer=1/);
+  await page.waitForSelector('#offerForm:not([hidden])');
+  check('offer: after sign-in, back on the card with the offer form open and contact prefilled',
+    (await page.inputValue('#offerForm [name=contact]')) === 'buyer@example.test' && (await page.inputValue('#offerForm [name=name]')) === 'Alex P');
+  await page.fill('#offerForm [name=amount]', '20,000');
+  await page.click('#offerSubmit');
+  check('offer: above the asking price stopped on the page', /more than the asking price/.test(await page.textContent('#offerMsg')) && mock.state.offerCalls.filter(c => c.name === 'make_offer').length === 0,
+    JSON.stringify({ msg: await page.textContent('#offerMsg'), calls: mock.state.offerCalls }));
+  await page.fill('#offerForm [name=amount]', '$15,000');
+  await page.click('#offerSubmit');
+  await page.waitForSelector('#offerMine:not([hidden])'); await wait(300);
+  check('offer: sent in cents; shown as waiting for the dealer; dealer emailed at once',
+    mock.state.offerCalls.find(c => c.name === 'make_offer')?.p_amount_cents === 1500000 && /Your offer: \$15,000/.test(await page.textContent('#offerHead'))
+    && /Waiting for the dealer/.test(await page.textContent('#offerSub')) && onotes[0]?.offer_id === mock.state.offers[0].id
+    && await page.isHidden('#offerStart') && await page.isVisible('#holdBtn'),
+    JSON.stringify({ calls: mock.state.offerCalls, head: await page.textContent('#offerHead'), sub: await page.textContent('#offerSub'), onotes }));
+  await page.goto(BASE + '/account'); await page.waitForSelector('#offers .hold-row');
+  check('account: your offers lists it as waiting', /waiting for the dealer/.test(await page.textContent('#offers')));
+  await page.click('#offers [data-act=withdraw]'); await wait(400);
+  check('account: withdraw an offer', mock.state.offers[0].status === 'withdrawn' && /You withdrew it/.test(await page.textContent('#offers')));
+  await page.goto(BASE + CHAR_URL); await page.waitForSelector('#offerBtn');
+  await page.click('#offerBtn'); await page.waitForSelector('#offerForm:not([hidden])');
+  await page.fill('#offerForm [name=amount]', '15000'); await page.click('#offerSubmit');
+  await page.waitForSelector('#offerMine:not([hidden])');
+  const o2 = mock.state.offers[1];
+  Object.assign(o2, { status: 'countered', amount_cents: 1700000, last_by: 'dealer', moves: 2, history: [...o2.history, { by: 'dealer', cents: 1700000 }] });
+  await page.goto(BASE + CHAR_URL); await page.waitForSelector('#offerAnswer:not([hidden])');
+  check('offer: dealer counter shown with Accept / Counter / Decline and your offer',
+    /countered at \$17,000/.test(await page.textContent('#offerHead')) && /You offered \$15,000/.test(await page.textContent('#offerSub'))
+    && (await page.textContent('#offerAccept')) === 'Accept $17,000' && await page.isVisible('#offerCounterBtn'));
+  await page.click('#offerCounterBtn'); await page.fill('#offerCounterForm [name=amount]', '18000');
+  await page.click('#offerCounterSend'); await wait(300);
+  check('offer: counter above the dealer\'s is refused', /less than the dealer/.test(await page.textContent('#offerMsg')));
+  await page.fill('#offerCounterForm [name=amount]', '16000'); await page.click('#offerCounterSend');
+  await page.waitForFunction(() => /Your offer: \$16,000/.test(document.getElementById('offerHead')?.textContent || ''));
+  check('offer: counter sent; back to waiting; dealer emailed', o2.amount_cents === 1600000 && o2.status === 'pending' && onotes.some(n => n.offer_id === o2.id));
+  Object.assign(o2, { status: 'countered', amount_cents: 1650000, last_by: 'dealer', moves: 3, history: [...o2.history, { by: 'dealer', cents: 1650000 }] });
+  await page.goto(BASE + CHAR_URL); await page.waitForSelector('#offerAnswer:not([hidden])');
+  check('offer: no counter button on the last move', await page.isHidden('#offerCounterBtn'));
+  await page.click('#offerAccept');
+  await page.waitForSelector('#holdMine:not([hidden])');
+  check('offer: accepting makes it a hold for you at the agreed price', /agreed price of \$16,500/.test(await page.textContent('#holdMine'))
+    && await page.isHidden('#offerBox') && /on hold for you at \$16,500/.test(await page.textContent('#holdMsg')));
+  check('offer: no sideways scroll', await noSideScroll());
+  await page.goto(BASE + CHAR_URL); await page.waitForSelector('#holdMine:not([hidden])');
+  check('offer: reopening shows the hold at the agreed price', /agreed price of \$16,500/.test(await page.textContent('#holdMine')));
+  await page.goto(BASE + '/account'); await page.waitForSelector('#offers .hold-row');
+  check('account: accepted offer and the hold with its price', /Accepted · now a hold/.test(await page.textContent('#offers'))
+    && /agreed \$16,500/.test(await page.textContent('#holds')));
+  await page.click('#holds .hold-row:not(.ended) [data-act=cancel]'); await page.waitForFunction(() => !document.querySelector('#holds .hold-row:not(.ended)'));
+  check('account: an offer hold can be cancelled like any hold', mock.state.holds.at(-1).status === 'released');
+  await page.goto(BASE + '/c/22222222-2222-4222-8222-222222222222-2024-prizm-jayden-daniels-silver');
+  check('offer: no offer box on a card that takes no offers', (await page.locator('#offerBox').count()) === 0 && await page.isVisible('#holdBtn'));
+  await page.goto(BASE + '/c/33333333-3333-4333-8333-333333333333-wemby-prizm-bgs-9-5');
+  check('offer: no offer box on a held card', (await page.locator('#offerBox').count()) === 0);
+  await page.goto(BASE + '/account'); await page.click('#signOut'); await wait(300);
+
   // ── search down ──
   mock.state.failSearch = true;
   res = await page.goto(BASE + '/search?q=down');

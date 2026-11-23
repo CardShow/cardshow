@@ -105,6 +105,10 @@ netlify/lib/hold-notices.js       → Hold emails through Loops (dealer: new hol
 netlify/functions/hold-notify-now.js → POST {reservation_id} with a session (buyer or dealer of that hold): sends its due emails now
 js/marketplace-holds.js           → Dealer side of holds: strip above the inventory, Holds panel (Release / Sold to them), Sell Drawer holder tick — loaded after js/marketplace-dealer.js
 supabase/migrations/20261207120000_marketplace_holds.sql → place_hold/cancel_hold/release_hold/complete_hold, my_holds/dealer_holds, hold emails; buyers can no longer call reserve_listings directly
+supabase/migrations/20261208120000_marketplace_offers.sql → offers + offer_events, make_offer/respond_offer/buyer_respond_offer/withdraw_offer, my_offers/dealer_offers, expire_offers, offer emails; an accepted offer becomes a hold (reason offer_accepted, agreed_cents) — see "Offers"
+js/marketplace-offers.js          → Dealer side of offers: strip above the inventory, Offers panel (Accept / Counter / Decline) — loaded after js/marketplace-holds.js
+netlify/lib/offer-notices.js      → Offer emails through Loops, reusing the two hold emails
+netlify/functions/offer-notify-now.js → POST {offer_id} with a session (buyer or dealer of that offer): sends its due emails now
 supabase/migrations/20261130120000_marketplace_pricing_search.sql → Marketplace Phase 1: card_values / pricing_cards / pricing_api_usage, search_listings(), get_listing(), list_upcoming_shows(), saved_searches, agent_actions, rate limits — see "Phase 1: pricing, search, MCP"
 netlify/lib/card-values.js        → Card pricing service: Card Hedge match + all-grade values, daily budget (stop at 90%, alert at 80%)
 netlify/functions/refresh-card-values.js → Scheduled (every 5 min): match new listings, refresh due card values (on-demand first); admin POST runs it once
@@ -415,6 +419,8 @@ that sends `p_reason` to `pricing_record_match`; until it runs, the pricing job'
 Then `20261206120000_marketplace_show_pages.sql` (show pages, pickup show, shipping price; see "Show pages, near a ZIP, pickup + shipping").
 Until it runs, `/s/<show>` pages 404, listing links still go to `show.html`, and pickup show / shipping save but don't show to buyers.
 Then `20261207120000_marketplace_holds.sql` (holds, see "Holds"). Until it runs, the Hold button says it couldn't hold the card and the dealer app shows no holds.
+Then `20261208120000_marketplace_offers.sql` (offers, see "Offers"). Until it runs, Make an offer says it couldn't send the offer, the dealer app
+shows no offers, and the 5-minute job logs that `expire_offers` is missing and carries on with holds.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6914,6 +6920,58 @@ dealer is told **by email and in the app**. No money on CardShow: the buyer pays
   (19 checks, iPhone 13 + Pixel 7), 10 hold checks in `buyer/test/site.e2e.mjs`.
 - **Not built:** extending a hold; Show Mode "sold to the holder" (Show Mode sales of a held card end it as sold at the
   table); holds on several cards at once (lots); a hold count for organizers; SMS.
+
+### Offers (Phase 2, step 2, session 2026-11-23)
+"Make an Offer, with accepted offers becoming holds" (Stephen, 2026-11-23). No money on CardShow: an accepted offer is a
+24-hour hold at the agreed price and the buyer pays the dealer when they meet.
+- **Migration `20261208120000_marketplace_offers.sql`** (after the holds one; re-runnable):
+  - `offers` (one row per negotiation): `amount_cents` = the amount on the table now, `offer_cents` = the buyer's first,
+    `asking_cents` = the price then, `last_by`, `moves` (1–3), `history` [{by, cents, at}], status `pending` (dealer's turn),
+    `countered` (buyer's turn), `accepted` / `declined` / `withdrawn` / `expired` / `closed`, `decided_by` (buyer / dealer /
+    auto / system), `end_reason`, `reservation_id`. One open offer per buyer per card. RLS: buyer and dealer read their own
+    rows; all writes go through the functions. `offer_events` (email queue) is service-only.
+  - `listing_reservations.agreed_cents` / `offer_id`. Settings `offer_minutes` (1440), `max_offers_per_day` (30).
+  - `make_offer(listing, amount_cents, name, contact, note)`: card active, unflagged, not early access, not the buyer's
+    own, `accepts_offers` not false, priced; amount ≥ $1 and ≤ the price. The card's settings answer at once:
+    ≥ `auto_accept_cents` (or the full price) → accepted; < `min_offer_cents` → declined (`decided_by 'auto'`,
+    `below_minimum`, no email).
+  - `respond_offer(offer, accept|decline|counter, cents)` (dealer, on `pending`) and `buyer_respond_offer(...)` (buyer, on
+    `countered`). Dealer counter: more than the offer, less than the current price. Buyer counter: more than their last
+    offer, less than the dealer's counter. Three moves max, then accept or decline. Each move resets the 24 hours.
+    `withdraw_offer(offer)` (buyer). Errors: `not_your_turn`, `expired`, `bad_counter` (with min/max), `no_more_counters`,
+    `unavailable`.
+  - **Accept** (`_offer_accept`): locks the card; if it's no longer active the offer closes (`unavailable`). Else a hold
+    (`listing_reservations`, reason `offer_accepted`, `hold_minutes` long) with the buyer's name/contact/note,
+    `agreed_cents`, and `placed_notice_at` already set (the hold emails never announce it; the offer email does). Other open
+    offers on the card close (`other_offer_accepted`, those buyers emailed).
+  - From there it is an ordinary hold: `cancel_hold` / `release_hold` / `complete_hold`, `my_holds` / `dealer_holds`, the
+    hold emails and `hold_party` accept reason `offer_accepted` (bodies copied from the holds migration) and return
+    `agreed_cents` / `from_offer`. A table sale to anyone else breaks it like any hold.
+  - `my_offers()` (buyer, 30 days, card as on the listing page), `dealer_offers()` (open + ended in 3 days, buyer contact,
+    card with code / asking / comp). An open offer past its time reads `expired` before the sweep.
+  - `expire_offers()` (service role): unanswered offers → `expired` (the side that made the last move is emailed); open
+    offers on cards now sold / held / delisted → `closed` (buyer emailed unless the card is held for them). Run every
+    5 minutes by `expire-listing-reservations.js` after the hold sweep.
+  - Emails: `offer_notices_due(limit, offer)` / `offer_notice_sent(event)` / `offer_party()` (service role).
+- **Emails** (`netlify/lib/offer-notices.js`): reuse "Hold - Dealer" / "Hold - Buyer" (all text in the variables; no new
+  Loops templates or env vars). Dealer: new offer, buyer countered, accepted / auto-accepted (with hold end and contact),
+  buyer declined your counter, your counter ran out. Buyer: dealer countered, accepted (on hold at $X until …), declined,
+  ran out, card no longer available. Sent at once by `offer-notify-now` (after each move) and by the 5-minute job.
+- **Buyer site** (listing page, under Hold this card): **Make an offer** on active cards whose `accepts_offers` isn't false
+  (signed out → `/account?next=<listing>?offer=1`): amount + name / contact / note. States: waiting for the dealer
+  (Withdraw); dealer countered (Accept $X / Counter / Decline; no Counter on the last move); declined; ran out. Accepting
+  (or an auto-accept) shows "On hold for you · at your agreed price of $X". `/account` → **Your offers** (status, answer
+  link, Withdraw); Your holds shows the agreed price.
+- **Dealer app** (`js/marketplace-offers.js`, behind the marketplace switch): strip "N offers to answer · N waiting on the
+  buyer", toast per new offer / buyer counter, **Offers** panel: offer, % of asking, the moves so far, card code / asking /
+  comp, contact links, note, **Accept $X** / **Counter** (inline, checked on the page) / **Decline**; waiting on the buyer;
+  ended in 3 days. The Holds panel says "From an offer: agreed $X", and "Sold to them" fills that price into the Sell
+  Drawer. Polls every 2 min.
+- **Tests:** `marketplace-offers.test.sh` (43 SQL checks; the holds suite still passes 27/27 with this migration loaded),
+  `offer-notices.test.mjs` (12), `marketplace-offers.e2e.mjs` (18, iPhone 13 + Pixel 7), 18 offer checks in
+  `buyer/test/site.e2e.mjs` (iPhone 13 + Desktop Chrome).
+- **Not built:** offers on lots / several cards, shorter answer times while the dealer is at a show, offers from Show Mode,
+  counter-price suggestions.
 
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only

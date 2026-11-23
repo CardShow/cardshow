@@ -2633,6 +2633,14 @@
   .mh-section { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0.9rem 0 0.4rem; }
   .mh-empty { color: var(--muted); font-size: 0.86rem; }
   .mh-help { font-size: 0.75rem; color: var(--muted); margin-top: 0.8rem; }
+  /* ── Marketplace offers (js/marketplace-offers.js) ── */
+  .mo-line { font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0; overflow-wrap: anywhere; }
+  .mo-counter { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end; margin-top: 0.5rem; }
+  .mo-counter-label { display: flex; flex-direction: column; gap: 0.25rem; flex: 1 1 12rem; font-size: 0.78rem; color: var(--muted); }
+  .mo-counter input { min-height: 44px; padding: 0 0.6rem; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; }
+  .mo-counter .btn { min-height: 44px; }
+  .mo-err { flex-basis: 100%; font-size: 0.8rem; color: var(--danger, #ef4444); }
+  .mo-err:empty { display: none; }
   .sd-hold { background: var(--surface); border: 1px dashed var(--accent); border-radius: 10px; padding: 0.6rem 0.75rem; }
   .sd-hold-check { display: flex; gap: 0.55rem; align-items: center; font-size: 0.86rem; color: var(--text); cursor: pointer; min-height: 40px; }
   .sd-hold-check input { width: 20px; height: 20px; accent-color: var(--accent); flex-shrink: 0; }
@@ -6148,6 +6156,8 @@
 
         <!-- Marketplace holds (js/marketplace-holds.js): buyers asking the seller to set cards aside. -->
         <div id="mhStrip" class="mh-strip" role="status" style="display:none"></div>
+        <!-- Marketplace offers (js/marketplace-offers.js): buyers offering less than the asking price. -->
+        <div id="moStrip" class="mh-strip" role="status" style="display:none"></div>
 
         <div class="toolbar">
           <h2 id="inventoryTitle">Inventory</h2>
@@ -8148,7 +8158,8 @@
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261122a"></script>
 <script src="/js/marketplace-dealer.js?v=20261123h"></script>
-<script src="/js/marketplace-holds.js?v=20261123h"></script>
+<script src="/js/marketplace-holds.js?v=20261208a"></script>
+<script src="/js/marketplace-offers.js?v=20261208a"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
 <script>
 // ── STATE ──
@@ -14291,6 +14302,7 @@ function loginAsSeller(handle, opts) {
   if (assignCodesBtn) assignCodesBtn.style.display = '';
   if (typeof mkUpdateEntry === 'function') mkUpdateEntry('inventory');
   if (typeof mhStart === 'function') mhStart();   // marketplace holds: strip + polling
+  if (typeof moStart === 'function') moStart();   // marketplace offers: strip + polling
   const baselineBtn = document.getElementById('baselineBtn');
   if (baselineBtn) baselineBtn.style.display = '';
   const exportInvWrap = document.getElementById('exportInventoryWrap');
@@ -14575,6 +14587,7 @@ async function signOut() {
   _obStateLoaded = false; _obStateSync = false;
   if (currentRole === 'seller') smClearOfflineCache(currentSeller);   // don't leave a seller's cards on a shared phone
   if (typeof mhReset === 'function') mhReset();
+  if (typeof moReset === 'function') moReset();
   const conflictEl = document.getElementById('smConflictOverlay'); if (conflictEl) { conflictEl.remove(); _smConflict = null; }
   await db.auth.signOut().catch(() => {});
   currentRole          = null;
