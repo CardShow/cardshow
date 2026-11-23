@@ -7,7 +7,10 @@ const { l } = Astro.props;
 const img = imageFor(l, { supabaseUrl: env.supabaseUrl(), siteUrl: env.siteUrl(), thumb: 480, cdn: env.imageCdn() });
 const pct = l.comp ? pctLabel(l.pct_of_comp) : '';
 const show = l.show;
+// "+ Bundle" (several cards from one dealer, one offer; see BundleBar.astro and /bundle): active cards that take offers.
+const bundleable = l.listing_status === 'active' && l.accepts_offers !== false && !!l.dealer?.handle && l.price_cents > 0;
 ---
+<div class="tile-cell">
 <a class="tile" href={l.url} data-listing={l.id}>
   <div class={img?.kind === 'catalog' ? 'tile-img is-catalog' : 'tile-img'}>
     {img ? <img src={img.url} alt={l.title} loading="lazy" decoding="async" /> : <span class="ph">CardShow</span>}
@@ -28,3 +31,48 @@ const show = l.show;
     {show && <div class="tile-where">{show.name}{show.start_date ? ` · ${dateRange(show.start_date, show.end_date)}` : ''}{l.miles != null ? ` · ${l.miles} mi` : place(show) ? ` · ${place(show)}` : ''}</div>}
   </div>
 </a>
+{bundleable && (
+  <button type="button" class="tile-bundle" aria-pressed="false" data-id={l.id} data-title={l.title} data-price={l.price_cents}
+          data-url={l.url} data-dealer={l.dealer.handle} data-dealer-name={l.dealer.display_name || l.dealer.handle}
+          aria-label={`Add ${l.title} to a bundle offer`}>+ Bundle</button>
+)}
+</div>
+
+<script>
+  import { getBundle, addToBundle, dropFromBundle, inBundle, BUNDLE_MAX } from '../lib/browser.js';
+  // One listener for every tile on the page (Astro includes this script once).
+  const say = (text: string) => window.dispatchEvent(new CustomEvent('cardshow-bundle-msg', { detail: text }));
+  const sync = () => document.querySelectorAll<HTMLButtonElement>('.tile-bundle').forEach(b => {
+    const on = inBundle(b.dataset.id!);
+    b.setAttribute('aria-pressed', String(on));
+    b.textContent = on ? '✓ In bundle' : '+ Bundle';
+    b.setAttribute('aria-label', `${on ? 'Take' : 'Add'} ${b.dataset.title} ${on ? 'out of' : 'to'} your bundle offer`);
+  });
+  if (!(window as any).__csTileBundle) {
+    (window as any).__csTileBundle = true;
+    document.addEventListener('click', e => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.tile-bundle');
+      if (!b) return;
+      e.preventDefault();
+      const id = b.dataset.id!;
+      if (inBundle(id)) { dropFromBundle(id); say('Taken out of your bundle.'); return; }
+      const dealer = { handle: b.dataset.dealer!, name: b.dataset.dealerName || b.dataset.dealer! };
+      const item = { id, title: b.dataset.title || 'Card', price_cents: Number(b.dataset.price || 0), url: b.dataset.url };
+      let r = addToBundle(dealer, item);
+      if (r === 'other_dealer') {
+        // A bundle is always one dealer's cards: offer to start over with this dealer instead of mixing.
+        const other = getBundle()?.dealer?.name || 'another dealer';
+        if (!confirm(`Your bundle has cards from ${other}. A bundle can only hold one dealer's cards. Start a new bundle from ${dealer.name} with this card?`)) {
+          say(`Not added: your bundle is from ${other}.`); return;
+        }
+        r = addToBundle(dealer, item, { replace: true });
+      }
+      if (r === 'full') { say(`A bundle can have up to ${BUNDLE_MAX} cards.`); return; }
+      const n = getBundle()?.items.length || 1;
+      say(n === 1 ? `Added. Add more of ${dealer.name}’s cards, then make one offer for all of them.` : `Added. ${n} cards in your bundle.`);
+    });
+    window.addEventListener('cardshow-bundle', sync);
+    window.addEventListener('storage', sync);
+  }
+  sync();
+</script>

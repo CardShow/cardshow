@@ -262,6 +262,43 @@
           data = { ok: true };
         }
       }
+    } else if (name === 'dealer_offers' || name === 'respond_offer') {
+      // Enough of 20261208120000_marketplace_offers.sql. __moMissing simulates the migration not run.
+      if (window.__moMissing) return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + name } });
+      S.offers = S.offers || [];
+      const cardOf = id => { const r = S.inventory.find(x => x.id === id) || {};
+        return { id, title: r.card_title, stock_code: r.stock_code, price_cents: Math.round(Number(r.price || 0) * 100), status: r.status, listing_status: r.listing_status }; };
+      if (name === 'dealer_offers') {
+        data = S.offers.filter(o => o.dealer_id === UID).map(o => { const ids = o.listing_ids || [o.listing_id];
+          return { ...o, listing_ids: ids, card_count: ids.length, can_counter: o.moves < 3, card: cardOf(ids[0]), cards: ids.map(cardOf) }; });
+      } else {
+        const o = S.offers.find(x => x.id === a.p_offer_id && x.dealer_id === UID);
+        const ids = o ? (o.listing_ids || [o.listing_id]) : [];
+        const rs = ids.map(id => S.inventory.find(x => x.id === id)).filter(Boolean);
+        const r = rs[0];
+        if (!o) data = { error: 'not_found' };
+        else if (o.status !== 'pending') data = { error: 'not_your_turn' };
+        else if (a.p_action === 'accept') {
+          if (rs.some(x => x.listing_status !== 'active' || x.status === 'Sold')) { o.status = 'closed'; data = { error: 'unavailable' }; }
+          else {
+            S.holds = S.holds || [];
+            const h = { id: 'ho' + S.holds.length, dealer_id: UID, buyer_name: o.buyer_name, buyer_contact: o.buyer_contact, status: 'active',
+              expires_at: new Date(Date.now() + 864e5).toISOString(), listing_ids: ids, agreed_cents: o.amount_cents, from_offer: true };
+            S.holds.push(h); rs.forEach(x => { x.listing_status = 'reserved'; x.reservation_id = h.id; });
+            Object.assign(o, { status: 'accepted', decided_by: 'dealer', reservation_id: h.id });
+            S.offers.filter(x => x !== o && (x.listing_ids || [x.listing_id]).some(id => ids.includes(id)) && ['pending', 'countered'].includes(x.status))
+              .forEach(x => Object.assign(x, { status: 'closed', end_reason: 'other_offer_accepted' }));
+            data = { ok: true, status: 'accepted', reservation_id: h.id, agreed_cents: o.amount_cents };
+          }
+        } else if (a.p_action === 'decline') { Object.assign(o, { status: 'declined', decided_by: 'dealer' }); data = { ok: true, status: 'declined' }; }
+        else if (a.p_action === 'counter') {
+          const price = rs.reduce((t, x) => t + Math.round(Number(x.price || 0) * 100), 0);
+          if (o.moves >= 3) data = { error: 'no_more_counters' };
+          else if (!(a.p_counter_cents > o.amount_cents && a.p_counter_cents < price)) data = { error: 'bad_counter' };
+          else { Object.assign(o, { status: 'countered', amount_cents: a.p_counter_cents, last_by: 'dealer', moves: o.moves + 1,
+                   history: [...o.history, { by: 'dealer', cents: a.p_counter_cents }] }); data = { ok: true, status: 'countered' }; }
+        }
+      }
     } else if (name === 'publish_listings' || name === 'delist_listings') {
       // Same checks as the SQL (20261122120000_marketplace_listings.sql). __mkMissing simulates the migration not run.
       if (window.__mkMissing) return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + name } });

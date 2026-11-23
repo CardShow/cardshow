@@ -36,6 +36,9 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
       <h2>Your holds</h2>
       <p class="muted small">Cards dealers are setting aside for you. Pay the dealer when you meet.</p>
       <div id="holds" class="saved"><p class="muted">Loading…</p></div>
+      <h2>Your offers</h2>
+      <p class="muted small">Offers you made in the last 30 days. An accepted offer becomes a hold at that price.</p>
+      <div id="offers" class="saved"><p class="muted">Loading…</p></div>
       <h2>Saved searches</h2>
       <p class="muted small">We email you when new cards match, at most once an hour per search.</p>
       <div id="saved" class="saved"><p class="muted">Loading…</p></div>
@@ -62,6 +65,7 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
   .hold-row a.name { color: var(--text); overflow-wrap: anywhere; font-weight: 600; }
   .hold-row .st { font-size: 13px; }
   .hold-row .st.on { color: var(--good); }
+  .hold-row .st.turn { color: var(--accent); font-weight: 600; }
   .hold-row .acts { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 14px; }
   .hold-row .acts a { color: var(--accent); }
 </style>
@@ -98,6 +102,7 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
     }
     loadSaved();
     loadHolds();
+    loadOffers();
   }
 
   const ENDED: Record<string, string> = {
@@ -123,7 +128,7 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
       return `<div class="hold-row${on ? '' : ' ended'}" data-id="${esc(h.id)}">
         <a class="name" href="${esc(c.url || '#')}">${esc(c.title || 'Card')}${esc(more)}</a>
         <span class="muted small">${c.price_cents != null ? usd(c.price_cents) + ' · ' : ''}${esc(d.display_name || d.handle || '')}${s ? ' · ' + esc(s.name) + (s.table_number ? ' · Table ' + esc(s.table_number) : '') : ''}</span>
-        <span class="st${on ? ' on' : ''}">${on ? `On hold until ${esc(fmt(h.expires_at))}` : esc(ENDED[h.end_reason] || 'Ended')}</span>
+        <span class="st${on ? ' on' : ''}">${on ? `On hold until ${esc(fmt(h.expires_at))}${h.agreed_cents ? ` · agreed ${usd(h.agreed_cents)}` : ''}` : esc(ENDED[h.end_reason] || 'Ended')}</span>
         ${on ? `<span class="acts">${wa}${ig}<button class="linkish" type="button" data-act="cancel">Cancel hold</button></span>` : ''}
       </div>`;
     }).join('');
@@ -142,6 +147,41 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
       headers: { Authorization: `Bearer ${sess.session.access_token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ reservation_id: row.dataset.id }) }).catch(() => {});
     loadHolds();
+  });
+
+  const OFFER_END: Record<string, string> = {
+    declined: 'Declined', withdrawn: 'You withdrew it', expired: 'Ran out', closed: 'Card no longer available', accepted: 'Accepted · now a hold',
+  };
+  async function loadOffers() {
+    const box = $('offers');
+    const { data, error } = await sb().rpc('my_offers');
+    if (error) { box.innerHTML = '<p class="muted">No offers yet.</p>'; return; }
+    const rows = Array.isArray(data) ? data : [];
+    if (!rows.length) { box.innerHTML = '<p class="muted">No offers yet. Open a card and tap “Make an offer”.</p>'; return; }
+    box.innerHTML = rows.map((o: any) => {
+      const c = o.card || {};
+      const d = c.dealer || {};
+      const open = o.status === 'pending' || o.status === 'countered';
+      const st = o.status === 'pending' ? `Your offer ${usd(o.amount_cents)} · waiting for the dealer until ${esc(fmt(o.expires_at))}`
+        : o.status === 'countered' ? `The dealer countered at ${usd(o.amount_cents)} · answer by ${esc(fmt(o.expires_at))}`
+        : `${usd(o.amount_cents)} · ${esc(OFFER_END[o.status] || 'Ended')}`;
+      return `<div class="hold-row${open ? '' : ' ended'}" data-id="${esc(o.id)}">
+        <a class="name" href="${esc(c.url || '#')}">${esc(c.title || 'Card')}${(o.card_count || 1) > 1 ? ` + ${o.card_count - 1} more` : ''}</a>
+        <span class="muted small">${(o.card_count || 1) > 1 ? `Bundle of ${o.card_count} cards · ` : ''}${o.asking_cents != null ? 'Asking ' + usd(o.asking_cents) + ' · ' : ''}${esc(d.display_name || d.handle || '')}</span>
+        <span class="st${o.status === 'countered' ? ' turn' : open || o.status === 'accepted' ? ' on' : ''}">${st}</span>
+        ${open ? `<span class="acts">${o.status === 'countered' ? `<a href="${esc(c.url || '#')}">Answer the counter</a>` : ''}<button class="linkish" type="button" data-act="withdraw">Withdraw</button></span>` : ''}
+      </div>`;
+    }).join('');
+  }
+  $('offers').addEventListener('click', async e => {
+    const t = e.target as HTMLElement;
+    if (t.dataset.act !== 'withdraw') return;
+    const row = t.closest<HTMLElement>('.hold-row')!;
+    if (!confirm('Withdraw this offer?')) return;
+    const { data, error } = await sb().rpc('withdraw_offer', { p_offer_id: row.dataset.id });
+    if (error || data?.error) { msg('Couldn’t withdraw. Try again.'); return; }
+    msg('Offer withdrawn.');
+    loadOffers();
   });
 
   async function loadSaved() {

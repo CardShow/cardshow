@@ -1,0 +1,184 @@
+---
+// /bundle — one offer for several cards from one dealer (make_bundle_offer, 20261209120000). The cards are
+// collected on this device from listing pages ("Add to a bundle offer"); this page re-checks each one and
+// sends the offer. Rendered in the browser: nothing here is cached or indexed.
+import Base from '../layouts/Base.astro';
+Astro.locals.cache = 0;
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+---
+<Base title="Bundle offer" noindex>
+  <div class="bundle">
+    <h1>Bundle offer</h1>
+    <p class="muted" id="bIntro">One price for several cards from one dealer. If they accept, all the cards are held for you for 24 hours and you pay the dealer when you meet. Nothing is charged on CardShow.</p>
+    <p class="notice" id="bMsg" role="status" hidden></p>
+
+    <div id="bEmpty" hidden>
+      <p>Your bundle is empty. Open a card and tap <b>Add to a bundle offer</b>, then add more cards from the same dealer.</p>
+      <a class="btn btn-primary" href="/search">Find cards</a>
+    </div>
+
+    <section id="bBody" hidden>
+      <h2 id="bDealer"></h2>
+      <ul class="b-list" id="bList"></ul>
+      <div class="b-total"><span>Asking together</span><b id="bTotal"></b></div>
+      <p class="muted small" id="bWarn" hidden></p>
+
+      <form id="bForm" class="stack" novalidate>
+        <label class="field">Your offer for all of them ($)<input name="amount" inputmode="decimal" autocomplete="off" required /></label>
+        <label class="field">Your name<input name="name" maxlength="60" autocomplete="name" required /></label>
+        <label class="field">How the dealer can reach you<input name="contact" maxlength="120" placeholder="Phone, email or Instagram" required /></label>
+        <label class="field">Note for the dealer (optional)<textarea name="note" maxlength="300" rows="2" placeholder="When you can meet, questions…"></textarea></label>
+        <button class="btn btn-primary" type="submit" id="bSubmit">Send bundle offer</button>
+        <p class="muted small">The dealer has 24 hours to accept, decline or counter. You'll find the offer under <a href="/account">Your account</a>.</p>
+      </form>
+    </section>
+
+    <section id="bDone" hidden>
+      <a class="btn btn-primary" href="/account">See your offers</a>
+      <a class="btn" href="/search">Keep browsing</a>
+    </section>
+  </div>
+</Base>
+
+<style>
+  .bundle { max-width: 640px; margin: 20px auto 0; }
+  .bundle h2 { font-size: 18px; margin: 18px 0 8px; }
+  .bundle [hidden] { display: none !important; }
+  .b-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .b-list li { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 12px;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
+  .b-list li.gone { opacity: 0.6; border-color: var(--warn); }
+  .b-list a { color: var(--text); overflow-wrap: anywhere; font-weight: 600; }
+  .b-list .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .b-list .side { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+  .b-total { display: flex; justify-content: space-between; padding: 10px 12px; margin-top: 8px; border-top: 1px solid var(--border); }
+  .b-total b { font-size: 20px; }
+  #bForm { margin-top: 16px; }
+  #bDone { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .small { font-size: 13px; }
+</style>
+
+<script>
+  import { sb, currentUser, getBundle, dropFromBundle, emptyBundle } from '../lib/browser.js';
+  const $ = (id: string) => document.getElementById(id) as any;
+  const money = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+  const esc = (s: any) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[c]);
+  const say = (t: string) => { $('bMsg').hidden = !t; $('bMsg').textContent = t; };
+  const toCents = (v: string) => { const n = parseFloat(String(v).replace(/[$,\s]/g, '')); return Number.isFinite(n) ? Math.round(n * 100) : NaN; };
+  let live: Record<string, any> = {};   // fresh listing data by id (null = not for sale any more)
+
+  const ERR: Record<string, string> = {
+    bad_amount: 'Enter an amount of at least $1.',
+    above_price: 'That’s more than the cards’ asking prices together. Hold them instead.',
+    already_open: 'You already have an open offer on one of these cards. Withdraw it first (Your account → Your offers).',
+    offer_limit_day: 'You’ve made a lot of offers today. Try again tomorrow.',
+    unavailable: 'Some of these cards were just held or sold. They’re marked below; take them out and try again.',
+    no_offers: 'The dealer doesn’t take offers on some of these cards. They’re marked below; take them out and try again.',
+    multiple_dealers: 'A bundle has to be from one dealer.',
+    own_listing: 'These are your own cards.',
+    early_access: 'Some of these cards aren’t open for offers yet.',
+    not_found: 'Some of these cards aren’t listed any more.',
+    too_many: 'A bundle can have up to 20 cards.',
+    missing_name: 'Add your name.',
+    missing_contact: 'Add a phone number, email or Instagram so the dealer can reach you.',
+    no_listings: 'Your bundle is empty.',
+  };
+
+  // A bundle is one dealer's cards: a card whose dealer isn't the bundle's (an old saved bundle, a card that changed hands)
+  // is marked and can't be sent. The server refuses mixed dealers too (make_bundle_offer → multiple_dealers).
+  const otherDealer = (id: string) => { const l = live[id]; const b = getBundle(); return !!(l && b && l.dealer?.handle && l.dealer.handle !== b.dealer?.handle); };
+  function okCard(id: string) { const l = live[id]; return l && l.listing_status === 'active' && l.accepts_offers !== false && !otherDealer(id); }
+
+  function render(flag: string[] = []) {
+    const b = getBundle();
+    if (!b || !b.items.length) { $('bEmpty').hidden = false; $('bBody').hidden = true; return; }
+    $('bEmpty').hidden = true; $('bBody').hidden = false;
+    $('bDealer').textContent = `From ${b.dealer.name || b.dealer.handle}`;
+    $('bDealer').insertAdjacentHTML('beforeend', ` <span class="muted small">· a bundle is always one dealer’s cards</span>`);
+    $('bList').innerHTML = b.items.map((i: any) => {
+      const l = live[i.id];
+      const price = l?.price_cents ?? i.price_cents;
+      const why = otherDealer(i.id) ? `From ${l.dealer.display_name || l.dealer.handle}, not ${b.dealer.name || b.dealer.handle}: a bundle is one dealer’s cards`
+        : l === null || (l && l.listing_status !== 'active') ? 'No longer for sale'
+        : l && l.accepts_offers === false ? 'The dealer doesn’t take offers on this card'
+        : flag.includes(i.id) ? 'Not available' : '';
+      return `<li class="${why ? 'gone' : ''}" data-id="${esc(i.id)}"><span class="meta"><a href="${esc(i.url || '#')}">${esc(l?.title || i.title)}</a>
+        ${why ? `<span class="muted small">${esc(why)}</span>` : ''}</span>
+        <span class="side"><span>${money(price || 0)}</span><button class="linkish" type="button" data-act="drop">Take out</button></span></li>`;
+    }).join('');
+    const ok = b.items.filter((i: any) => okCard(i.id));
+    $('bTotal').textContent = money(ok.reduce((s: number, i: any) => s + (live[i.id]?.price_cents ?? i.price_cents ?? 0), 0));
+    const bad = b.items.length - ok.length;
+    $('bWarn').hidden = !bad && ok.length > 1;
+    $('bWarn').textContent = bad ? `Take out the ${bad === 1 ? 'card' : `${bad} cards`} that can’t be offered on before sending.`
+      : ok.length < 2 ? 'Add at least one more card from this dealer, or make an offer on the card itself.' : '';
+    ($('bSubmit') as HTMLButtonElement).disabled = bad > 0 || ok.length < 2;
+  }
+
+  $('bList').addEventListener('click', (e: Event) => {
+    const t = e.target as HTMLElement;
+    if (t.dataset.act !== 'drop') return;
+    dropFromBundle(t.closest<HTMLElement>('li')!.dataset.id!);
+    say(''); render();
+  });
+
+  $('bForm').addEventListener('submit', async (e: Event) => {
+    e.preventDefault();
+    const b = getBundle(); if (!b) return;
+    const user = await currentUser();
+    if (!user) { location.href = `/account?next=${encodeURIComponent('/bundle')}`; return; }
+    const f = e.target as HTMLFormElement;
+    const v = (n: string) => ((f.elements.namedItem(n) as HTMLInputElement).value || '').trim();
+    const cents = toCents(v('amount'));
+    if (!(cents >= 100)) { say(ERR.bad_amount); return; }
+    const total = b.items.reduce((s: number, i: any) => s + (live[i.id]?.price_cents ?? i.price_cents ?? 0), 0);
+    if (cents > total) { say(ERR.above_price); return; }
+    if (!v('name')) { say(ERR.missing_name); return; }
+    if (v('contact').length < 3) { say(ERR.missing_contact); return; }
+    const btn = $('bSubmit') as HTMLButtonElement; btn.disabled = true; say('');
+    try {
+      const { data, error } = await sb().rpc('make_bundle_offer', { p_listing_ids: b.items.map((i: any) => i.id), p_amount_cents: cents,
+        p_name: v('name'), p_contact: v('contact'), p_note: v('note') || null });
+      if (error) throw error;
+      if (data?.ok) {
+        try { localStorage.setItem('cardshowHoldContact', JSON.stringify({ name: v('name'), contact: v('contact') })); } catch {}
+        if (data.status !== 'declined') emptyBundle();
+        $('bBody').hidden = true; $('bDone').hidden = false; $('bIntro').hidden = true;
+        say(data.status === 'accepted' ? `Accepted! All ${b.items.length} cards are on hold for you at ${money(data.agreed_cents)}. The dealer has been told and will contact you.`
+          : data.status === 'declined' ? 'The dealer doesn’t take offers that low on these cards. Try a higher amount.'
+          : 'Offer sent. The dealer has been told and has 24 hours to answer.');
+        if (data.status === 'declined') { $('bBody').hidden = false; $('bDone').hidden = true; $('bIntro').hidden = false; }
+        else {
+          const { data: s } = await sb().auth.getSession();
+          const t = s?.session?.access_token;
+          if (t) fetch('/.netlify/functions/offer-notify-now', { method: 'POST', keepalive: true,
+            headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ offer_id: data.offer_id }) }).catch(() => {});
+        }
+      } else {
+        say(ERR[data?.error] || 'Couldn’t send your offer. Try again.');
+        render([...(data?.unavailable || []), ...(data?.no_offers || [])]);
+      }
+    } catch { say('Couldn’t send your offer. Check your connection and try again.'); }
+    finally { if (!$('bBody').hidden) render(); }
+  });
+
+  (async () => {
+    render();
+    const b = getBundle();
+    if (!b) return;
+    await Promise.all(b.items.map(async (i: any) => {
+      try {
+        const { data } = await sb().rpc('get_listing', { p_id: i.id });
+        live[i.id] = data && !data.error ? data : null;
+      } catch { /* keep the saved copy */ }
+    }));
+    render();
+    const user = await currentUser();
+    if (user) {
+      const f = $('bForm') as HTMLFormElement;
+      let saved: any = {}; try { saved = JSON.parse(localStorage.getItem('cardshowHoldContact') || '{}'); } catch {}
+      (f.elements.namedItem('name') as HTMLInputElement).value ||= saved.name || '';
+      (f.elements.namedItem('contact') as HTMLInputElement).value ||= saved.contact || user.email || '';
+    }
+  })();
+</script>

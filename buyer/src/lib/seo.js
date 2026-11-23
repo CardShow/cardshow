@@ -4,7 +4,7 @@
 // sitemap is advertised; the main site's own pages (landing page, show.html, privacy) stay crawlable as before.
 
 // Never useful to a search engine, before or after launch.
-const PRIVATE = ['/app', '/app.html', '/account', '/.netlify/', '/mcp', '/trade-board', '/seller-browse'];
+const PRIVATE = ['/app', '/app.html', '/account', '/bundle', '/.netlify/', '/mcp', '/trade-board', '/seller-browse'];
 const MARKETPLACE = ['/search', '/shows', '/c/', '/d/', '/s/'];
 
 export function buildRobots({ indexing, site }) {

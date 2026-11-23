@@ -76,6 +76,7 @@ function mkUpdateEntry(tab) {
     : !document.getElementById('sellerTabInventory') || document.getElementById('sellerTabInventory').classList.contains('active');
   btn.style.display = (mkEnabled() && currentRole === 'seller' && onInventory) ? '' : 'none';
   if (typeof _mhRenderStrip === 'function') _mhRenderStrip(onInventory ? 'inventory' : (tab || 'other'));
+  if (typeof _moRenderStrip === 'function') _moRenderStrip(onInventory ? 'inventory' : (tab || 'other'));
 }
 
 // ── Defaults for cards listed from the panel (per seller, on this device) ──

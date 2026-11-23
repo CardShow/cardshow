@@ -2,6 +2,7 @@
 // /d/<handle> — a dealer's storefront: every card they have listed.
 import Base from '../../layouts/Base.astro';
 import ListingTile from '../../components/ListingTile.astro';
+import BundleBar from '../../components/BundleBar.astro';
 import { rpc } from '../../lib/api.js';
 import { PAGE_SIZE, SORTS, CATEGORIES, fromQuery } from '../../lib/search.js';
 
@@ -90,6 +91,7 @@ const href = (n: number) => qs({ page: n });
           {page < pages ? <a class="btn" href={href(page + 1)} rel="next">Next →</a> : <span />}
         </nav>
       )}
+      <BundleBar dealer={store.handle} />
     </>
   )}
 </Base>
