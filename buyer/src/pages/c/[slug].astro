@@ -3,6 +3,7 @@
 // AI assistants. Active, on-hold and sold cards open (a shared link keeps working); anything else is a 404.
 // Until checkout exists (Phase 2), buyers contact the dealer or find them at their show table.
 import Base from '../../layouts/Base.astro';
+import BundleBar from '../../components/BundleBar.astro';
 import { rpc } from '../../lib/api.js';
 import { env } from '../../lib/env.js';
 import { money, gradeLabel, pctLabel, imageFor, dateRange, place, timeAgo } from '../../lib/format.js';
@@ -148,10 +149,13 @@ const jsonLd = found ? {
               </form>
               <p class="notice small" id="holdMsg" role="status" hidden></p>
               {status === 'active' && l.accepts_offers !== false && (
-                <div class="offer" id="offerBox" data-price={l.price_cents}>
-                  <div id="offerStart">
+                <div class="offer" id="offerBox" data-price={l.price_cents} data-dealer={dealer?.handle}
+                     data-dealer-name={dealer?.display_name || dealer?.handle} data-title={l.title}>
+                  <div id="offerStart" class="hold-actions">
                     <button class="btn" type="button" id="offerBtn">Make an offer</button>
+                    {dealer?.handle && <button class="btn" type="button" id="bundleBtn" aria-pressed="false">Add to a bundle offer</button>}
                   </div>
+                  {dealer?.handle && <p class="muted small" id="bundleHint">Buying more than one card from {dealer.display_name || dealer.handle}? Add them to a bundle and offer one price for all.</p>}
                   <div id="offerMine" class="offer-mine" hidden>
                     <b id="offerHead"></b>
                     <span id="offerSub" class="muted small"></span>
@@ -201,6 +205,7 @@ const jsonLd = found ? {
             {!waUrl && !igUrl && !show && <p class="muted small">This dealer hasn’t added contact details yet. See their other cards below.</p>}
           </section>
         )}
+        {status === 'active' && l.accepts_offers !== false && dealer?.handle && <BundleBar dealer={dealer.handle} />}
 
         <dl class="details">
           {details.map(([k, v]) => <><dt>{k}</dt><dd>{v}</dd></>)}
@@ -261,7 +266,9 @@ const jsonLd = found ? {
   .offer [hidden] { display: none !important; }
   .offer-mine { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
   .offer-mine.is-turn { border-color: var(--accent); }
-  #offerBtn { align-self: flex-start; }
+  #offerStart { flex-wrap: wrap; }
+  #bundleHint { margin: 0; }
+  #bundleBtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
   @media (max-width: 760px) {
     .hold-actions .btn, #holdBtn, #offerBtn { flex: 1 1 100%; width: 100%; }
     .listing { grid-template-columns: minmax(0, 1fr); gap: 16px; }
@@ -271,7 +278,7 @@ const jsonLd = found ? {
 </style>
 
 <script>
-  import { sb, currentUser } from '../../lib/browser.js';
+  import { sb, currentUser, getBundle, addToBundle, dropFromBundle, inBundle, BUNDLE_MAX } from '../../lib/browser.js';
 
   // ── Holds: the dealer sets the card aside for 24 hours; the buyer pays them when they meet. ──
   const box = document.getElementById('holdBox') as HTMLElement | null;
@@ -418,19 +425,22 @@ const jsonLd = found ? {
         $('offerWithdraw').hidden = !open;
         $('offerCounterBtn').hidden = !o.can_counter;
         const by = o.expires_at ? `Answer by ${until(o.expires_at)}.` : '';
+        const n = o.card_count || (o.listing_ids || []).length || 1;
+        const forN = n > 1 ? ` for ${n} cards` : '';
+        $('offerHead').dataset.bundle = n > 1 ? '1' : '';
         if (o.status === 'pending') {
-          $('offerHead').textContent = `Your offer: ${dollars(o.amount_cents)}`;
+          $('offerHead').textContent = `Your offer${n > 1 ? ' on a bundle' : ''}: ${dollars(o.amount_cents)}${forN}`;
           $('offerSub').textContent = `Waiting for the dealer. They have until ${until(o.expires_at)} to answer.`;
         } else if (o.status === 'countered') {
-          $('offerHead').textContent = `The dealer countered at ${dollars(o.amount_cents)}`;
+          $('offerHead').textContent = `The dealer countered at ${dollars(o.amount_cents)}${forN}`;
           const mine = (o.history || []).filter((h: any) => h.by === 'buyer').pop();
           $('offerSub').textContent = `${mine ? `You offered ${dollars(mine.cents)}. ` : ''}${by}`;
           $('offerAccept').textContent = `Accept ${dollars(o.amount_cents)}`;
         } else if (o.status === 'declined') {
-          $('offerHead').textContent = `Your offer of ${dollars(o.amount_cents)} was declined`;
+          $('offerHead').textContent = `Your offer of ${dollars(o.amount_cents)}${forN} was declined`;
           $('offerSub').textContent = o.decided_by === 'auto' ? 'The dealer doesn’t take offers that low on this card.' : 'You can make another offer.';
         } else if (o.status === 'expired') {
-          $('offerHead').textContent = `Your offer of ${dollars(o.amount_cents)} ran out`;
+          $('offerHead').textContent = `Your offer of ${dollars(o.amount_cents)}${forN} ran out`;
           $('offerSub').textContent = 'You can make another offer.';
         } else { showOfferStart(); }
       };
@@ -492,7 +502,10 @@ const jsonLd = found ? {
         } else if (action === 'decline') { showOffer({ ...offer, status: 'declined', decided_by: 'buyer' }); osay('Counter declined. The card stays on sale.'); }
         else { await loadOffer(); osay('Counter sent. The dealer has been told.'); }
       };
-      $('offerAccept').addEventListener('click', () => { if (offer && confirm(`Accept ${dollars(offer.amount_cents)}? The card is held for you for 24 hours and you pay the dealer when you meet.`)) answer('accept'); });
+      $('offerAccept').addEventListener('click', () => {
+        const n = offer?.card_count || 1;
+        if (offer && confirm(`Accept ${dollars(offer.amount_cents)}? ${n > 1 ? `All ${n} cards are` : 'The card is'} held for you for 24 hours and you pay the dealer when you meet.`)) answer('accept');
+      });
       $('offerDecline').addEventListener('click', () => { if (confirm('Decline the dealer’s counter?')) answer('decline'); });
       $('offerCounterBtn').addEventListener('click', () => { $('offerAnswer').hidden = true; $('offerCounterForm').hidden = false; osay('');
         ($('offerCounterForm').elements.namedItem('amount') as HTMLInputElement).focus(); });
@@ -515,13 +528,35 @@ const jsonLd = found ? {
         if (!user) { if (new URLSearchParams(location.search).get('offer') === '1') openOfferForm(); return; }
         try {
           const { data } = await sb().rpc('my_offers');
-          const mine = (Array.isArray(data) ? data : []).filter((o: any) => o.listing_id === listingId)
+          const mine = (Array.isArray(data) ? data : []).filter((o: any) => (o.listing_ids || [o.listing_id]).includes(listingId))
             .sort((a: any, b: any) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
           if (mine && ['pending', 'countered', 'declined', 'expired'].includes(mine.status)) { showOffer(mine); return; }
         } catch {}
         if (new URLSearchParams(location.search).get('offer') === '1') openOfferForm();
       };
       loadOffer();
+
+      // ── Bundle: collect cards from this dealer, offer one price on /bundle ──
+      const bb = document.getElementById('bundleBtn') as HTMLButtonElement | null;
+      if (bb) {
+        const dealer = { handle: ob.dataset.dealer!, name: ob.dataset.dealerName || ob.dataset.dealer! };
+        const item = { id: listingId, title: ob.dataset.title || 'Card', price_cents: price, url: box.dataset.url };
+        const sync = () => { const on = inBundle(listingId); bb.textContent = on ? 'In your bundle ✓ (tap to take out)' : 'Add to a bundle offer'; bb.setAttribute('aria-pressed', String(on)); };
+        sync();
+        window.addEventListener('cardshow-bundle', sync);
+        bb.addEventListener('click', () => {
+          if (inBundle(listingId)) { dropFromBundle(listingId); osay('Taken out of your bundle.'); return; }
+          let r = addToBundle(dealer, item);
+          if (r === 'other_dealer') {
+            const other = getBundle()?.dealer?.name || 'another dealer';
+            if (!confirm(`Your bundle has cards from ${other}. A bundle is from one dealer. Start a new bundle with this card?`)) return;
+            r = addToBundle(dealer, item, { replace: true });
+          }
+          if (r === 'full') { osay(`A bundle can have up to ${BUNDLE_MAX} cards.`); return; }
+          const n = getBundle()?.items.length || 1;
+          osay(n === 1 ? 'Added. Add more of this dealer’s cards, then make one offer for all of them.' : `Added. ${n} cards in your bundle.`);
+        });
+      }
     }
   }
 

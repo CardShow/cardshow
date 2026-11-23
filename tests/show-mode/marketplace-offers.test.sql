@@ -35,6 +35,8 @@ alter table shows add column if not exists slug text, add column if not exists w
 \i ../../supabase/migrations/20261207120000_marketplace_holds.sql
 \i ../../supabase/migrations/20261208120000_marketplace_offers.sql
 \i ../../supabase/migrations/20261208120000_marketplace_offers.sql
+\i ../../supabase/migrations/20261209120000_marketplace_bundle_offers.sql
+\i ../../supabase/migrations/20261209120000_marketplace_bundle_offers.sql
 grant all on all tables in schema public to service_role;
 grant select on all tables in schema public to anon, authenticated;
 grant insert, update, delete on inventory to authenticated;

@@ -166,8 +166,8 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
         : o.status === 'countered' ? `The dealer countered at ${usd(o.amount_cents)} · answer by ${esc(fmt(o.expires_at))}`
         : `${usd(o.amount_cents)} · ${esc(OFFER_END[o.status] || 'Ended')}`;
       return `<div class="hold-row${open ? '' : ' ended'}" data-id="${esc(o.id)}">
-        <a class="name" href="${esc(c.url || '#')}">${esc(c.title || 'Card')}</a>
-        <span class="muted small">${o.asking_cents != null ? 'Asking ' + usd(o.asking_cents) + ' · ' : ''}${esc(d.display_name || d.handle || '')}</span>
+        <a class="name" href="${esc(c.url || '#')}">${esc(c.title || 'Card')}${(o.card_count || 1) > 1 ? ` + ${o.card_count - 1} more` : ''}</a>
+        <span class="muted small">${(o.card_count || 1) > 1 ? `Bundle of ${o.card_count} cards · ` : ''}${o.asking_cents != null ? 'Asking ' + usd(o.asking_cents) + ' · ' : ''}${esc(d.display_name || d.handle || '')}</span>
         <span class="st${o.status === 'countered' ? ' turn' : open || o.status === 'accepted' ? ' on' : ''}">${st}</span>
         ${open ? `<span class="acts">${o.status === 'countered' ? `<a href="${esc(c.url || '#')}">Answer the counter</a>` : ''}<button class="linkish" type="button" data-act="withdraw">Withdraw</button></span>` : ''}
       </div>`;

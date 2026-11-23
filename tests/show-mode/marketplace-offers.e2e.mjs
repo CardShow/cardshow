@@ -104,7 +104,45 @@ await page.click('.pay-opt >> nth=0'); await page.evaluate(() => sdConfirm()); a
 S = await srv();
 check('sale at the agreed price: hold bought, card sold for $100', S.holds.find(h => h.agreed_cents === 10000).status === 'converted'
   && Number(S.inventory.find(r => r.id === 'c1').sold_price) === 100);
-check('strip: no offers to answer, one waiting on the buyer', /^💬 1 waiting on the buyer/.test((await page.textContent('#moStrip')).trim()));
+check('strip: no offers to answer, one waiting on the buyer', /^💬 1 waiting on the buyer/.test((await page.textContent('#moStrip')).trim()), await page.textContent('#moStrip'));
+
+// bundle offer: two cards, one price
+await page.evaluate(inH20 => { const S = window.__srv;
+  S.inventory.find(r => r.id === 'c2').listing_status = 'active'; S.inventory.find(r => r.id === 'c2').reservation_id = null;
+  S.inventory.push({ id: 'c5', seller_id: 'u1', card_title: '2023 Prizm Victor Wembanyama', price: 60, status: 'Available', listing_status: 'active', stock_code: 'R-9' });
+  S.offers = S.offers.filter(o => o.id !== 'o3');
+  S.offers.push({ id: 'ob', dealer_id: 'u1', listing_id: 'c2', listing_ids: ['c2', 'c5'], buyer_name: 'Bo', buyer_contact: 'bo@example.test', status: 'pending',
+    amount_cents: 8000, offer_cents: 8000, last_by: 'buyer', moves: 1, history: [{ by: 'buyer', cents: 8000 }], expires_at: inH20 });
+  localStorage.setItem('__srv', JSON.stringify(S)); }, inH(20));
+await page.evaluate(() => fetchSellerInventoryFromDB(currentSeller).then(() => { renderSellerTable(getSellerInventory()); return moLoad({ quiet: true }); })); await wait(800);
+await page.evaluate(() => openOffersPanel()); await wait(400);
+const bp = await page.textContent('[data-offer="ob"]');
+check('bundle: both cards listed with the total asking and % of it', /Bundle · 2 cards/.test(bp) && /Elly De La Cruz/.test(bp) && /Wembanyama/.test(bp)
+  && /Asking together\s*\$100/.test(bp) && /80% of your price/.test(bp), bp);
+await page.click('[data-offer="ob"] button:has-text("Counter")');
+await page.fill('#moCounter_ob input', '100'); await page.click('#moCounter_ob button[type=submit]'); await wait(300);
+check('bundle counter: must be under the total', /less than \$100/.test(await page.textContent('#moCounter_ob .mo-err')));
+await page.evaluate(() => { const S = window.__srv; S.offers.find(o => o.id === 'ob').moves = 1; localStorage.setItem('__srv', JSON.stringify(S)); });
+await page.click('[data-offer="ob"] button:has-text("Accept")'); await wait(900);
+S = await srv();
+const bh = S.holds.find(h => h.agreed_cents === 8000);
+check('bundle accept: one hold over both cards at $80', bh && bh.listing_ids.length === 2 && ['c2', 'c5'].every(id => S.inventory.find(r => r.id === id).listing_status === 'reserved'),
+  JSON.stringify(bh));
+await page.evaluate(() => closeOffersPanel());
+await page.evaluate(() => mhLoad({ quiet: true })); await wait(400);
+await page.evaluate(() => openHoldsPanel()); await wait(300);
+await page.click(`[data-hold="${bh.id}"] .btn-primary`); await wait(400);
+const prices = await page.$$eval('#mhSaleOverlay input[data-i]', els => els.map(e => e.value));
+check('Sold to them on a bundle: sale dialog, $80 split by asking ($40 + $60 → $32 + $48)', await page.isVisible('#mhSaleOverlay.open')
+  && JSON.stringify(prices) === '["32.00","48.00"]' && /\$80/.test(await page.textContent('#mhSaleTotal')), JSON.stringify(prices));
+await page.click('#mhSaleBtn'); await wait(200);
+check('bundle sale: payment required', /how they paid/.test(await page.textContent('#mhSaleErr')));
+await page.click('#mhSaleOverlay .mh-pay:has-text("Venmo")'); await page.click('#mhSaleBtn'); await wait(1500);
+S = await srv();
+check('bundle sale: hold bought, both cards sold at their split, Venmo', S.holds.find(h => h.id === bh.id).status === 'converted'
+  && Number(S.inventory.find(r => r.id === 'c2').sold_price) === 32 && Number(S.inventory.find(r => r.id === 'c5').sold_price) === 48
+  && S.inventory.find(r => r.id === 'c5').payment_method === 'Venmo' && /Sold 2 cards to Bo/.test(await page.textContent('#toast')),
+  JSON.stringify(S.inventory.filter(r => ['c2','c5'].includes(r.id))));
 
 // before the migration
 await page.evaluate(() => { window.__moMissing = true; moReset(); moStart(); }); await wait(400);

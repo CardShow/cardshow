@@ -109,6 +109,7 @@ supabase/migrations/20261208120000_marketplace_offers.sql → offers + offer_eve
 js/marketplace-offers.js          → Dealer side of offers: strip above the inventory, Offers panel (Accept / Counter / Decline) — loaded after js/marketplace-holds.js
 netlify/lib/offer-notices.js      → Offer emails through Loops, reusing the two hold emails
 netlify/functions/offer-notify-now.js → POST {offer_id} with a session (buyer or dealer of that offer): sends its due emails now
+supabase/migrations/20261209120000_marketplace_bundle_offers.sql → offers on 2–20 cards from one dealer for one price (offers.listing_ids, make_bundle_offer); accepted → one hold over every card — see "Bundle offers"
 supabase/migrations/20261130120000_marketplace_pricing_search.sql → Marketplace Phase 1: card_values / pricing_cards / pricing_api_usage, search_listings(), get_listing(), list_upcoming_shows(), saved_searches, agent_actions, rate limits — see "Phase 1: pricing, search, MCP"
 netlify/lib/card-values.js        → Card pricing service: Card Hedge match + all-grade values, daily budget (stop at 90%, alert at 80%)
 netlify/functions/refresh-card-values.js → Scheduled (every 5 min): match new listings, refresh due card values (on-demand first); admin POST runs it once
@@ -421,6 +422,9 @@ Until it runs, `/s/<show>` pages 404, listing links still go to `show.html`, and
 Then `20261207120000_marketplace_holds.sql` (holds, see "Holds"). Until it runs, the Hold button says it couldn't hold the card and the dealer app shows no holds.
 Then `20261208120000_marketplace_offers.sql` (offers, see "Offers"). Until it runs, Make an offer says it couldn't send the offer, the dealer app
 shows no offers, and the 5-minute job logs that `expire_offers` is missing and carries on with holds.
+Then `20261209120000_marketplace_bundle_offers.sql` (bundle offers, see "Bundle offers"). Until it runs, the bundle page says it couldn't send the
+offer; one-card offers keep working. **Don't re-run 20261208 after it** (that puts back the one-card functions, and their inserts fail on
+`listing_ids`); if you do, run 20261209 again.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -6970,8 +6974,51 @@ dealer is told **by email and in the app**. No money on CardShow: the buyer pays
 - **Tests:** `marketplace-offers.test.sh` (43 SQL checks; the holds suite still passes 27/27 with this migration loaded),
   `offer-notices.test.mjs` (12), `marketplace-offers.e2e.mjs` (18, iPhone 13 + Pixel 7), 18 offer checks in
   `buyer/test/site.e2e.mjs` (iPhone 13 + Desktop Chrome).
-- **Not built:** offers on lots / several cards, shorter answer times while the dealer is at a show, offers from Show Mode,
-  counter-price suggestions.
+- **Not built:** shorter answer times while the dealer is at a show, offers from Show Mode, counter-price suggestions.
+  Several cards at once: see "Bundle offers".
+
+### Bundle offers (Phase 2, step 3, session 2026-11-23)
+"Offers on lots and several cards at once" (Stephen, 2026-11-23). A lot listed as one card (`item_type 'lot'`) already takes
+offers like any card; this adds one offer covering **2–20 cards from one dealer** for one price.
+- **Migration `20261209120000_marketplace_bundle_offers.sql`** (after the offers one; re-runnable):
+  - `offers.listing_ids uuid[]` (every card, in the buyer's order; `listing_id` stays the first, checked). Existing rows get
+    `{listing_id}`. The one-card unique index is replaced by a GIN index; `make_bundle_offer` refuses a second open offer by
+    the same buyer that **shares any card** (`already_open`). Setting `max_cards_per_offer` (20).
+  - `make_bundle_offer(ids[], amount_cents, name, contact, note)`: distinct ids, all found, **one dealer** (`multiple_dealers`),
+    not own, all active and unflagged (`unavailable` + the ids), all taking offers and priced (`no_offers` + the ids), none
+    early access, amount ≤ the total asking. `asking_cents` = the total. The cards' settings added up: auto-accept when the
+    amount reaches the total, or the sum of auto-accept prices when **every** card has one; auto-decline under the sum of the
+    lowest-offer prices. `make_offer(id, …)` now just calls it with one id.
+  - Counters, turns, the 3-move limit and 24 hours are unchanged; the dealer's counter must be under the cards' current total.
+  - Accept (`_offer_accept`): every card must still be active, else the offer closes. **One hold** (`listing_reservations`)
+    over all the cards at the agreed total; other open offers sharing any card close (`_offer_close_cards`).
+  - `expire_offers()`: closes an open offer when **any** of its cards is sold / held by someone else / taken down (buyer
+    emailed unless every such card is held for them).
+  - `_offer_json` adds `listing_ids`, `card_count`; `my_offers()` / `dealer_offers()` add `cards` (all, in order; `card` is the
+    first); `offer_notices_due()` adds `cards` and `card_count`.
+- **Emails:** "Alex offered $200 for Charizard … and 2 more cards", card list with each price plus "3 cards, asking $X together".
+- **Buyer site:**
+  - Listing page: **Add to a bundle offer** next to Make an offer (active cards taking offers). The bundle lives on the device
+    (`cardshowBundle` in localStorage, `getBundle` / `addToBundle` / `dropFromBundle` / `emptyBundle` in `src/lib/browser.js`),
+    one dealer at a time (a card from another dealer asks to start a new bundle), max 20. `BundleBar.astro` ("Bundle: 3 cards
+    from Dealer · asking $X · Make a bundle offer") on that dealer's listing pages and storefront.
+  - **`/bundle`** (`src/pages/bundle.astro`, proxied by `_redirects`, closed in robots.txt, not cached): re-reads every card
+    (`get_listing`), marks ones no longer for sale or not taking offers, Take out, total, amount + name / contact / note,
+    sign-in redirect back to `/bundle`, `make_bundle_offer`. Sending needs 2+ cards that can all be offered on. Sent / accepted
+    clears the bundle; an automatic decline keeps it to try a higher amount.
+  - A card's page shows the bundle offer it's in ("Your offer on a bundle: $800 for 2 cards", same answer buttons).
+    `/account` → Your offers: "Charizard + 2 more · Bundle of 3 cards".
+- **Dealer app:** Offers panel lists every card ("Bundle · 3 cards", each price, "Asking together", % of the total); counter
+  checked against the total. A hold from a bundle shows all its cards; **Sold to them** opens a bundle sale dialog
+  (`_mhOpenBundleSale()` in `js/marketplace-holds.js`): the agreed total split by asking price (`mhSplitCents()`, whole cents,
+  leftover to the priciest card), each line editable, payment (Cash / Venmo / Zelle / PayPal / Square / Other). **Record sale**
+  ends the hold as bought (`complete_hold`) first, then records each card like a Sell Drawer sale (`_mhRecordSale()`:
+  inventory, show ledger via `recordShowTransaction`, private cost copy).
+- **Tests:** `marketplace-bundle-offers.test.sh` (25 SQL checks; `marketplace-offers.test.sh` now also loads this migration,
+  43/43), `offer-notices.test.mjs` (+2), `marketplace-offers.e2e.mjs` (+6: bundle display, counter limit, accept → one hold,
+  split + bundle sale), 13 bundle checks in `buyer/test/site.e2e.mjs` (iPhone 13 + Desktop Chrome).
+- **Not built:** bundle buttons on search / storefront tiles (add from the card page); a bundle across dealers; Show Mode
+  "sold to the holder" for bundles.
 
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only

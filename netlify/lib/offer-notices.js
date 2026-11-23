@@ -12,13 +12,18 @@ const money = c => (c == null ? '' : `$${(c / 100).toLocaleString('en-US', { min
 
 // → { templateEnv, vars } or null when there's nothing to say.
 function compose(n) {
-  const card = n.card || {};
-  const title = card.title || 'your card';
+  const card = n.card || n.cards?.[0] || {};
+  const cards = n.cards?.length ? n.cards : [card];
+  const count = n.card_count || cards.length;
+  // A bundle (several cards for one price) reads as "Charizard and 2 more cards".
+  const title = count > 1 ? `${card.title || 'a card'} and ${count - 1} more ${count === 2 ? 'card' : 'cards'}` : (card.title || 'your card');
   const dealer = n.dealer?.display_name || n.dealer?.handle || 'The dealer';
   const buyer = n.buyer_name || 'A buyer';
   const amount = money(n.amount_cents);
   const asking = money(n.asking_cents ?? card.price_cents);
-  const cardList = `${card.stock_code ? card.stock_code + ' · ' : ''}${title} · asking ${asking}`;
+  const line = c => `${c.stock_code ? c.stock_code + ' · ' : ''}${c.title} · ${money(c.price_cents)}`;
+  const cardList = count > 1 ? `${cards.map(line).join('\n')}\n${count} cards, asking ${asking} together`
+                             : `${card.stock_code ? card.stock_code + ' · ' : ''}${card.title || 'your card'} · asking ${asking}`;
   const listingUrl = card.url ? SITE() + card.url : `${SITE()}/search`;
   const answerBy = whenText(n.expires_at);
   const holdEnds = whenText(n.hold_expires_at);

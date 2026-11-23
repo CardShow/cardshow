@@ -10,6 +10,7 @@
 /d/*         https://cardshow-buyer.netlify.app/d/:splat    200
 /s/*         https://cardshow-buyer.netlify.app/s/:splat    200
 /shows       https://cardshow-buyer.netlify.app/shows       200
+/bundle      https://cardshow-buyer.netlify.app/bundle      200
 /_astro/*    https://cardshow-buyer.netlify.app/_astro/:splat  200
 # robots.txt and sitemap.xml for the whole domain are made by the buyer site (noindex/closed until
 # BUYER_SITE_INDEXING=true there). Cloudflare adds its own content-signals comment block on top.

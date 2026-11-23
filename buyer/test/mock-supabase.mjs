@@ -130,7 +130,7 @@ export async function start({ port = 0 } = {}) {
         return send(200, { ok: true, reservation_id: h.id, expires_at: h.expires_at });
       }
       // offers (enough of 20261208120000_marketplace_offers.sql; tests move the dealer's side by editing state.offers)
-      if (['make_offer', 'my_offers', 'buyer_respond_offer', 'withdraw_offer'].includes(name)) {
+      if (['make_offer', 'make_bundle_offer', 'my_offers', 'buyer_respond_offer', 'withdraw_offer'].includes(name)) {
         if (!/tok-buyer/.test(req.headers.authorization || '')) return send(401, { message: 'JWT required' });
         state.offerCalls.push({ name, ...j });
         const full = l => { const { _whatsapp, _instagram, ...rest } = l;
@@ -142,7 +142,29 @@ export async function start({ port = 0 } = {}) {
           Object.assign(o, { status: 'accepted', updated_at: iso(Date.now()), hold: { id: h.id, status: 'active', expires_at: h.expires_at } });
           return { ok: true, status: 'accepted', offer_id: o.id, reservation_id: h.id, hold_expires_at: h.expires_at, agreed_cents: o.amount_cents };
         };
-        if (name === 'my_offers') return send(200, state.offers.map(o => ({ ...o, can_counter: o.moves < 3, card: full(all.find(x => x.id === o.listing_id)) })));
+        if (name === 'my_offers') return send(200, state.offers.map(o => { const ids = o.listing_ids || [o.listing_id];
+          return { ...o, listing_ids: ids, card_count: ids.length, can_counter: o.moves < 3,
+                   card: full(all.find(x => x.id === ids[0])), cards: ids.map(id => full(all.find(x => x.id === id))) }; }));
+        if (name === 'make_bundle_offer') {
+          const ids = [...new Set(j.p_listing_ids || [])];
+          const ls = ids.map(id => all.find(x => x.id === id));
+          if (ls.some(x => !x)) return send(200, { error: 'not_found' });
+          if (new Set(ls.map(x => x.dealer.handle)).size > 1) return send(200, { error: 'multiple_dealers' });
+          const bad = ls.filter(x => x.listing_status !== 'active').map(x => x.id);
+          if (bad.length) return send(200, { error: 'unavailable', unavailable: bad });
+          const noff = ls.filter(x => x.accepts_offers === false).map(x => x.id);
+          if (noff.length) return send(200, { error: 'no_offers', no_offers: noff });
+          const total = ls.reduce((t, x) => t + x.price_cents, 0);
+          if (!(j.p_amount_cents >= 100)) return send(200, { error: 'bad_amount' });
+          if (j.p_amount_cents > total) return send(200, { error: 'above_price', price_cents: total });
+          const open = state.offers.find(x => ['pending', 'countered'].includes(x.status) && (x.listing_ids || [x.listing_id]).some(id => ids.includes(id)));
+          if (open) return send(200, { error: 'already_open', offer_id: open.id });
+          const n = { id: `0f000000-0000-4000-8000-0000000000${10 + state.offers.length}`, listing_id: ids[0], listing_ids: ids, status: 'pending',
+            amount_cents: j.p_amount_cents, offer_cents: j.p_amount_cents, asking_cents: total, last_by: 'buyer', moves: 1,
+            history: [{ by: 'buyer', cents: j.p_amount_cents }], expires_at: iso(Date.now() + day), created_at: iso(Date.now()), updated_at: iso(Date.now()), buyer_name: j.p_name };
+          state.offers.push(n);
+          return send(200, { ok: true, status: 'pending', offer_id: n.id, expires_at: n.expires_at });
+        }
         const o = state.offers.find(x => x.id === j.p_offer_id);
         if (name === 'withdraw_offer') { if (!o) return send(200, { error: 'not_found' }); o.status = 'withdrawn'; return send(200, { ok: true, status: 'withdrawn' }); }
         if (name === 'buyer_respond_offer') {
@@ -209,5 +231,5 @@ export async function start({ port = 0 } = {}) {
   });
   await new Promise(r => server.listen(port, '127.0.0.1', r));
   const url = `http://127.0.0.1:${server.address().port}`;
-  return { url, state, close: () => new Promise(r => server.close(r)) };
+  return { url, state, all, close: () => new Promise(r => server.close(r)) };
 }

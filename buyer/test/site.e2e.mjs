@@ -354,6 +354,61 @@ try {
   check('offer: no offer box on a held card', (await page.locator('#offerBox').count()) === 0);
   await page.goto(BASE + '/account'); await page.click('#signOut'); await wait(300);
 
+  // ── bundle offers: several cards from one dealer, one price ──
+  const JAY = '22222222-2222-4222-8222-222222222222', WEM = '33333333-3333-4333-8333-333333333333';
+  const JAY_URL = '/c/22222222-2222-4222-8222-222222222222-2024-prizm-jayden-daniels-silver';
+  const WEM_URL = '/c/33333333-3333-4333-8333-333333333333-wemby-prizm-bgs-9-5';
+  const jay = mock.all.find(x => x.id === JAY), wem = mock.all.find(x => x.id === WEM);
+  jay.accepts_offers = true; wem.listing_status = 'active';
+  await page.goto(BASE + '/account'); await page.waitForSelector('#authForm');
+  await page.fill('#authForm [name=email]', 'buyer@example.test'); await page.fill('#authForm [name=password]', 'password123');
+  await page.click('#authSubmit'); await page.waitForSelector('#signedIn:not([hidden])');
+  await page.goto(BASE + CHAR_URL); await page.waitForSelector('#bundleBtn');
+  await page.click('#bundleBtn'); await wait(200);
+  check('bundle: add a card; the bar shows the bundle from this dealer', /Bundle: 1 card from Dealer A · asking \$18,000/.test(await page.textContent('#bundleBar'))
+    && (await page.textContent('#bundleBtn')).includes('In your bundle'));
+  await page.goto(BASE + JAY_URL); await page.waitForSelector('#bundleBtn');
+  check('bundle: another dealer\'s card shows no bar for the first dealer\'s bundle', await page.isHidden('#bundleBar'));
+  await page.click('#bundleBtn'); await wait(200);   // confirm "start a new bundle" (dialogs are accepted)
+  await page.goto(BASE + WEM_URL); await page.waitForSelector('#bundleBtn');
+  await page.click('#bundleBtn'); await wait(200);
+  check('bundle: a second card from the same dealer; total asking', /Bundle: 2 cards from Dealer B · asking \$945/.test(await page.textContent('#bundleBar')),
+    await page.textContent('#bundleBar'));
+  await page.goto(BASE + '/d/dealer_b'); await wait(300);
+  check('bundle: the bar shows on the dealer\'s storefront too', /2 cards from Dealer B/.test(await page.textContent('#bundleBar')));
+  await page.click('#bundleBar a'); await page.waitForURL(/\/bundle$/);
+  await page.waitForFunction(() => document.querySelectorAll('#bList li').length === 2);
+  check('bundle page: both cards, the total, name and contact prefilled', /\$945/.test(await page.textContent('#bTotal'))
+    && (await page.inputValue('#bForm [name=contact]')) === 'buyer@example.test' && (await page.inputValue('#bForm [name=name]')) === 'Alex P');
+  await page.fill('#bForm [name=amount]', '1,000'); await page.click('#bSubmit'); await wait(200);
+  check('bundle page: above the total stopped on the page', /more than the cards/.test(await page.textContent('#bMsg'))
+    && !mock.state.offerCalls.some(c => c.name === 'make_bundle_offer'));
+  await page.fill('#bForm [name=amount]', '800'); await page.click('#bSubmit');
+  await page.waitForSelector('#bDone:not([hidden])'); await wait(300);
+  const bcall = mock.state.offerCalls.find(c => c.name === 'make_bundle_offer');
+  check('bundle page: one offer for both cards in cents; dealer emailed; bundle cleared',
+    JSON.stringify(bcall?.p_listing_ids) === JSON.stringify([JAY, WEM]) && bcall.p_amount_cents === 80000
+    && /Offer sent/.test(await page.textContent('#bMsg')) && onotes.some(n => n.offer_id === mock.state.offers.at(-1).id)
+    && (await page.evaluate(() => localStorage.getItem('cardshowBundle'))) === null, JSON.stringify(bcall));
+  await page.goto(BASE + WEM_URL); await page.waitForSelector('#offerMine:not([hidden])');
+  check('listing page: shows the bundle offer the card is in', /Your offer on a bundle: \$800 for 2 cards/.test(await page.textContent('#offerHead')));
+  await page.goto(BASE + '/account'); await page.waitForSelector('#offers .hold-row');
+  check('account: the bundle offer, "+ 1 more", bundle of 2', /\+ 1 more/.test(await page.textContent('#offers')) && /Bundle of 2 cards/.test(await page.textContent('#offers')));
+  check('bundle: no sideways scroll on the account page', await noSideScroll());
+  // a card in a saved bundle that's no longer for sale is marked and blocks sending
+  wem.listing_status = 'reserved';
+  await page.evaluate(([a, b]) => localStorage.setItem('cardshowBundle', JSON.stringify({ dealer: { handle: 'dealer_b', name: 'Dealer B' },
+    items: [{ id: a, title: 'JD', price_cents: 4500, url: '/c/' + a }, { id: b, title: 'Wemby', price_cents: 90000, url: '/c/' + b }] })), [JAY, WEM]);
+  await page.goto(BASE + '/bundle'); await page.waitForFunction(() => /No longer for sale/.test(document.getElementById('bList')?.textContent || ''));
+  check('bundle page: a card no longer for sale is marked; sending is blocked until it\'s taken out', await page.isDisabled('#bSubmit')
+    && /Take out the card/.test(await page.textContent('#bWarn')));
+  await page.click('#bList li.gone [data-act=drop]'); await wait(200);
+  check('bundle page: one card left → asks for another card', await page.isDisabled('#bSubmit') && /at least one more card/.test(await page.textContent('#bWarn')));
+  check('bundle page: no sideways scroll', await noSideScroll());
+  await page.evaluate(() => localStorage.removeItem('cardshowBundle'));
+  jay.accepts_offers = false; wem.listing_status = 'reserved';
+  await page.goto(BASE + '/account'); await page.click('#signOut'); await wait(300);
+
   // ── search down ──
   mock.state.failSearch = true;
   res = await page.goto(BASE + '/search?q=down');

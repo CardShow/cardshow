@@ -269,27 +269,30 @@
       const cardOf = id => { const r = S.inventory.find(x => x.id === id) || {};
         return { id, title: r.card_title, stock_code: r.stock_code, price_cents: Math.round(Number(r.price || 0) * 100), status: r.status, listing_status: r.listing_status }; };
       if (name === 'dealer_offers') {
-        data = S.offers.filter(o => o.dealer_id === UID).map(o => ({ ...o, can_counter: o.moves < 3, card: cardOf(o.listing_id) }));
+        data = S.offers.filter(o => o.dealer_id === UID).map(o => { const ids = o.listing_ids || [o.listing_id];
+          return { ...o, listing_ids: ids, card_count: ids.length, can_counter: o.moves < 3, card: cardOf(ids[0]), cards: ids.map(cardOf) }; });
       } else {
         const o = S.offers.find(x => x.id === a.p_offer_id && x.dealer_id === UID);
-        const r = o && S.inventory.find(x => x.id === o.listing_id);
+        const ids = o ? (o.listing_ids || [o.listing_id]) : [];
+        const rs = ids.map(id => S.inventory.find(x => x.id === id)).filter(Boolean);
+        const r = rs[0];
         if (!o) data = { error: 'not_found' };
         else if (o.status !== 'pending') data = { error: 'not_your_turn' };
         else if (a.p_action === 'accept') {
-          if (r.listing_status !== 'active' || r.status === 'Sold') { o.status = 'closed'; data = { error: 'unavailable' }; }
+          if (rs.some(x => x.listing_status !== 'active' || x.status === 'Sold')) { o.status = 'closed'; data = { error: 'unavailable' }; }
           else {
             S.holds = S.holds || [];
             const h = { id: 'ho' + S.holds.length, dealer_id: UID, buyer_name: o.buyer_name, buyer_contact: o.buyer_contact, status: 'active',
-              expires_at: new Date(Date.now() + 864e5).toISOString(), listing_ids: [o.listing_id], agreed_cents: o.amount_cents, from_offer: true };
-            S.holds.push(h); r.listing_status = 'reserved'; r.reservation_id = h.id;
+              expires_at: new Date(Date.now() + 864e5).toISOString(), listing_ids: ids, agreed_cents: o.amount_cents, from_offer: true };
+            S.holds.push(h); rs.forEach(x => { x.listing_status = 'reserved'; x.reservation_id = h.id; });
             Object.assign(o, { status: 'accepted', decided_by: 'dealer', reservation_id: h.id });
-            S.offers.filter(x => x !== o && x.listing_id === o.listing_id && ['pending', 'countered'].includes(x.status))
+            S.offers.filter(x => x !== o && (x.listing_ids || [x.listing_id]).some(id => ids.includes(id)) && ['pending', 'countered'].includes(x.status))
               .forEach(x => Object.assign(x, { status: 'closed', end_reason: 'other_offer_accepted' }));
             data = { ok: true, status: 'accepted', reservation_id: h.id, agreed_cents: o.amount_cents };
           }
         } else if (a.p_action === 'decline') { Object.assign(o, { status: 'declined', decided_by: 'dealer' }); data = { ok: true, status: 'declined' }; }
         else if (a.p_action === 'counter') {
-          const price = Math.round(Number(r.price || 0) * 100);
+          const price = rs.reduce((t, x) => t + Math.round(Number(x.price || 0) * 100), 0);
           if (o.moves >= 3) data = { error: 'no_more_counters' };
           else if (!(a.p_counter_cents > o.amount_cents && a.p_counter_cents < price)) data = { error: 'bad_counter' };
           else { Object.assign(o, { status: 'countered', amount_cents: a.p_counter_cents, last_by: 'dealer', moves: o.moves + 1,

@@ -1,4 +1,5 @@
 // CardShow Marketplace — offers, dealer side (Phase 2, step 2). See CLAUDE.md "Offers".
+// An offer can cover several cards for one price (a bundle, 20261209120000): the panel lists every card and the total.
 // A buyer on the buyer site offers less than the asking price. Here the dealer sees the offers (strip above the
 // inventory table, Offers panel) and accepts, declines or counters. An accepted offer becomes a hold for that
 // buyer at the agreed price (Holds panel, "Sold to them" opens the Sell Drawer with that price filled in).
@@ -48,7 +49,7 @@ function _moToastNew() {
   try { localStorage.setItem(_moSeenKey(), JSON.stringify([...seen, ...fresh.map(key)].slice(-300))); } catch (_) {}
   const o = fresh[0];
   showToast(fresh.length === 1
-    ? `💬 ${o.buyer_name || 'A buyer'} offered ${_mkMoney(o.amount_cents)} for ${o.card?.title || 'a card'}. Tap Offers to answer.`
+    ? `💬 ${o.buyer_name || 'A buyer'} offered ${_mkMoney(o.amount_cents)} for ${moCards(o).length > 1 ? moCards(o).length + ' cards' : (o.card?.title || 'a card')}. Tap Offers to answer.`
     : `💬 ${fresh.length} offers waiting for you. Tap Offers to answer.`, '#f59e0b');
 }
 
@@ -116,12 +117,18 @@ function _moHistory(o) {
   return (o.history || []).map(h => `${h.by === 'buyer' ? 'Buyer' : 'You'} ${_mkMoney(h.cents)}`).join(' → ');
 }
 
+// Every card in the offer (a bundle has several), then the total for a bundle.
+function moCards(o) { return (o.cards && o.cards.length) ? o.cards : (o.card ? [o.card] : []); }
+function moAskingCents(o) { return moCards(o).reduce((s, c) => s + (c.price_cents || 0), 0); }
 function _moCardHTML(o) {
-  const c = o.card || {};
-  return `<div class="mh-card">${c.stock_code ? `<span class="mh-code">${_mkEsc(c.stock_code)}</span>` : ''}`
+  const cards = moCards(o);
+  const rows = cards.map(c => `<div class="mh-card">${c.stock_code ? `<span class="mh-code">${_mkEsc(c.stock_code)}</span>` : ''}`
     + `<span class="mh-title">${_mkEsc(c.title || 'Card')}</span>`
-    + `<span class="mh-price">asking ${c.price_cents != null ? _mkMoney(c.price_cents) : '—'}`
-    + `${c.comp_value_cents ? ` · comp ${_mkMoney(c.comp_value_cents)}` : ''}</span></div>`;
+    + `<span class="mh-price">${cards.length > 1 ? '' : 'asking '}${c.price_cents != null ? _mkMoney(c.price_cents) : '—'}`
+    + `${c.comp_value_cents ? ` · comp ${_mkMoney(c.comp_value_cents)}` : ''}</span></div>`).join('');
+  if (cards.length < 2) return rows;
+  return `<div class="mo-bundle">Bundle · ${cards.length} cards</div>${rows}`
+    + `<div class="mh-card mo-total"><span class="mh-title">Asking together</span><span class="mh-price">${_mkMoney(moAskingCents(o))}</span></div>`;
 }
 
 function _moRenderPanel() {
@@ -130,7 +137,8 @@ function _moRenderPanel() {
   const waiting = moWaiting(), countered = moCountered();
   const ended = _moOffers.filter(o => o.status !== 'pending' && o.status !== 'countered');
   const waitingHTML = waiting.map(o => {
-    const pct = o.card?.price_cents ? Math.round(o.amount_cents / o.card.price_cents * 100) : null;
+    const ask = moAskingCents(o);
+    const pct = ask ? Math.round(o.amount_cents / ask * 100) : null;
     return `
     <div class="mh-hold mo-offer" data-offer="${_mkEsc(o.id)}">
       <div class="mh-head"><b>${_mkEsc(o.buyer_name || 'A buyer')} offers ${_mkEsc(_mkMoney(o.amount_cents))}</b>
@@ -147,7 +155,7 @@ function _moRenderPanel() {
       ${o.can_counter ? `<form class="mo-counter" id="moCounter_${_mkEsc(o.id)}" style="display:none" onsubmit="moCounter(event, '${_mkEsc(o.id)}')">
         <label class="mo-counter-label">Your counter ($)
           <input type="text" inputmode="decimal" autocomplete="off" name="amount"
-            placeholder="Between ${_mkEsc(_mkMoney(o.amount_cents))} and ${_mkEsc(_mkMoney(o.card?.price_cents))}"></label>
+            placeholder="Between ${_mkEsc(_mkMoney(o.amount_cents))} and ${_mkEsc(_mkMoney(ask))}"></label>
         <button class="btn btn-primary" type="submit">Send counter</button>
         <div class="mo-err" role="alert"></div>
       </form>` : '<div class="mo-line">Last move: accept or decline.</div>'}
@@ -208,12 +216,14 @@ async function _moRespond(offerId, action, cents) {
 async function moAccept(offerId, btn) {
   const o = _moOffers.find(x => x.id === offerId);
   if (!o || _mkNeedSignal()) return;
-  if (!confirm(`Accept ${_mkMoney(o.amount_cents)} from ${o.buyer_name || 'this buyer'}? The card is held for them for 24 hours at that price and other offers on it close.`)) return;
+  const n = moCards(o).length;
+  if (!confirm(`Accept ${_mkMoney(o.amount_cents)} from ${o.buyer_name || 'this buyer'}${n > 1 ? ` for ${n} cards` : ''}? `
+    + `${n > 1 ? 'The cards are' : 'The card is'} held for them for 24 hours at that price and other offers on ${n > 1 ? 'them' : 'it'} close.`)) return;
   if (btn) btn.disabled = true;
   try {
     const r = await _moRespond(offerId, 'accept');
     if (r.error) { showToast(MO_ERR[r.error] || 'Couldn\'t accept. Try again.', '#f59e0b'); await moLoad({ quiet: true }); return; }
-    showToast(`Accepted. ${o.card?.title || 'The card'} is on hold for ${o.buyer_name || 'the buyer'} at ${_mkMoney(r.agreed_cents)}.`);
+    showToast(`Accepted. ${n > 1 ? `${n} cards are` : `${o.card?.title || 'The card'} is`} on hold for ${o.buyer_name || 'the buyer'} at ${_mkMoney(r.agreed_cents)}.`);
     _moNotify(offerId);
     await moLoad({ quiet: true });
     if (typeof mhLoad === 'function') mhLoad({ quiet: true });
@@ -253,8 +263,8 @@ async function moCounter(e, offerId) {
   const f = e.target;
   const err = f.querySelector('.mo-err');
   const cents = _moCents(f.querySelector('input').value);
-  const price = o?.card?.price_cents || 0;
   if (!o) return;
+  const price = moAskingCents(o);
   if (!(cents > o.amount_cents && cents < price)) {
     err.textContent = `Enter more than ${_mkMoney(o.amount_cents)} and less than ${_mkMoney(price)}.`;
     return;

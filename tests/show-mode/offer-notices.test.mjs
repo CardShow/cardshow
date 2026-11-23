@@ -49,6 +49,12 @@ check('declined / expired / closed copy', /declined \$150/.test(compose({ ...bas
   && /didn't answer your counter/.test(compose({ ...base, kind: 'expired', to: 'dealer' }).vars.headline)
   && compose({ ...base, kind: 'closed', to: 'buyer' }).vars.actionUrl.endsWith('/search'));
 
+const c2 = { id: 'a2', title: '2024 Prizm Jayden Daniels', price_cents: 4000, stock_code: 'R-4', url: '/c/a2-jd' };
+const bundle = compose({ ...base, kind: 'new', to: 'dealer', card_count: 2, cards: [card, c2], asking_cents: 22000, amount_cents: 20000 });
+check('bundle → dealer: "and 1 more card", every card listed, total asking', /offered \$200 for 1999 Pokemon .* and 1 more card$/.test(bundle.vars.headline)
+  && /S-12 · 1999 Pokemon .* · \$180\nR-4 · 2024 Prizm Jayden Daniels · \$40\n2 cards, asking \$220 together/.test(bundle.vars.cardList), JSON.stringify(bundle.vars));
+check('bundle accepted → buyer: on hold, three cards wording', /and 2 more cards is on hold for you/.test(compose({ ...rows()[2], card_count: 3, cards: [card, c2, c2] }).vars.message));
+
 delete process.env.LOOPS_API_KEY;
 let db = fakeDb(rows()), calls = [];
 let out = await runOfferNotices(db, { fetchImpl: loops(calls), log: {} });
