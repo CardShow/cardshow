@@ -2610,6 +2610,34 @@
     font-weight: 600; border-radius: 4px; padding: 0.05rem 0.3rem; margin-right: 0.4rem; vertical-align: 1px; white-space: nowrap; }
   .mk-chip--on { color: var(--black); background: var(--accent); }
   .mk-chip--hold { color: var(--accent); border: 1px dashed var(--accent); }
+  /* ── Marketplace holds (js/marketplace-holds.js) ── */
+  .mh-strip { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;
+    background: var(--surface); border: 1px dashed var(--accent); border-radius: 10px; padding: 0.55rem 0.8rem;
+    margin-bottom: 0.65rem; font-size: 0.86rem; color: var(--text); }
+  .mh-strip .btn { min-height: 40px; font-size: 0.8rem; }
+  .mh-sub { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
+  .mh-hold { border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem; margin-bottom: 0.6rem; background: var(--surface); }
+  .mh-hold.mh-ended { opacity: 0.6; }
+  .mh-head { display: flex; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; align-items: baseline; }
+  .mh-head b { color: var(--text); font-size: 0.98rem; }
+  .mh-left { font-size: 0.74rem; color: var(--accent); font-family: 'DM Mono', monospace; }
+  .mh-contact { font-size: 0.88rem; margin: 0.25rem 0; overflow-wrap: anywhere; color: var(--text); }
+  .mh-contact a { color: var(--accent); }
+  .mh-note { font-size: 0.82rem; color: var(--muted); font-style: italic; margin-bottom: 0.3rem; overflow-wrap: anywhere; }
+  .mh-card { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.84rem; color: var(--text); padding: 0.2rem 0; }
+  .mh-code { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: var(--accent); }
+  .mh-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .mh-price { white-space: nowrap; color: var(--muted); }
+  .mh-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .mh-actions .btn { min-height: 44px; flex: 1 1 auto; }
+  .mh-section { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0.9rem 0 0.4rem; }
+  .mh-empty { color: var(--muted); font-size: 0.86rem; }
+  .mh-help { font-size: 0.75rem; color: var(--muted); margin-top: 0.8rem; }
+  .sd-hold { background: var(--surface); border: 1px dashed var(--accent); border-radius: 10px; padding: 0.6rem 0.75rem; }
+  .sd-hold-check { display: flex; gap: 0.55rem; align-items: center; font-size: 0.86rem; color: var(--text); cursor: pointer; min-height: 40px; }
+  .sd-hold-check input { width: 20px; height: 20px; accent-color: var(--accent); flex-shrink: 0; }
+  .sd-hold-note { font-size: 0.74rem; color: var(--muted); }
+  .sd-hold-note:empty { display: none; }
   .mk-modal { text-align: left; }
   .mk-modal .modal-player { font-size: 1.7rem; }
   .mk-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.9rem; }
@@ -6118,6 +6146,9 @@
           <ol class="gs-list" id="gsList"></ol>
         </div>
 
+        <!-- Marketplace holds (js/marketplace-holds.js): buyers asking the seller to set cards aside. -->
+        <div id="mhStrip" class="mh-strip" role="status" style="display:none"></div>
+
         <div class="toolbar">
           <h2 id="inventoryTitle">Inventory</h2>
           <input type="text" class="search-input" id="sellerSearchInput" placeholder="Search cards…" oninput="applyInventoryFilters()">
@@ -7058,6 +7089,10 @@
             <div class="pay-opt-label">Other</div>
           </div>
         </div>
+      </div>
+      <div id="sdHoldWrap" class="sd-hold" style="display:none">
+        <label class="sd-hold-check"><input type="checkbox" id="sdHoldTo" onchange="mhSdToggle()"> <span id="sdHoldText"></span></label>
+        <div class="sd-hold-note" id="sdHoldNote"></div>
       </div>
       <div id="sdShowWrap" style="display:none">
         <div class="drawer-field-label">Show</div>
@@ -8112,7 +8147,8 @@
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261122a"></script>
-<script src="/js/marketplace-dealer.js?v=20261122c"></script>
+<script src="/js/marketplace-dealer.js?v=20261123h"></script>
+<script src="/js/marketplace-holds.js?v=20261123h"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
 <script>
 // ── STATE ──
@@ -12498,6 +12534,7 @@ function openSellDrawer(realIdx) {
   document.getElementById('sdNotes').value = '';
   document.querySelectorAll('.pay-opt').forEach(b => b.classList.remove('pay-selected'));
   _sdPopulateShowSelector(card);
+  if (typeof mhSdFill === 'function') mhSdFill(card);   // marketplace hold on this card
 
   const ask = Number(card.Price || 0);
   const prices = [ask, Math.round(ask * 0.95), Math.round(ask * 0.9)];
@@ -12631,6 +12668,7 @@ function sdConfirm() {
   // First sale at a show today: inventory snapshot, before this sale changes it.
   if (saleShowId && typeof shEnsureShowStart === 'function') shEnsureShowStart(saleShowId);
   card.Status        = 'Sold';
+  if (card.ListingStatus === 'reserved' || card.ListingStatus === 'active') card.ListingStatus = 'sold';   // as the DB trigger does
   card.SoldPrice     = price;
   card.PaymentMethod = sdSelectedPayment;
   card.SaleNotes     = document.getElementById('sdNotes').value || null;
@@ -12639,9 +12677,12 @@ function sdConfirm() {
   // One id per sale: the ledger row carries it (exactly-once), and the private
   // cost copy (transaction_costs) is keyed by it — js/cost-tracking.js.
   card._clientSaleId = costUuid();
+  // Sold to the buyer holding it on the marketplace: end the hold as bought before the sale is saved.
+  const holdId = typeof mhTakeSdHold === 'function' ? mhTakeSdHold() : null;
 
   closeSellDrawer();
-  updateCardInDB(card); // also schedules a GTCR reconcile, which removes this card's registration
+  if (holdId) mhCompleteHold(holdId).finally(() => updateCardInDB(card));
+  else updateCardInDB(card); // also schedules a GTCR reconcile, which removes this card's registration
   // A card sold at a show it isn't published to (e.g. a Scan-to-Sell card
   // when activeShowId was unset) gets its show_inventory row now, so the
   // sale also counts in organizer analytics. Duplicate-safe — see
@@ -12673,6 +12714,7 @@ function sdConfirm() {
 
 function closeSellDrawer() {
   document.getElementById('sellDrawerOverlay').classList.remove('open');
+  if (typeof mhSdClosed === 'function') mhSdClosed();
   sdActiveIdx = null;
   sdSelectedPayment = null;
 }
@@ -14248,6 +14290,7 @@ function loginAsSeller(handle, opts) {
   const assignCodesBtn = document.getElementById('assignCodesBtn');
   if (assignCodesBtn) assignCodesBtn.style.display = '';
   if (typeof mkUpdateEntry === 'function') mkUpdateEntry('inventory');
+  if (typeof mhStart === 'function') mhStart();   // marketplace holds: strip + polling
   const baselineBtn = document.getElementById('baselineBtn');
   if (baselineBtn) baselineBtn.style.display = '';
   const exportInvWrap = document.getElementById('exportInventoryWrap');
@@ -14531,6 +14574,7 @@ async function signOut() {
   if (_obStateTimer) _obSaveStateNow(); // flush a pending checklist/tips save while currentSeller is still set
   _obStateLoaded = false; _obStateSync = false;
   if (currentRole === 'seller') smClearOfflineCache(currentSeller);   // don't leave a seller's cards on a shared phone
+  if (typeof mhReset === 'function') mhReset();
   const conflictEl = document.getElementById('smConflictOverlay'); if (conflictEl) { conflictEl.remove(); _smConflict = null; }
   await db.auth.signOut().catch(() => {});
   currentRole          = null;

@@ -59,7 +59,14 @@
           }
           out.data = single ? { id: list[0].id || T[T.length-1].id } : list.map(p => ({ id: p.id }));
         }
-        else if (op === 'update') { T.filter(match).forEach(r => Object.assign(r, payload)); }
+        else if (op === 'update') { T.filter(match).forEach(r => {
+          // Like the listing sync trigger: a held card sold by any other path breaks the hold.
+          if (table === 'inventory' && payload.status === 'Sold' && r.status !== 'Sold' && r.reservation_id) {
+            const h = (S.holds || []).find(x => x.id === r.reservation_id && x.status === 'active');
+            if (h) { h.status = 'broken'; h.end_reason = 'sold_elsewhere'; }
+            r.reservation_id = null; r.listing_status = 'sold';
+          }
+          Object.assign(r, payload); }); }
         else if (op === 'delete') { S[table] = T.filter(r => !match(r)); }
         save();
         return Promise.resolve(out).then(res, rej);
@@ -235,6 +242,26 @@
         imported++;
       }
       data = { imported, duplicates: dups, created };
+    } else if (name === 'dealer_holds' || name === 'release_hold' || name === 'complete_hold') {
+      // Enough of 20261207120000_marketplace_holds.sql. __mhMissing simulates the migration not run.
+      if (window.__mhMissing) return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + name } });
+      S.holds = S.holds || [];
+      if (name === 'dealer_holds') {
+        data = S.holds.filter(h => h.dealer_id === UID).map(h => ({ ...h, cards: h.listing_ids.map(id => {
+          const r = S.inventory.find(x => x.id === id) || {};
+          return { id, title: r.card_title, stock_code: r.stock_code, price_cents: Math.round(Number(r.price || 0) * 100), status: r.status, listing_status: r.listing_status };
+        }) }));
+      } else {
+        const h = S.holds.find(x => x.id === a.p_reservation_id && x.dealer_id === UID);
+        if (!h) data = { error: 'not_found' };
+        else if (h.status !== 'active') data = { ok: true, already: true };
+        else {
+          h.status = name === 'release_hold' ? 'released' : 'converted';
+          h.end_reason = name === 'release_hold' ? 'dealer_released' : 'sold_to_holder';
+          h.listing_ids.forEach(id => { const r = S.inventory.find(x => x.id === id); if (r) { r.listing_status = 'active'; r.reservation_id = null; } });
+          data = { ok: true };
+        }
+      }
     } else if (name === 'publish_listings' || name === 'delist_listings') {
       // Same checks as the SQL (20261122120000_marketplace_listings.sql). __mkMissing simulates the migration not run.
       if (window.__mkMissing) return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + name } });

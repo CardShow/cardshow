@@ -99,7 +99,11 @@ supabase/migrations/20261125120000_show_inventory_rls.sql → show_inventory sec
 supabase/migrations/20261126120000_show_sellers_rls.sql → show_sellers security: public read, only the show's organizer adds/edits/removes sellers; sellers join/leave through the join/leave functions (see "show_sellers security")
 supabase/migrations/20261127120000_sellers_rls.sql → sellers security: own-row writes, handle locked, email unreadable by the app; deploy the app first (see "sellers security")
 supabase/migrations/20261128120000_shows_rls.sql → shows security: public read, organizers create, only the show's organizer or the platform owner edits/deletes, listing locked to the platform owner (see "shows security")
-netlify/functions/expire-listing-reservations.js → Scheduled (every 5 min): expire_listing_reservations(); no-op unless MARKETPLACE_ENABLED=true
+netlify/functions/expire-listing-reservations.js → Scheduled (every 5 min): expire_listing_reservations(), then the hold emails that are due (runs before launch too)
+netlify/lib/hold-notices.js       → Hold emails through Loops (dealer: new hold / buyer cancelled; buyer: released / expired / sold at the table) — see "Holds"
+netlify/functions/hold-notify-now.js → POST {reservation_id} with a session (buyer or dealer of that hold): sends its due emails now
+js/marketplace-holds.js           → Dealer side of holds: strip above the inventory, Holds panel (Release / Sold to them), Sell Drawer holder tick — loaded after js/marketplace-dealer.js
+supabase/migrations/20261207120000_marketplace_holds.sql → place_hold/cancel_hold/release_hold/complete_hold, my_holds/dealer_holds, hold emails; buyers can no longer call reserve_listings directly
 supabase/migrations/20261130120000_marketplace_pricing_search.sql → Marketplace Phase 1: card_values / pricing_cards / pricing_api_usage, search_listings(), get_listing(), list_upcoming_shows(), saved_searches, agent_actions, rate limits — see "Phase 1: pricing, search, MCP"
 netlify/lib/card-values.js        → Card pricing service: Card Hedge match + all-grade values, daily budget (stop at 90%, alert at 80%)
 netlify/functions/refresh-card-values.js → Scheduled (every 5 min): match new listings, refresh due card values (on-demand first); admin POST runs it once
@@ -409,6 +413,7 @@ Then `20261205120000_pricing_review.sql` (comps checked before buyers see them, 
 that sends `p_reason` to `pricing_record_match`; until it runs, the pricing job's 'review' calls fail and those cards are retried.
 Then `20261206120000_marketplace_show_pages.sql` (show pages, pickup show, shipping price; see "Show pages, near a ZIP, pickup + shipping").
 Until it runs, `/s/<show>` pages 404, listing links still go to `show.html`, and pickup show / shipping save but don't show to buyers.
+Then `20261207120000_marketplace_holds.sql` (holds, see "Holds"). Until it runs, the Hold button says it couldn't hold the card and the dealer app shows no holds.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -957,6 +962,7 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `MCP_RATE_PER_MINUTE` / `MCP_RATE_PER_DAY` | MCP tool calls allowed per client IP (defaults 60 / 2000) |
 | `LOOPS_API_KEY` | Loops API key (pricing alert + saved-search emails) |
 | `LOOPS_PRICING_ALERT_ID` / `PRICING_ALERT_EMAIL` | Loops transactional email id and recipient for the 80%-of-daily-limit pricing alert |
+| `LOOPS_HOLD_DEALER_ID` / `LOOPS_HOLD_BUYER_ID` | Loops transactional email ids for hold emails ("Hold - Dealer" `cmwss1o5t103l0j43x31gw0yp`, "Hold - Buyer" `cmwss1ovf1ng50j1znutx5yz7`, created 2026-11-23). Without them hold emails wait (nothing lost while the hold is still relevant) |
 | `LOOPS_SAVED_SEARCH_ID` | Loops transactional email id for saved-search alerts (data variables: searchName, count, firstTitle, firstPrice, firstUrl, listText, searchUrl) |
 
 ### Credential Injection (no build step workaround)
@@ -6535,7 +6541,7 @@ foreign key until those tables exist.
 |---|---|---|
 | `publish_listings(ids[])` | dealer | draft/delisted → active. Skips (with a reason) sold, reserved, `trust_flag` flagged/disputed, Needs details (`identification_status = 'unidentified'`), no price, not yours |
 | `delist_listings(ids[])` | dealer | active → delisted; skips reserved and sold |
-| `reserve_listings(ids[], buyer, reason, minutes=15, actor)` / `reserve_listing(id, …)` | buyer for themselves; service role for anyone | All cards or none: locks rows in id order, needs every card active, one dealer, not the buyer's own, not early-access (service role excepted), within the per-buyer cap (advisory lock per buyer). Hold length clamped to 1 min – 7 days. Reasons: buy_now, offer_accepted, local_pickup, lot, wholesale, checkout |
+| `reserve_listings(ids[], buyer, reason, minutes=15, actor)` / `reserve_listing(id, …)` | buyer for themselves; service role for anyone | All cards or none: locks rows in id order, needs every card active, one dealer, not the buyer's own, not early-access (service role excepted), within the per-buyer cap (advisory lock per buyer). Hold length clamped to 1 min – 7 days. Reasons: buy_now, offer_accepted, local_pickup, lot, wholesale, checkout, hold. **Service role only since 20261207120000**; buyers use `place_hold()` (see "Holds") |
 | `release_listing(reservation, reason)` | buyer, dealer, service role | Cards back to active (delisted if flagged meanwhile) |
 | `mark_sold(ids[], channel, reservation?)` | dealer or service role | With a reservation, only cards it holds (others in the hold go back on sale); without, only unreserved unsold cards. Refuses GTCR-flagged cards. Sets `status = 'Sold'` too. Channels: cardshow, ebay, shopify, in_person, partner, agent |
 | `expire_listing_reservations()` | service role | Releases expired holds; run every 5 min by `expire-listing-reservations.js` (needs `MARKETPLACE_ENABLED=true`) |
@@ -6847,7 +6853,46 @@ until launch, no dealer rating yet.
     days; each card shows dates, venue, miles, listed card count and links to `/s/<key>`. In the sitemap; closed to
     crawlers before launch like the other marketplace pages.
   - Tests: 12 new checks in `site.e2e.mjs`.
-- **Not built:** buying (holds, offers, checkout: Phase 2+); dealer ratings.
+- **Not built:** offers and checkout (Phase 2+); dealer ratings. Holds: see below.
+
+### Holds (Phase 2, step 1, session 2026-11-23)
+Defaults (Stephen, 2026-11-23: "use your defaults"): a hold lasts **24 hours**, the dealer can end it early, and the
+dealer is told **by email and in the app**. No money on CardShow: the buyer pays the dealer when they meet.
+- **Migration `20261207120000_marketplace_holds.sql`** (re-runnable): `listing_reservations` gains `buyer_name`,
+  `buyer_contact`, `buyer_note`, `placed_notice_at`, `ended_notice_at` and the reason `hold`. Settings `hold_minutes`
+  (1440), `max_holds_per_day` (20); the 10-cards-at-once cap still applies.
+  - `place_hold(listing, name, contact, note)` (signed-in): name + contact (phone, email or Instagram) required; refuses
+    own card, early access, flagged/unlisted/held cards (`unavailable`), the caps; `already_yours` when it's theirs. A hold
+    past its end that the sweep hasn't reached yet is ended first, so the card can be held again.
+  - **`reserve_listings()` / `reserve_listing()` are no longer callable by signed-in users** (they took any reason and up
+    to 7 days); the service role keeps them for checkout and agents.
+  - `cancel_hold(id)` buyer → `buyer_cancelled`; `release_hold(id)` dealer → `dealer_released`; `complete_hold(id)` dealer:
+    hold `converted` / `sold_to_holder` and the card back to active, so the Sell Drawer's normal sale records it.
+    A table sale without that (any other path) still ends the hold as `broken` / `sold_elsewhere` (sync trigger).
+  - `my_holds()` (buyer, 30 days, cards as on the listing page incl. dealer WhatsApp/IG) and `dealer_holds()` (open +
+    ended in 3 days, with buyer contact). A hold past its end reads as `expired` before the sweep.
+  - Emails: `hold_notices_due(limit, reservation)` / `hold_notice_sent(id, kind)` (service role), `hold_party()`.
+- **Emails** (`netlify/lib/hold-notices.js`, Loops "Hold - Dealer" / "Hold - Buyer"): dealer: new hold (buyer, contact,
+  note, end time in Pacific, link to the app), buyer cancelled (only if the dealer was told about the hold). Buyer: dealer
+  released it, it expired, it sold at the table ("If you bought it, you're all set. If not, it's no longer available",
+  since an offline Show Mode sale to the holder also ends that way). Nobody for "sold to them". Sent at once by
+  `hold-notify-now` (buyer site after Hold/Cancel, dealer app after Release/Sold to them) and by the 5-minute
+  `expire-listing-reservations` run, which now runs without `MARKETPLACE_ENABLED` and expires holds first. Loops errors
+  are retried next run; without the Loops ids nothing is marked sent.
+- **Buyer site:** listing page "How to buy" → **Hold this card** (signed out → `/account?next=<listing>?hold=1`, back with
+  the form open), form name / how to reach you (prefilled from last time or the account email) / note → "On hold for you
+  until …" with Cancel. A card held by someone else says so (no button). `/account` → **Your holds** (open first, dealer
+  WhatsApp/Instagram, show + table, Cancel; ended ones with why).
+- **Dealer app** (`js/marketplace-holds.js`, behind the marketplace switch): strip above the inventory ("2 cards on hold
+  for 2 buyers · next one ends …", View holds), toast for new holds (after the login toasts), **Holds** panel per buyer:
+  contact as links (text/call a phone, mailto, @handle → Instagram), note, cards with code/price, **Sold to them** (opens
+  the Sell Drawer with "Sold to <name>" ticked → `complete_hold` before the sale is saved, 6 s timeout) and **Release**;
+  ended holds from the last 3 days. Any Sell Drawer sale of a held card shows the holder, unticked, with "their hold ends
+  and they get an email". Edit Card names the holder. Polls `dealer_holds()` every 2 min while visible.
+- **Tests:** `marketplace-holds.test.sh` (27 SQL checks), `hold-notices.test.mjs` (11), `marketplace-holds.e2e.mjs`
+  (19 checks, iPhone 13 + Pixel 7), 10 hold checks in `buyer/test/site.e2e.mjs`.
+- **Not built:** extending a hold; Show Mode "sold to the holder" (Show Mode sales of a held card end it as sold at the
+  table); holds on several cards at once (lots); a hold count for organizers; SMS.
 
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only
