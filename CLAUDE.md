@@ -963,7 +963,7 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `MCP_RATE_PER_MINUTE` / `MCP_RATE_PER_DAY` | MCP tool calls allowed per client IP (defaults 60 / 2000) |
 | `LOOPS_API_KEY` | Loops API key (pricing alert + saved-search emails) |
 | `LOOPS_PRICING_ALERT_ID` / `PRICING_ALERT_EMAIL` | Loops transactional email id and recipient for the 80%-of-daily-limit pricing alert |
-| `LOOPS_HOLD_DEALER_ID` / `LOOPS_HOLD_BUYER_ID` | Loops transactional email ids for hold emails ("Hold - Dealer" `cmwss1o5t103l0j43x31gw0yp`, "Hold - Buyer" `cmwss1ovf1ng50j1znutx5yz7`, created 2026-11-23). Without them hold emails wait (nothing lost while the hold is still relevant) |
+| `LOOPS_HOLD_DEALER_ID` / `LOOPS_HOLD_BUYER_ID` | Loops transactional email ids for hold emails ("Hold - Dealer" / "Hold - Buyer" in Loops, created 2026-11-23; copy the ids from Loops). Without them hold emails wait (nothing lost while the hold is still relevant). **Never write an env var's value into a repo file**: Netlify's secrets scan fails the build when it finds one (2026-11-23, these two ids in this file) |
 | `LOOPS_SAVED_SEARCH_ID` | Loops transactional email id for saved-search alerts (data variables: searchName, count, firstTitle, firstPrice, firstUrl, listText, searchUrl) |
 
 ### Credential Injection (no build step workaround)
