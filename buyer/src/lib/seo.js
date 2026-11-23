@@ -5,7 +5,7 @@
 
 // Never useful to a search engine, before or after launch.
 const PRIVATE = ['/app', '/app.html', '/account', '/.netlify/', '/mcp', '/trade-board', '/seller-browse'];
-const MARKETPLACE = ['/search', '/c/', '/d/', '/s/'];
+const MARKETPLACE = ['/search', '/shows', '/c/', '/d/', '/s/'];
 
 export function buildRobots({ indexing, site }) {
   const lines = ['# getcardshow.com', 'User-agent: *', 'Allow: /'];
@@ -59,6 +59,7 @@ export async function collectSitemap({ rpc, site, today = new Date().toISOString
   return [
     { loc: `${site}/` },
     { loc: `${site}/search`, lastmod: newest },
+    { loc: `${site}/shows` },
     ...listings.filter(l => l?.url).map(l => ({ loc: site + l.url, lastmod: day(l.listed_at) })),
     ...[...dealers].map(([url, d]) => ({ loc: site + url, lastmod: d })),
     ...(Array.isArray(shows) ? shows : []).filter(s => s?.url).map(s => ({ loc: site + s.url })),
