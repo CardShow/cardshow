@@ -412,8 +412,8 @@ unchanged (newest first without a query). Both ran in production 2026-11-22.
 Then `20261205120000_pricing_review.sql` (comps checked before buyers see them, see "Pricing admin"). Run it before the app deploy
 that sends `p_reason` to `pricing_record_match`; until it runs, the pricing job's 'review' calls fail and those cards are retried.
 Then `20261206120000_marketplace_show_pages.sql` (show pages, pickup show, shipping price; see "Show pages, near a ZIP, pickup + shipping").
-Then `20261207120000_marketplace_holds.sql` (holds, see "Holds"). Until it runs, the Hold button says it couldn't hold the card and the dealer app shows no holds.
 Until it runs, `/s/<show>` pages 404, listing links still go to `show.html`, and pickup show / shipping save but don't show to buyers.
+Then `20261207120000_marketplace_holds.sql` (holds, see "Holds"). Until it runs, the Hold button says it couldn't hold the card and the dealer app shows no holds.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
