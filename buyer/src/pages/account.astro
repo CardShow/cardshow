@@ -33,6 +33,9 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
 
     <section id="signedIn" hidden>
       <p>Signed in as <b id="who"></b> · <button class="linkish" type="button" id="signOut">Sign out</button></p>
+      <h2>Your holds</h2>
+      <p class="muted small">Cards dealers are setting aside for you. Pay the dealer when you meet.</p>
+      <div id="holds" class="saved"><p class="muted">Loading…</p></div>
       <h2>Saved searches</h2>
       <p class="muted small">We email you when new cards match, at most once an hour per search.</p>
       <div id="saved" class="saved"><p class="muted">Loading…</p></div>
@@ -54,6 +57,13 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
   .saved-row a.name { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
   .saved-row .check { min-height: 0; font-size: 13px; }
   #acctMsg { margin-top: 12px; }
+  .hold-row { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
+  .hold-row.ended { opacity: 0.65; }
+  .hold-row a.name { color: var(--text); overflow-wrap: anywhere; font-weight: 600; }
+  .hold-row .st { font-size: 13px; }
+  .hold-row .st.on { color: var(--good); }
+  .hold-row .acts { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 14px; }
+  .hold-row .acts a { color: var(--accent); }
 </style>
 
 <script>
@@ -87,7 +97,52 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
       location.replace(next); return;
     }
     loadSaved();
+    loadHolds();
   }
+
+  const ENDED: Record<string, string> = {
+    buyer_cancelled: 'You cancelled', dealer_released: 'The dealer released it', 'hold expired': 'Expired',
+    sold_to_holder: 'Bought', sold_elsewhere: 'Sold at the dealer’s table',
+  };
+  const fmt = (iso: string) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const usd = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 });
+
+  async function loadHolds() {
+    const box = $('holds');
+    const { data, error } = await sb().rpc('my_holds');
+    if (error) { box.innerHTML = '<p class="muted">Couldn’t load your holds.</p>'; return; }
+    const rows = Array.isArray(data) ? data : [];
+    if (!rows.length) { box.innerHTML = '<p class="muted">No holds yet. Open a card and tap “Hold this card”.</p>'; return; }
+    box.innerHTML = rows.map((h: any) => {
+      const c = (h.cards || [])[0] || {};
+      const more = (h.cards || []).length > 1 ? ` and ${(h.cards || []).length - 1} more` : '';
+      const on = h.status === 'active';
+      const d = c.dealer || {}, s = c.show;
+      const wa = d.whatsapp ? `<a href="https://wa.me/${esc(d.whatsapp)}" rel="nofollow noopener" target="_blank">WhatsApp</a>` : '';
+      const ig = d.instagram ? `<a href="https://instagram.com/${esc(d.instagram)}" rel="nofollow noopener" target="_blank">@${esc(d.instagram)}</a>` : '';
+      return `<div class="hold-row${on ? '' : ' ended'}" data-id="${esc(h.id)}">
+        <a class="name" href="${esc(c.url || '#')}">${esc(c.title || 'Card')}${esc(more)}</a>
+        <span class="muted small">${c.price_cents != null ? usd(c.price_cents) + ' · ' : ''}${esc(d.display_name || d.handle || '')}${s ? ' · ' + esc(s.name) + (s.table_number ? ' · Table ' + esc(s.table_number) : '') : ''}</span>
+        <span class="st${on ? ' on' : ''}">${on ? `On hold until ${esc(fmt(h.expires_at))}` : esc(ENDED[h.end_reason] || 'Ended')}</span>
+        ${on ? `<span class="acts">${wa}${ig}<button class="linkish" type="button" data-act="cancel">Cancel hold</button></span>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  $('holds').addEventListener('click', async e => {
+    const t = e.target as HTMLElement;
+    if (t.dataset.act !== 'cancel') return;
+    const row = t.closest<HTMLElement>('.hold-row')!;
+    if (!confirm('Cancel this hold? The card goes back on sale.')) return;
+    const { data, error } = await sb().rpc('cancel_hold', { p_reservation_id: row.dataset.id });
+    if (error || data?.error) { msg('Couldn’t cancel. Try again.'); return; }
+    msg('Hold cancelled.');
+    const { data: sess } = await sb().auth.getSession();
+    if (sess?.session) fetch('/.netlify/functions/hold-notify-now', { method: 'POST', keepalive: true,
+      headers: { Authorization: `Bearer ${sess.session.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reservation_id: row.dataset.id }) }).catch(() => {});
+    loadHolds();
+  });
 
   async function loadSaved() {
     const box = $('saved');

@@ -241,6 +241,53 @@ try {
   check('sign out', await page.isVisible('#signedOut'));
   check('account: no sideways scroll', await noSideScroll());
 
+  // ── holds ──
+  const notifies = [];
+  await page.route('**/.netlify/functions/hold-notify-now', r => { notifies.push(JSON.parse(r.request().postData() || '{}')); r.fulfill({ body: '{}' }); });
+  page.on('dialog', dlg => dlg.accept());
+  await page.goto(BASE + CHAR_URL);
+  check('hold: button and how it works shown on an active card', await page.isVisible('#holdBtn')
+    && /Nothing is charged on CardShow/.test(await page.textContent('#holdStart')));
+  await page.click('#holdBtn');
+  await page.waitForURL(/\/account\?next=/);
+  await page.fill('#authForm [name=email]', 'buyer@example.test'); await page.fill('#authForm [name=password]', 'password123');
+  await page.click('#authSubmit');
+  await page.waitForURL(/hold=1/);
+  await page.waitForSelector('#holdForm:not([hidden])');
+  check('hold: after sign-in, back on the card with the form open, contact prefilled with the email',
+    (await page.inputValue('#holdForm [name=contact]')) === 'buyer@example.test');
+  await page.fill('#holdForm [name=name]', '');
+  await page.click('#holdSubmit');
+  check('hold: name required', mock.state.holdCalls.length === 0);
+  await page.fill('#holdForm [name=name]', 'Alex P'); await page.fill('#holdForm [name=note]', 'Saturday works');
+  await page.click('#holdSubmit');
+  await page.waitForSelector('#holdMine:not([hidden])');
+  await wait(300);
+  check('hold: placed with name, contact, note; shown as yours with the end time; dealer emailed at once',
+    mock.state.holdCalls[0]?.p_name === 'Alex P' && mock.state.holdCalls[0]?.p_contact === 'buyer@example.test'
+    && mock.state.holdCalls[0]?.p_note === 'Saturday works' && /Until /.test(await page.textContent('#holdUntil'))
+    && /Done/.test(await page.textContent('#holdMsg')) && notifies[0]?.reservation_id === mock.state.holds[0].id
+    && await page.isHidden("#holdForm"), JSON.stringify({ msg: await page.textContent("#holdMsg"), until: await page.textContent("#holdUntil"), form: await page.isHidden("#holdForm") }));
+  await page.goto(BASE + CHAR_URL);
+  await page.waitForSelector('#holdMine:not([hidden])');
+  check('hold: reopening the card shows it is held for you, not for "another buyer"', await page.isHidden('#holdOther')
+    && (await page.locator('.chip-hold').count()) === 0);
+  check('hold: no sideways scroll', await noSideScroll());
+  await page.goto(BASE + '/account');
+  await page.waitForSelector('.hold-row');
+  const hr = await page.textContent('.hold-row');
+  check('account: your holds lists it with dealer contact and the end time', /Charizard/.test(hr) && /On hold until/.test(hr) && /WhatsApp/.test(hr) && /Table 12/.test(hr), hr);
+  await page.click('.hold-row [data-act=cancel]');
+  await page.waitForSelector('.hold-row.ended');
+  check('account: cancel a hold; the dealer is told', mock.state.holds[0].status === 'released' && /You cancelled/.test(await page.textContent('.hold-row'))
+    && notifies.length === 2);
+  await page.goto(BASE + '/c/33333333-3333-4333-8333-333333333333-wemby-prizm-bgs-9-5');
+  check('a card someone else holds: no Hold button, says so', (await page.locator('#holdBtn').count()) === 0
+    && /Another buyer is holding/.test(await page.textContent('#holdBox')));
+  await page.goto(BASE + '/c/44444444-4444-4444-8444-444444444444-sold-card');
+  check('a sold card has no hold box', (await page.locator('#holdBox').count()) === 0);
+  await page.goto(BASE + '/account'); await page.click('#signOut'); await wait(300);
+
   // ── search down ──
   mock.state.failSearch = true;
   res = await page.goto(BASE + '/search?q=down');

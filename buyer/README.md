@@ -7,11 +7,11 @@ so the dealer app, show pages and printed QR codes keep their URLs.
 | Page | What |
 |---|---|
 | `/search` | All public listings. Filters in the URL: `q`, `category`, `graded` (graded/raw), `grader`, `min`/`max` ($), `deals=1`, `how` (ship/pickup), `when` (weekend/month), `state`, `loc` (ZIP code or city, state) or `lat`/`lng` (Use my location) with `miles`, `sort`, `page`. Save search (signs in first). `?saved=<id>` opens a saved search (link in alert emails). |
-| `/c/<id>-<slug>` | One listing: photo, price, market value and % vs market, GTCR check, show + table, WhatsApp / Instagram contact, details, schema.org Product/Offer. Wrong slug → 301 to the right one. |
+| `/c/<id>-<slug>` | One listing: photo, price, market value and % vs market, GTCR check, show + table, WhatsApp / Instagram contact, details, schema.org Product/Offer, **Hold this card** (24 h, signed in; pay the dealer when you meet). Wrong slug → 301 to the right one. |
 | `/d/<handle>` | A dealer's listed cards, with search, category, graded/raw, price, deals and sort. |
 | `/shows` | Upcoming listed shows: near a ZIP/city, state, this weekend / next 30 days; card count per show, links to `/s/<key>`. |
 | `/s/<key>` | One show (key = slug, else id; an id with a slug → 301): details, dealers with table numbers, its cards with search and filters, schema.org Event. |
-| `/account` | Sign in / create account / reset password (same Supabase accounts as the dealer app), saved searches with email on/off. |
+| `/account` | Sign in / create account / reset password (same Supabase accounts as the dealer app), your holds (cancel), saved searches with email on/off. |
 | `/robots.txt`, `/sitemap.xml` | For the whole getcardshow.com domain (the main site proxies them here). Marketplace pages closed to crawlers and no sitemap advertised until `BUYER_SITE_INDEXING=true`. |
 
 Data comes only from the public database functions (`search_listings`, `get_listing`, `get_dealer_storefront`, `get_show_page`,

@@ -38,7 +38,7 @@ export function listings() {
 }
 
 export async function start({ port = 0 } = {}) {
-  const state = { calls: [], saved: [], refresh: [], users: { 'buyer@example.test': 'password123' }, failSearch: false };
+  const state = { calls: [], saved: [], refresh: [], holds: [], holdCalls: [], users: { 'buyer@example.test': 'password123' }, failSearch: false };
   const all = listings();
   const pub = l => { const { _whatsapp, _instagram, features, ...rest } = l; return rest; };
   const server = http.createServer(async (req, res) => {
@@ -104,6 +104,30 @@ export async function start({ port = 0 } = {}) {
         if (p.state && p.state !== 'CA') return send(200, []);
         return send(200, [{ id: 'show_monster', name: 'Monster Show', url: '/s/monster-show-2026', start_date: d(2), end_date: d(4),
           venue: 'Cal Expo', city: 'Sacramento', state: 'CA', listed_cards: 1, ...(p.near ? { miles: 4.1 } : {}) }]);
+      }
+      // holds (signed-in only; the token stands in for auth.uid())
+      if (['place_hold', 'cancel_hold', 'my_holds'].includes(name)) {
+        if (!/tok-buyer/.test(req.headers.authorization || '')) return send(401, { message: 'JWT required' });
+        const full = l => { const { _whatsapp, _instagram, ...rest } = l;
+          return { ...rest, dealer: { ...l.dealer, ...(_whatsapp ? { whatsapp: _whatsapp } : {}), ...(_instagram ? { instagram: _instagram } : {}) } }; };
+        if (name === 'my_holds') return send(200, state.holds.map(h => ({ ...h, cards: [full(all.find(x => x.id === h.listing_id))] })));
+        if (name === 'cancel_hold') {
+          const h = state.holds.find(x => x.id === j.p_reservation_id);
+          if (!h) return send(200, { error: 'not_found' });
+          h.status = 'released'; h.end_reason = 'buyer_cancelled';
+          all.find(x => x.id === h.listing_id).listing_status = 'active';
+          return send(200, { ok: true });
+        }
+        const l = all.find(x => x.id === j.p_listing_id);
+        if (!l) return send(200, { error: 'not_found' });
+        if (!String(j.p_name || '').trim()) return send(200, { error: 'missing_name' });
+        const mine = state.holds.find(h => h.listing_id === l.id && h.status === 'active');
+        if (mine) return send(200, { error: 'already_yours', reservation_id: mine.id, expires_at: mine.expires_at });
+        if (l.listing_status !== 'active') return send(200, { error: 'unavailable' });
+        const h = { id: `ab000000-0000-4000-8000-00000000000${state.holds.length}`, listing_id: l.id, status: 'active',
+          created_at: iso(Date.now()), expires_at: iso(Date.now() + day), name: j.p_name, contact: j.p_contact, note: j.p_note };
+        state.holds.push(h); state.holdCalls.push(j); l.listing_status = 'reserved';
+        return send(200, { ok: true, reservation_id: h.id, expires_at: h.expires_at });
       }
       if (name === 'request_card_value_refresh') { state.refresh.push(j.p_listing_id); return send(200, { ok: true }); }
       return send(404, { message: 'no such function' });

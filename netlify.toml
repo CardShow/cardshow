@@ -15,7 +15,7 @@
 [functions."expire-trade-posts"]
   schedule = "@hourly"
 
-# Marketplace: return expired listing holds to sale (no-op unless MARKETPLACE_ENABLED=true).
+# Marketplace: return expired listing holds to sale and send hold emails (runs before launch too).
 [functions."expire-listing-reservations"]
   schedule = "*/5 * * * *"
 

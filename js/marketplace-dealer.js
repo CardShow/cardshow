@@ -75,6 +75,7 @@ function mkUpdateEntry(tab) {
   const onInventory = tab ? tab === 'inventory'
     : !document.getElementById('sellerTabInventory') || document.getElementById('sellerTabInventory').classList.contains('active');
   btn.style.display = (mkEnabled() && currentRole === 'seller' && onInventory) ? '' : 'none';
+  if (typeof _mhRenderStrip === 'function') _mhRenderStrip(onInventory ? 'inventory' : (tab || 'other'));
 }
 
 // ── Defaults for cards listed from the panel (per seller, on this device) ──
@@ -442,7 +443,7 @@ function mkCemFill(card) {
   const label = s === 'active' ? 'Listed' : s === 'reserved' ? 'On hold for a buyer' : s === 'sold' ? 'Sold' : 'Not listed';
   sum.textContent = label;
   status.textContent = s === 'active' ? 'Listed on the marketplace.'
-    : s === 'reserved' ? 'A buyer is holding this card. It can\'t be changed until the hold ends.'
+    : s === 'reserved' ? _mkHeldText(card)
     : why === 'no_photo' ? (cpIsGraded(card) ? 'Can\'t list yet: add a photo of the slab (Photo, at the top).'
                                              : 'Can\'t list yet: add a photo or pick a catalog image (Photo, at the top).')
     : why && why !== 'sold' ? `Can't list yet: ${MK_REASONS[why] || why}.` : s === 'sold' ? 'Sold.' : 'Not listed.';
@@ -464,6 +465,12 @@ function mkCemFill(card) {
   document.getElementById('cem_mk_err').textContent = '';
   box.querySelectorAll('input, select').forEach(i => { i.disabled = s === 'reserved' || s === 'sold'; });
   box.open = s === 'active';
+}
+
+function _mkHeldText(card) {
+  const h = typeof mhHoldForCard === 'function' ? mhHoldForCard(card) : null;
+  return h ? `${h.buyer_name || 'A buyer'} is holding this card until ${_mhWhen(h.expires_at)}. See Holds (above your inventory) for their contact.`
+           : 'A buyer is holding this card. It can\'t be changed until the hold ends.';
 }
 
 // Online comp (Card Hedge, via the marketplace pricing service) and a one-tap suggested price.

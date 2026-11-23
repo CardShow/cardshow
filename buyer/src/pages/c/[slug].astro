@@ -122,7 +122,32 @@ const jsonLd = found ? {
         {status !== 'sold' && (
           <section class="box buy" aria-label="How to buy">
             <h2>How to buy</h2>
-            <p class="muted small">Buying on CardShow is coming soon. For now, reach the dealer directly{show ? ' or find them at the show' : ''}.</p>
+            <div class="hold" id="holdBox" data-id={l.id} data-status={status} data-url={l.url}>
+              {status === 'reserved' && <p class="hold-other" id="holdOther">Another buyer is holding this card. If they don’t buy it, it goes back on sale within a day.</p>}
+              <div id="holdMine" class="hold-mine" hidden>
+                <b>✓ On hold for you</b>
+                <span id="holdUntil"></span>
+                <span class="muted small">Pay the dealer when you meet{show ? `, at ${show.name}${show.table_number ? ` (table ${show.table_number})` : ''}` : ''}. They have your contact details.</span>
+                <button class="linkish" type="button" id="holdCancel">Cancel my hold</button>
+              </div>
+              {status === 'active' && (
+                <div id="holdStart">
+                  <button class="btn btn-primary" type="button" id="holdBtn">Hold this card</button>
+                  <p class="muted small">The dealer sets it aside for you for 24 hours. You pay the dealer when you meet, at their table or however you arrange. Nothing is charged on CardShow.</p>
+                </div>
+              )}
+              <form id="holdForm" class="hold-form" hidden>
+                <label class="field">Your name<input name="name" maxlength="60" autocomplete="name" required /></label>
+                <label class="field">How the dealer can reach you<input name="contact" maxlength="120" placeholder="Phone, email or Instagram" required /></label>
+                <label class="field">Note for the dealer (optional)<textarea name="note" maxlength="300" rows="2" placeholder="When you can meet, questions…"></textarea></label>
+                <div class="hold-actions">
+                  <button class="btn btn-primary" type="submit" id="holdSubmit">Hold for 24 hours</button>
+                  <button class="btn" type="button" id="holdBack">Cancel</button>
+                </div>
+              </form>
+              <p class="notice small" id="holdMsg" role="status" hidden></p>
+            </div>
+            <p class="muted small">Or reach the dealer directly{show ? ' or find them at the show' : ''}.</p>
             {show && (
               <div class="show">
                 {show.pickup && <span class="muted small">Pickup show</span>}
@@ -185,7 +210,18 @@ const jsonLd = found ? {
   .details dd { margin: 0; overflow-wrap: anywhere; }
   .dealer { display: flex; flex-direction: column; margin-top: 18px; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; }
   .dealer:hover { border-color: #33406a; }
+  .hold { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .hold [hidden] { display: none !important; }
+  .hold-other { margin: 0; color: var(--warn); }
+  .hold-mine { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--good); border-radius: 10px; }
+  .hold-mine b { color: var(--good); }
+  .hold-form { display: flex; flex-direction: column; gap: 10px; }
+  .hold-form textarea { font: inherit; }
+  .hold-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .linkish { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 0; align-self: flex-start; font: inherit; font-size: 14px; }
+  #holdMsg { margin: 0; }
   @media (max-width: 760px) {
+    .hold-actions .btn, #holdBtn { flex: 1 1 100%; width: 100%; }
     .listing { grid-template-columns: minmax(0, 1fr); gap: 16px; }
     .media img { max-height: 60vh; }
     .contact .btn { flex: 1 1 100%; }
@@ -193,6 +229,104 @@ const jsonLd = found ? {
 </style>
 
 <script>
+  import { sb, currentUser } from '../../lib/browser.js';
+
+  // ── Holds: the dealer sets the card aside for 24 hours; the buyer pays them when they meet. ──
+  const box = document.getElementById('holdBox') as HTMLElement | null;
+  if (box) {
+    const $ = (id: string) => document.getElementById(id) as any;
+    const listingId = box.dataset.id!;
+    let myHoldId = '';
+    const say = (t: string) => { const m = $('holdMsg'); m.hidden = !t; m.textContent = t; };
+    const until = (iso: string) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const showMine = (id: string, expires: string) => {
+      myHoldId = id;
+      $('holdMine').hidden = false; $('holdUntil').textContent = `Until ${until(expires)}.`;
+      if ($('holdStart')) $('holdStart').hidden = true; $('holdForm').hidden = true;
+      if ($('holdOther')) $('holdOther').hidden = true;
+      document.querySelector('.chip-hold')?.remove();
+    };
+    const showStart = () => {
+      myHoldId = ''; $('holdMine').hidden = true; $('holdForm').hidden = true;
+      if ($('holdStart')) $('holdStart').hidden = false;
+    };
+    const notify = async (reservationId: string) => {
+      try {
+        const { data } = await sb().auth.getSession();
+        const t = data?.session?.access_token; if (!t) return;
+        fetch('/.netlify/functions/hold-notify-now', { method: 'POST', keepalive: true,
+          headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ reservation_id: reservationId }) }).catch(() => {});
+      } catch {}
+    };
+    const ERR: Record<string, string> = {
+      unavailable: 'Someone else just held or bought this card.',
+      reservation_limit: 'You’re holding 10 cards already. Cancel one first (Account → Your holds).',
+      hold_limit_day: 'You’ve placed a lot of holds today. Try again tomorrow.',
+      own_listing: 'This is your own card.',
+      early_access: 'This card isn’t open for holds yet.',
+      not_found: 'This card isn’t listed any more.',
+      missing_name: 'Add your name.',
+      missing_contact: 'Add a phone number, email or Instagram so the dealer can reach you.',
+    };
+    const openForm = async () => {
+      const user = await currentUser();
+      if (!user) {
+        location.href = `/account?next=${encodeURIComponent(box.dataset.url + '?hold=1')}`;
+        return;
+      }
+      const f = $('holdForm') as HTMLFormElement;
+      let saved: any = {}; try { saved = JSON.parse(localStorage.getItem('cardshowHoldContact') || '{}'); } catch {}
+      (f.elements.namedItem('name') as HTMLInputElement).value ||= saved.name || '';
+      (f.elements.namedItem('contact') as HTMLInputElement).value ||= saved.contact || user.email || '';
+      if ($('holdStart')) $('holdStart').hidden = true;
+      f.hidden = false; say('');
+      (f.elements.namedItem((f.elements.namedItem('name') as HTMLInputElement).value ? 'contact' : 'name') as HTMLInputElement).focus();
+    };
+    $('holdBtn')?.addEventListener('click', openForm);
+    $('holdBack').addEventListener('click', () => { showStart(); say(''); });
+    $('holdForm').addEventListener('submit', async (e: Event) => {
+      e.preventDefault();
+      const f = e.target as HTMLFormElement;
+      const name = (f.elements.namedItem('name') as HTMLInputElement).value.trim();
+      const contact = (f.elements.namedItem('contact') as HTMLInputElement).value.trim();
+      const note = (f.elements.namedItem('note') as HTMLTextAreaElement).value.trim();
+      const btn = $('holdSubmit') as HTMLButtonElement; btn.disabled = true; say('');
+      try {
+        const { data, error } = await sb().rpc('place_hold', { p_listing_id: listingId, p_name: name, p_contact: contact, p_note: note || null });
+        if (error) throw error;
+        if (data?.ok || data?.error === 'already_yours') {
+          try { localStorage.setItem('cardshowHoldContact', JSON.stringify({ name, contact })); } catch {}
+          showMine(data.reservation_id, data.expires_at);
+          say(data.ok ? 'Done. The dealer has been told and will contact you.' : '');
+          if (data.ok) notify(data.reservation_id);
+        } else {
+          say(ERR[data?.error] || 'Couldn’t hold this card. Try again.');
+          if (data?.error === 'unavailable') { if ($('holdStart')) $('holdStart').hidden = true; f.hidden = true; }
+        }
+      } catch { say('Couldn’t hold this card. Check your connection and try again.'); }
+      finally { btn.disabled = false; }
+    });
+    $('holdCancel').addEventListener('click', async () => {
+      if (!myHoldId || !confirm('Cancel your hold? The card goes back on sale.')) return;
+      const id = myHoldId;
+      const { data, error } = await sb().rpc('cancel_hold', { p_reservation_id: id });
+      if (error || data?.error) { say('Couldn’t cancel. Try again.'); return; }
+      showStart(); say('Hold cancelled. The card is back on sale.');
+      if (!$('holdStart')) location.reload();
+      notify(id);
+    });
+    (async () => {
+      const user = await currentUser();
+      if (!user) { if (new URLSearchParams(location.search).get('hold') === '1' && box.dataset.status === 'active') openForm(); return; }
+      try {
+        const { data } = await sb().rpc('my_holds');
+        const mine = (Array.isArray(data) ? data : []).find((h: any) => h.status === 'active' && (h.cards || []).some((c: any) => c.id === listingId));
+        if (mine) { showMine(mine.id, mine.expires_at); return; }
+      } catch {}
+      if (new URLSearchParams(location.search).get('hold') === '1' && box.dataset.status === 'active') openForm();
+    })();
+  }
+
   // Ask for a fresh market value when someone looks at an active card (never waits; the pricing job
   // picks it up within minutes, and request_card_value_refresh() skips values that are current).
   const el = document.querySelector('.listing') as HTMLElement | null;
