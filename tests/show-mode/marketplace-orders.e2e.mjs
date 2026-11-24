@@ -58,12 +58,14 @@ await page.evaluate(([c90, c30, p20h, addr]) => {
 
 await signIn('/app.html');
 check('switch off: no orders strip', !(await page.isVisible('#ordStrip')));
+check('switch off: no Orders button', !(await page.isVisible('#ordBtn')));
 await page.evaluate(() => signOut()); await wait(500);
 
 await signIn('/app.html?marketplace=1');
 await page.waitForSelector('#ordStrip:not([style*="none"])', { timeout: 5000 }).catch(() => {});
 const strip = await page.textContent('#ordStrip');
 check('strip: orders to confirm with the minutes left, one waiting for payment', /2 orders to confirm · (29|30) min left/.test(strip) && /1 waiting for payment/.test(strip), strip);
+check('Orders button: shown with a count of 2 (to confirm)', (await page.isVisible('#ordBtn')) && (await page.textContent('#ordBtnCount')) === '2', await page.textContent('#ordBtn'));
 check('table chip: ORDERED', (await page.locator('.mk-chip--hold:has-text("ORDERED")').count()) === 3);
 await page.waitForFunction(() => /order/.test(document.getElementById('toast').textContent), null, { timeout: 9000 }).catch(() => {});
 check('toast for new orders', /2 new orders to confirm/.test(await page.textContent('#toast')), await page.textContent('#toast'));
@@ -125,6 +127,18 @@ panel = await page.textContent('#ordOverlay');
 check('ended orders listed with why', /Cancelled · you didn't have it/.test(panel) && /Completed/.test(panel), panel);
 await page.evaluate(() => closeOrdersPanel());
 
+// the button opens the panel even with no open orders
+await page.evaluate(() => { const S = window.__srv; S.orders = S.orders.filter(o => !['awaiting_confirmation', 'awaiting_payment', 'paid', 'shipped'].includes(o.status)); localStorage.setItem('__srv', JSON.stringify(S)); });
+await page.evaluate(() => ordLoad({ quiet: true })); await wait(400);
+check('no open orders: strip hidden, Orders button still shown without a count',
+  !(await page.isVisible('#ordStrip')) && (await page.isVisible('#ordBtn')) && !(await page.isVisible('#ordBtnCount')));
+await page.click('#ordBtn'); await wait(400);
+check('Orders button opens the panel', await page.isVisible('#ordOverlay'));
+await page.evaluate(() => closeOrdersPanel());
+await page.evaluate(() => switchSellerTab('report')); await wait(300);
+check('Report tab: Orders button hidden', !(await page.isVisible('#ordBtn')));
+await page.evaluate(() => switchSellerTab('inventory')); await wait(300);
+
 // Edit Card names the buyer for an ordered card
 await page.evaluate(() => { const S = window.__srv; S.orders.push({ id: 'or4', dealer_id: 'u1', listing_ids: ['c1'], fulfillment: 'ship', subtotal_cents: 100,
   status: 'awaiting_confirmation', confirm_by: new Date(Date.now() + 36e5).toISOString(), buyer_name: 'Gus' }); localStorage.setItem('__srv', JSON.stringify(S)); });
@@ -139,7 +153,7 @@ check('migration not run: no strip, no errors', !(await page.isVisible('#ordStri
 await page.evaluate(() => { window.__ordMissing = false; });
 
 await page.evaluate(() => signOut()); await wait(500);
-check('signed out: strip hidden', !(await page.isVisible('#ordStrip')));
+check('signed out: strip and button hidden', !(await page.isVisible('#ordStrip')) && !(await page.isVisible('#ordBtn')));
 check('no page errors', errors.length === 0, JSON.stringify(errors));
 await browser.close();
 console.log(fails ? `${fails} FAILED` : 'all passed');

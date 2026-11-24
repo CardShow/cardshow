@@ -7134,7 +7134,8 @@ records `buyer_fee_cents = 0`, `seller_fee_cents = 0`, `fee_status 'not_billed'`
   other as text) and the note, pickup show + table + code, tracking with **Got it**, Cancel before payment. A hold shows **Buy it
   now** (at the agreed price). `/account` → **Your orders** (`#orders`, linked from the emails) with pay links, Cancel, Got it.
 - **Dealer app** (`js/marketplace-orders.js`, behind the marketplace switch): strip "N orders to confirm · X min left · N waiting
-  for payment · N to ship", toast per new order, **Orders** panel: To confirm (shipping $ when needed, Confirm / Not available),
+  for payment · N to ship" (only while an order is open), a **🛍 Orders** toolbar button next to 🛒 Marketplace (always shown on
+  My Inventory with the switch on; count = orders to confirm + to ship), toast per new order, **Orders** panel: To confirm (shipping $ when needed, Confirm / Not available),
   Waiting for payment (method, Mark paid / Paid & picked up, They didn't pay), To ship (carrier + tracking), Paid, Ended. **How
   buyers pay you** editor. ORDERED chip on the table row; Edit Card names the buyer. Mark paid re-reads the cards so the sale shows
   in the stats and Report.

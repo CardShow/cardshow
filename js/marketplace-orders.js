@@ -84,6 +84,7 @@ function _ordRenderStrip(tab) {
   const confirm = _ordOn() ? ordToConfirm() : [];
   const unpaid = _ordOn() ? _ordOrders.filter(o => o.status === 'awaiting_payment') : [];
   const toShip = _ordOn() ? _ordOrders.filter(o => o.status === 'paid' && o.fulfillment === 'ship') : [];
+  _ordRenderButton(confirm.length + toShip.length);
   if ((!confirm.length && !unpaid.length && !toShip.length) || _ordTab !== 'inventory') { el.style.display = 'none'; return; }
   const parts = [];
   if (confirm.length) {
@@ -94,6 +95,17 @@ function _ordRenderStrip(tab) {
   if (toShip.length) parts.push(`<b>${toShip.length} to ship</b>`);
   el.innerHTML = `<span>🛍 ${parts.join(' · ')}</span><button class="btn btn-ghost" type="button" onclick="openOrdersPanel()">View orders</button>`;
   el.style.display = '';
+}
+
+// Toolbar button: always there on My Inventory with the marketplace on, so the Orders panel can be opened with
+// no open orders. The count is what needs the dealer: orders to confirm + paid orders to ship.
+function _ordRenderButton(todo) {
+  const btn = document.getElementById('ordBtn');
+  if (!btn) return;
+  btn.style.display = _ordOn() && _ordTab === 'inventory' ? '' : 'none';
+  const c = document.getElementById('ordBtnCount');
+  if (c) { c.textContent = todo > 0 ? String(todo) : ''; c.style.display = todo > 0 ? '' : 'none'; }
+  btn.setAttribute('aria-label', todo > 0 ? `Orders, ${todo} to do` : 'Orders');
 }
 
 // ── Orders panel ──

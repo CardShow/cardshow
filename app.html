@@ -6222,6 +6222,7 @@
           <button class="btn btn-ghost" id="baselineBtn" onclick="shSetBaseline()" style="display:none;font-size:0.8rem" title="Record your inventory now; the strip below then shows growth since this point">📌 Set baseline</button>
           <button class="btn btn-ghost" id="assignCodesBtn" onclick="assignStockCodesBulk()" style="display:none;font-size:0.8rem" title="Give a stock code (S-1, R-1, B-1, L-1) to every unsold card that doesn't have one">🏷 Assign codes</button>
           <button class="btn btn-ghost" id="mkBtn" onclick="openMarketplacePanel()" style="display:none;font-size:0.8rem" title="Choose which cards buyers can find on the CardShow marketplace">🛒 Marketplace</button>
+          <button class="btn btn-ghost" id="ordBtn" onclick="openOrdersPanel()" style="display:none;font-size:0.8rem" title="Buy Now orders from the CardShow marketplace: confirm, mark paid, add tracking">🛍 Orders<span id="ordBtnCount" class="dir-tab-badge" style="display:none"></span></button>
           <button class="btn btn-ghost" id="sportValidateBtn" onclick="runSportValidation(getSportValidationCards())" style="display:none;font-size:0.8rem" title="Look up sport via PriceCharting for selected cards with no sport badge (or all such cards if none selected)">🏷️ Validate Sport</button>
           <div style="position:relative;display:none" id="exportInventoryWrap">
             <button class="btn btn-ghost" id="exportInventoryBtn" style="font-size:0.8rem" onclick="toggleExportInventoryMenu(event)" title="Export your inventory for Shopify, TCGplayer, Ludex, Flipwise, and other platforms">⬇ Export Inventory</button>
@@ -8225,7 +8226,7 @@
 <script src="/js/marketplace-holds.js?v=20261209a"></script>
 <script src="/js/marketplace-offers.js?v=20261211a"></script>
 <script src="/js/offer-rules.js?v=20261211a"></script>
-<script src="/js/marketplace-orders.js?v=20261212a"></script>
+<script src="/js/marketplace-orders.js?v=20261212b"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
 <script>
 // ── STATE ──
@@ -14562,6 +14563,7 @@ function loginAsAdmin(opts = {}) {
   const assignCodesBtnAdm = document.getElementById('assignCodesBtn');
   if (assignCodesBtnAdm) assignCodesBtnAdm.style.display = 'none';
   { const mkb = document.getElementById('mkBtn'); if (mkb) mkb.style.display = 'none'; }
+  { const ob = document.getElementById('ordBtn'); if (ob) ob.style.display = 'none'; }
   const baselineBtnAdm = document.getElementById('baselineBtn'); if (baselineBtnAdm) baselineBtnAdm.style.display = 'none';
   const exportInvWrapAdm = document.getElementById('exportInventoryWrap');
   if (exportInvWrapAdm) { exportInvWrapAdm.style.display = 'none'; closeExportInventoryMenu(); }
@@ -14718,6 +14720,7 @@ async function signOut() {
   const assignCodesBtnSO = document.getElementById('assignCodesBtn');
   if (assignCodesBtnSO) assignCodesBtnSO.style.display = 'none';
   { const mkb = document.getElementById('mkBtn'); if (mkb) mkb.style.display = 'none'; }
+  { const ob = document.getElementById('ordBtn'); if (ob) ob.style.display = 'none'; }
   if (typeof closeMarketplacePanel === 'function') closeMarketplacePanel();
   const baselineBtnSO = document.getElementById('baselineBtn'); if (baselineBtnSO) baselineBtnSO.style.display = 'none';
   const exportInvWrapSO = document.getElementById('exportInventoryWrap');
