@@ -26,6 +26,9 @@ node show-home.e2e.mjs "iPhone 13"          # Show Home: show list, report secti
 node show-log-import.e2e.mjs "iPhone 13"    # Show log import: parsing, review, payload, re-import, Needs details
 node trade-log.e2e.mjs "iPhone 13"          # Trade screen: balance, offline save, sync, undo, buy, Show Home edit/undo
 node quick-bar.e2e.mjs "iPhone 13"          # Quick bar: syntax, preview, sale/lot/trade/buy, undo, offline
+node csf-feed.e2e.mjs "iPhone 13"           # Card Shop Finder: Show feed (owner), Directory filter + credit, seller join list + pickup credit
+node csf-sync.test.mjs                       # Card Shop Finder sync with the CSF API stubbed: paging, errors, emails, key never logged (no browser)
+./csf-events.test.sh                         # Card Shop Finder sync in Postgres: shows, matching, removals, emails, security (run as a Postgres superuser)
 node card-image.test.mjs                     # netlify/functions/card-image.js with CardSight stubbed (no browser)
 ```
 Set `CHROMIUM_PATH` to use a specific Chromium (the cloud container has `/opt/pw-browsers/chromium`).

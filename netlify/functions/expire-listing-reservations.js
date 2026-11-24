@@ -10,6 +10,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const { runHoldNotices } = require('../lib/hold-notices');
 const { runOfferNotices } = require('../lib/offer-notices');
+const { sendShowFeedNotices } = require('../lib/csf-events');
 
 exports.handler = async () => {
   const url = process.env.SUPABASE_URL;
@@ -41,5 +42,10 @@ exports.handler = async () => {
     catch (e) { console.error('[expire-listing-reservations] offer emails:', e.message); offerNotices = { error: e.message }; }
     if (offerNotices && (offerNotices.due || offerNotices.error)) console.log('[expire-listing-reservations] offer emails', JSON.stringify(offerNotices));
   }
-  return { statusCode: 200, body: JSON.stringify({ expired: data, offers_ended: offersEnded, notices, offerNotices }) };
+  // Emails about Card Shop Finder shows taken down (20261210120000); retried here between the 6-hourly syncs.
+  let feedNotices = null;
+  try { feedNotices = await sendShowFeedNotices(db, { budgetMs: 4000 }); }
+  catch (e) { feedNotices = { error: e.message }; }
+  if (feedNotices && feedNotices.due) console.log('[expire-listing-reservations] show feed emails', JSON.stringify(feedNotices));
+  return { statusCode: 200, body: JSON.stringify({ expired: data, offers_ended: offersEnded, notices, offerNotices, feedNotices }) };
 };

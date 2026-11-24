@@ -117,6 +117,17 @@
         S.show_sellers = S.show_sellers.filter(r => r !== row);
         data = { ok:true, cards_removed: before - S.show_inventory.length };
       }
+    } else if (name === 'csf_feed_admin') {
+      // Card Shop Finder feed admin (20261210120000): canned data from the test.
+      data = (S.platform_admins || []).some(r => r.id === UID) ? (S.csf_feed || { error: 'forbidden' }) : { error: 'forbidden' };
+    } else if (name === 'csf_resolve_match') {
+      (S.csf_resolved = S.csf_resolved || []).push(a);
+      if (S.csf_feed) S.csf_feed.matches = (S.csf_feed.matches || []).filter(m => m.id !== a.p_match);
+      data = { ok: true, status: a.p_action === 'link' ? 'linked' : 'rejected' };
+    } else if (name === 'csf_removal_handled') {
+      const x = S.csf_feed && (S.csf_feed.removals || []).find(r => r.id === a.p_removal);
+      if (x) x.handled_at = new Date().toISOString();
+      data = { ok: true };
     } else if (name === 'is_platform_admin') {
       data = (S.platform_admins || []).some(r => r.id === UID);
     } else if (name === 'set_show_listed') {

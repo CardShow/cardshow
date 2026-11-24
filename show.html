@@ -170,6 +170,7 @@ nav {
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
   margin: 1.4rem 0 2.2rem;
 }
+.csf-chip a.csf-credit { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .meta-chip {
   display: flex; align-items: center; gap: 0.4rem;
   background: var(--surface); border: 1px solid var(--border);
@@ -1088,6 +1089,16 @@ async function fetchInventoryFromDB(showId) {
 // Share links used to carry all of this (plus up to 50 cards) in the URL hash,
 // which made them too long for link shorteners. Two plain queries, same
 // no-embedded-join rule as fetchInventoryFromDB() above.
+// The Card Shop Finder's facts: "9 AM–5 PM · Free entry" (local times as sent; "Hours TBD" when either is missing).
+function _csfFacts(f) {
+  const t = v => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '')); if (!m) return ''; const h = +m[1];
+    return `${h % 12 || 12}${m[2] === '00' ? '' : ':' + m[2]} ${h >= 12 ? 'PM' : 'AM'}`; };
+  const a = t(f.time_start), b = t(f.time_end), p = f.admission_price;
+  const fee = p === null || p === undefined || p === '' || !Number.isFinite(Number(p)) ? ''
+    : Number(p) === 0 ? 'Free entry' : `$${Number(p).toLocaleString('en-US', { minimumFractionDigits: Number(p) % 1 ? 2 : 0, maximumFractionDigits: 2 })} entry`;
+  return [a && b ? `${a}–${b}` : 'Hours TBD', fee].filter(Boolean).join(' · ');
+}
+
 async function loadShowMetaFromDB(id) {
   if (!_sb || !id) return false;
   try {
@@ -1117,7 +1128,21 @@ async function loadShowMetaFromDB(id) {
       });
     }
 
+    // The Card Shop Finder (20261210120000): a show linked to its feed gets the credit, times and admission.
+    // A separate query so a project without those columns still loads the show.
+    let feed = null, removed = false;
+    try {
+      const { data: fr } = await _sb.from('shows').select('external_event_id, feed_removed_at').eq('id', id).maybeSingle();
+      removed = !!fr?.feed_removed_at;
+      if (fr?.external_event_id) {
+        const { data: ev } = await _sb.from('external_events')
+          .select('source_url, time_start, time_end, admission_price').eq('id', fr.external_event_id).maybeSingle();
+        feed = ev || null;
+      }
+    } catch (e) { /* not migrated yet */ }
+
     showMeta = {
+      feed, removed,
       id: row.id,
       name: row.name || 'Card Show',
       date: row.date || '',
@@ -1330,6 +1355,8 @@ function renderHero() {
     <div class="meta-chip"><span class="status-dot ${statusDot}"></span>${statusLabel}</div>
     ${s.date ? `<div class="meta-chip"><span class="icon">📅</span>${s.date}</div>` : ''}
     ${s.location ? `<div class="meta-chip"><span class="icon">📍</span>${s.location}</div>` : ''}
+    ${s.removed ? `<div class="meta-chip">No longer listed: it may be cancelled</div>` : ''}
+    ${s.feed && s.feed.source_url ? `<div class="meta-chip csf-chip">${_csfFacts(s.feed)} · <a class="csf-credit" href="${String(s.feed.source_url).replace(/"/g, '&quot;')}" target="_blank" rel="noopener">via The Card Shop Finder</a></div>` : ''}
   `;
 
   // Stats

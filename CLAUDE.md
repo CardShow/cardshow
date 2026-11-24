@@ -34,6 +34,11 @@ supabase/migrations/20261101120000_gtcr_buyer_badge.sql → inventory.trust_clea
 supabase/migrations/20260925120000_gtcr_trust_check.sql → inventory.trust_flag + cert_trust_checks / gtcr_consent_events / gtcr_registrations (RLS: read-own, no client writes)
 netlify/functions/expire-trade-posts.js  → Scheduled (hourly, see netlify.toml): calls expire_stale_trade_posts() RPC to hide stale trade_posts from the live board
 netlify/functions/refresh-show-statuses.js → Scheduled (hourly): calls refresh_show_statuses() so shows.status follows the dates — see "Automatic Show Status"
+netlify/lib/csf-events.js                → The Card Shop Finder events feed: fetch (X-API-Key header only), completeness checks, csf_sync_apply(), removal emails — see "Card Shop Finder events"
+netlify/functions/sync-csf-events.js     → Scheduled (every 6 hours): one Card Shop Finder sync
+netlify/functions/csf-feed-admin.js      → Platform owner POST {action:'run'}: "Run sync now" (scheduled functions can't be called by URL in production)
+js/show-feed-admin.js                    → Show Directory → "Show feed": run log, Run sync now, match review, removed shows; the CSF credit on Directory rows
+supabase/migrations/20261210120000_csf_events.sql → external_events / external_sync_runs / external_event_matches / external_show_removals / external_show_notices, shows.source / external_event_id / feed_removed_at, csf_sync_apply(), credit fields on list_upcoming_shows / get_show_page / _listing_next_show
 supabase/migrations/20261029120000_show_auto_status.sql → refresh_show_statuses() (service_role only); fixes every show once when run
 
 netlify/lib/social-pipeline.js           → Shared code for Social Sale Ingestion (extraction prompt, price rules, PSA cache, show matching, dedup) — see that section
@@ -425,6 +430,11 @@ shows no offers, and the 5-minute job logs that `expire_offers` is missing and c
 Then `20261209120000_marketplace_bundle_offers.sql` (bundle offers, see "Bundle offers"). Until it runs, the bundle page says it couldn't send the
 offer; one-card offers keep working. **Don't re-run 20261208 after it** (that puts back the one-card functions, and their inserts fail on
 `listing_ids`); if you do, run 20261209 again.
+
+Required for The Card Shop Finder events sync (see "Card Shop Finder events"), after the bundle offers migration (and the
+Show Directory, geocoding, shows/show_inventory security and show pages migrations it builds on):
+`supabase/migrations/20261210120000_csf_events.sql`. Until it runs the sync fails with a console error (nothing else changes),
+the Show feed section stays hidden, and the buyer site shows no credit because no show is linked to the feed.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -974,6 +984,8 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `LOOPS_API_KEY` | Loops API key (pricing alert + saved-search emails) |
 | `LOOPS_PRICING_ALERT_ID` / `PRICING_ALERT_EMAIL` | Loops transactional email id and recipient for the 80%-of-daily-limit pricing alert |
 | `LOOPS_HOLD_DEALER_ID` / `LOOPS_HOLD_BUYER_ID` | Loops transactional email ids for hold emails ("Hold - Dealer" / "Hold - Buyer" in Loops, created 2026-11-23; copy the ids from Loops). Without them hold emails wait (nothing lost while the hold is still relevant). **Never write an env var's value into a repo file**: Netlify's secrets scan fails the build when it finds one (2026-11-23, these two ids in this file) |
+| `CSF_API_KEY` | The Card Shop Finder Partner Events API key. Read only in `netlify/lib/csf-events.js`, sent only in the `X-API-Key` header (never `?key=`), never logged or stored |
+| `CSF_SYNC_ENABLED` | Set to `false` to switch the 6-hourly Card Shop Finder sync off (default: on) |
 | `LOOPS_SAVED_SEARCH_ID` | Loops transactional email id for saved-search alerts (data variables: searchName, count, firstTitle, firstPrice, firstUrl, listText, searchUrl) |
 
 ### Credential Injection (no build step workaround)
@@ -7117,6 +7129,66 @@ Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pric
   save, geocode call).
 - **Not built:** no geocoding for organizer-created shows outside the Directory beyond the hourly job (which covers them
   once they have a city and state); no way for the platform owner to drag a pin (manual coordinates only via SQL).
+
+## Card Shop Finder events (session 2026-11-24)
+
+CardShow's upcoming shows are filled from The Card Shop Finder (CSF) Partner Events API (docs: a PDF Stephen shared;
+`GET https://thecardshopfinder.com/api/partner/events.php`, key in `X-API-Key`, 1,000 requests/day, `limit=1000` gets the
+whole feed in one request). Built from "Claude Code build spec: The Card Shop Finder events sync (v1)". Decisions
+(Stephen, 2026-11-24, "go with your recommendations"):
+1. CSF shows are **listed straight away** with "Let sellers add themselves" on (no Show Directory approval).
+2. **Pickup still needs joining**: a dealer joins a CSF show in one tap ("Join a show"), then can pick it for pickup.
+3. When CSF drops an event linked to an **organizer's own show**, that show stays up and is only **flagged** in the Show feed.
+4. **Only the platform owner and the sync** change CSF shows (`shows_feed_guard`); no organizer is their organizer.
+5. Built from the API docs; 6. the live first run happens on a deploy (no key in the build container).
+
+**Sync** (`netlify/lib/csf-events.js` → `csf_sync_apply(events, show_types, run_id)`, every 6 hours, plus "Run sync now"):
+- Fetch: `limit=1000&offset=N` until `next_offset` is null; checks `ok`, the `filters` object (no filters applied, offset
+  as asked), and that the event count equals `total`. `total` changing between pages → start over once; twice → failed run,
+  nothing changed. 401 → "CSF key rejected", no retry. 429 → waits once if `Retry-After` ≤ 15s, else fails (next run tries).
+  400/500/bad body/network → failed run, nothing changed. Only the listing fields are passed on (`pickEvent()`).
+- `external_events`: one row per CSF event, `source_url` exactly as sent, status active / ended / removed.
+- **Safety guard**: 0 events, or fewer than half the events active before → run marked suspicious, nothing marked removed.
+- Not in the feed: last day today or earlier (event's local date, `_us_state_tz(state)`) → `ended`; else `removed`.
+- Shows for `card_show`, `sports`, `convention` (`SHOW_TYPES`; `pokemon` events are stored, no show):
+  - already linked: a CSF show's name / dates / venue / address / coordinates are updated; an organizer's show isn't touched;
+  - an organizer's show with overlapping dates, same state and `similarity(_csf_norm_name(...)) ≥ 0.6` plus same city or
+    within 1 mile → linked automatically (its details stay the organizer's); similarity 0.3–0.6 → `external_event_matches`
+    pending, no show until the platform owner links or rejects it (rejected → next sync makes its own show);
+  - else a new show `show_csf<id>`: `source 'csf'`, listed, slug, `date` text like the app's, time zone from the state,
+    access code, CSF's lat/lng when given (`geo_source 'csf'`; otherwise the hourly geocoder locates it).
+- **Removed** (still upcoming): a CSF show is hidden (`listed = false`, `feed_removed_at`), pickup is cleared on every card
+  that picked it (shipping untouched), and one email per dealer with an active/held listing picking it up and per buyer
+  with an open hold or offer on those cards is queued (`external_show_notices`, once per show ever). Holds and offers are
+  not cancelled; they're listed in the Show feed for follow-up. An organizer's linked show → `external_show_removals` kind
+  `flagged`, nothing hidden or emailed. **Back in the feed** → show listed again, `restored_at` set, no new emails.
+- Emails reuse the "Hold - Dealer" / "Hold - Buyer" Loops templates (`compose()` in csf-events.js), sent after each sync and
+  by the 5-minute `expire-listing-reservations` job; kept for 3 days if Loops isn't set up.
+- Every run is an `external_sync_runs` row (counts, by type, no coordinates, suspicious note, error). The key is never stored
+  or logged (tested).
+
+**Credit (CSF terms)**: wherever a feed show appears, "via The Card Shop Finder" links to `source_url` exactly as stored, new
+tab, `rel="noopener"`; only listing facts; times as sent ("Hours TBD" when either is missing); admission 0 → "Free entry",
+a number → "$10 entry", null → hidden; `featured` never shown. `_show_feed(show_id)` adds `source`, `source_url`,
+`attribution`, `time_start`, `time_end`, `admission_price` to `list_upcoming_shows`, `get_show_page` (plus `removed`) and
+every listing's `show` (`_listing_next_show`, which skips hidden CSF shows). Shown on: buyer `/shows`, `/s/<key>` (removed →
+"No longer listed" + noindex), listing pages, grid tiles (`CsfCredit.astro`, beside the tile link); app.html Join a show list,
+My Shows, the pickup pickers (`mkPickupCredit()`), Show Directory rows; show.html; MCP (instructions tell agents to credit it).
+Organizer show modal: "Also list your show free on The Card Shop Finder".
+
+**Show Directory → Show feed** (`js/show-feed-admin.js`, `csf_feed_admin()`): last sync, counts, "CSF key rejected" warning,
+Run sync now, Details (last 10 runs, "Same show?" queue with Link / Different shows, removed shows with listings, holds and
+offers to follow up, emails sent, Mark handled). A "Card Shop Finder" filter keeps feed shows out of the other filters.
+
+**Also changed:** `loadShowsFromDB()` pages `shows` and `show_sellers` (more than 1,000 rows now) and loads each linked
+event's facts into `show.feed`; `_show_inventory_is_organizer()` returns false for CSF shows (except the platform owner).
+
+**Tests:** `csf-events.test.sh` (53 SQL checks), `csf-sync.test.mjs` (30, CSF stubbed), `csf-feed.e2e.mjs` (iPhone 13 + Pixel 7),
+buyer `site.e2e.mjs` CSF checks (iPhone 13 + Desktop Chrome).
+
+**Not built / open:** an organizer show created *after* its CSF show exists isn't matched (the Directory's duplicate warning
+shows it; merge by hand); deleting a CSF show in the Directory brings it back on the next sync (unlist it instead); an event
+whose type changes to `pokemon` keeps its show; ended CSF shows stay in `shows` (sellers load them all; filter if it grows).
 
 ## Inventory security (session 2026-11-20)
 

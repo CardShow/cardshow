@@ -104,8 +104,17 @@ function mkPickupShows() {
     if (!sh || !sh.id) return false;
     const sellers = sh.sellers instanceof Set ? sh.sellers : new Set(sh.sellers || []);
     if (!sellers.has(currentSeller)) return false;
+    if (sh.feedRemovedAt) return false;   // a Card Shop Finder show that left the feed (maybe cancelled)
     return typeof _showStatusFromDates !== 'function' || _showStatusFromDates(sh) !== 'past';
   }).sort((a, b) => String(a.startDate || '9999').localeCompare(String(b.startDate || '9999')));
+}
+// Under a pickup-show picker: the credit for a Card Shop Finder show (their terms), for the show picked.
+function mkPickupCredit(sel, targetId) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const sh = sel && sel.value && typeof shows !== 'undefined' ? shows[sel.value] : null;
+  el.innerHTML = sh && typeof csfCreditHTML === 'function' && csfCreditHTML(sh)
+    ? `${_mkEsc(csfFactsText(sh))} · ${csfCreditHTML(sh)}` : '';
 }
 function mkPickupOptionsHTML(selected) {
   const list = mkPickupShows();
@@ -233,7 +242,8 @@ function _mkRenderPanel(result) {
               <span class="mk-pct"><span>$</span><input type="number" id="mkShipPrice" inputmode="decimal" min="0" step="0.01" placeholder="Ask me" value="${_mkEsc(d.shipPrice)}"></span>
               <span class="mk-hint">0 = free shipping. Blank = buyers ask you.</span></label>
             <label id="mkPickupRow" style="${d.pickup ? '' : 'display:none'}">Pickup at
-              <select id="mkPickupShow" class="show-input" style="margin:0">${mkPickupOptionsHTML(d.pickupShow)}</select></label>
+              <select id="mkPickupShow" class="show-input" style="margin:0" onchange="mkPickupCredit(this, 'mkPickupCredit')">${mkPickupOptionsHTML(d.pickupShow)}</select>
+              <span class="mk-hint" id="mkPickupCredit"></span></label>
           </div>
           <div class="cost-field-err" id="mkErr"></div>
         </div>
@@ -246,6 +256,7 @@ function _mkRenderPanel(result) {
         <button type="button" class="btn btn-primary" id="mkListBtn" ${toList.length ? '' : 'disabled'} onclick="mkListFromPanel()">List ${toList.length} card${toList.length === 1 ? '' : 's'}</button>
       </div>
     </div>`;
+  mkPickupCredit(document.getElementById('mkPickupShow'), 'mkPickupCredit');
 }
 
 function _mkToggleDeliveryRows() {
@@ -461,6 +472,7 @@ function mkCemFill(card) {
   document.getElementById('cem_mk_pickup').checked = modes.includes('local_pickup');
   document.getElementById('cem_mk_ship_price').value = card.ShippingCents != null ? (card.ShippingCents / 100) : '';
   document.getElementById('cem_mk_pickup_show').innerHTML = mkPickupOptionsHTML(card.PickupShowId || '');
+  mkPickupCredit(document.getElementById('cem_mk_pickup_show'), 'cem_mk_pickup_credit');
   mkCemToggleDelivery();
   document.getElementById('cem_mk_offer_rows').style.display = accepts ? '' : 'none';
   document.getElementById('cem_mk_err').textContent = '';

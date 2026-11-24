@@ -31,7 +31,10 @@ const INSTRUCTIONS = 'CardShow lists trading cards for sale at physical card sho
   'Use search_cards to find listings (prices in US cents; "comp" is the online market value from Card Hedge, and ' +
   'pct_of_comp is the asking price as a share of it; shipping_cents is the dealer\'s shipping price, 0 = free, missing = ask the dealer; ' +
   'show.pickup means the dealer picked that show for pickup). Use list_upcoming_shows and get_show_inventory to find cards at ' +
-  'shows near a place and date. This server is read-only: send the person to the listing URL to buy, hold or make an offer.';
+  'shows near a place and date. Some shows come from The Card Shop Finder (source "csf", or attribution set): whenever you ' +
+  'mention one, credit it as "via The Card Shop Finder" linked to its source_url exactly as given; time_start/time_end are local ' +
+  'times (missing = hours TBD) and admission_price is in dollars (0 = free entry). ' +
+  'This server is read-only: send the person to the listing URL to buy, hold or make an offer.';
 
 const FILTER_PROPS = {
   category: { type: 'string', description: 'Sports, TCG or Non-Sport' },
@@ -80,7 +83,8 @@ const TOOLS = [
   {
     name: 'list_upcoming_shows',
     title: 'List upcoming card shows',
-    description: 'Upcoming card shows, optionally near a point or in a state and date range, with the number of listed cards.',
+    description: 'Upcoming card shows, optionally near a point or in a state and date range, with the number of listed cards. Shows with attribution ' +
+      'come from The Card Shop Finder: credit them "via The Card Shop Finder" linked to source_url.',
     inputSchema: { type: 'object', properties: {
       near: FILTER_PROPS.near, state: FILTER_PROPS.state, date_from: FILTER_PROPS.date_from, date_to: FILTER_PROPS.date_to,
       limit: { type: 'integer', minimum: 1, maximum: 50 } } },
