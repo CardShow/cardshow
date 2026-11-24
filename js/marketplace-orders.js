@@ -332,7 +332,15 @@ async function ordCancel(orderId, reason, btn) {
 // The cards as the server now has them (sold, price, payment), so the Report and stats show the sale.
 async function _ordRefreshCards(ids) {
   try {
-    const { data } = await db.from('inventory').select('id, status, listing_status, sold_price, payment_method, sold_date').in('id', ids);
+    const { data } = await db.from('inventory').select('id, status, listing_status, sold_price, payment_method, sold_date, sold_time').in('id', ids);
+    // mark_order_paid() doesn't set sold_time, so write it here in the same format as Sell Drawer sales
+    // ("01:25 PM"); otherwise the Report's Time column is blank after a reload.
+    const stamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const noTime = (data || []).filter(r => r.status === 'Sold' && !r.sold_time).map(r => r.id);
+    if (noTime.length) {
+      const { error } = await db.from('inventory').update({ sold_time: stamp }).in('id', noTime);
+      if (error) console.warn('[orders] sold_time', error.message);
+    }
     (data || []).forEach(row => {
       const c = inventory.find(x => x._dbId === row.id);
       if (!c) return;
@@ -340,7 +348,7 @@ async function _ordRefreshCards(ids) {
       c.SoldPrice = row.sold_price != null ? Number(row.sold_price) : c.SoldPrice;
       c.PaymentMethod = row.payment_method || c.PaymentMethod;
       if (row.sold_date) c.SoldDate = row.sold_date;
-      if (!c.SoldTime) c.SoldTime = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      c.SoldTime = row.sold_time || (noTime.includes(row.id) ? stamp : c.SoldTime);
     });
   } catch (e) { console.warn('[orders] refresh cards', e); }
   if (typeof _mkAfterChange === 'function') _mkAfterChange();

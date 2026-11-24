@@ -113,6 +113,9 @@ check('paid & picked up: completed, card sold for cash at the agreed price', ord
   && S.inventory.find(r => r.id === 'c5').payment_method === 'Cash');
 check('the sale shows in the app (sold, price, payment)', await page.evaluate(() => {
   const c = inventory.find(x => x._dbId === 'c5'); return c.Status === 'Sold' && c.SoldPrice === 60 && c.PaymentMethod === 'Cash'; }));
+check('sale time saved like a Sell Drawer sale ("01:25 PM")', /^\d{2}:\d{2}\s?[AP]M$/i.test(S.inventory.find(r => r.id === 'c5').sold_time || '')
+  && await page.evaluate(() => inventory.find(x => x._dbId === 'c5').SoldTime === window.__srv.inventory.find(r => r.id === 'c5').sold_time),
+  S.inventory.find(r => r.id === 'c5').sold_time);
 
 // ship order: paid → shipped
 await page.selectOption('#ordMethod_or1', 'Venmo');
