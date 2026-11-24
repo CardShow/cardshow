@@ -480,6 +480,12 @@ const jsonLd = found ? {
               notifyOffer(data.offer_id);
             } else if (data.status === 'declined') {
               showOffer({ status: 'declined', amount_cents: cents, decided_by: 'auto' });
+            } else if (data.status === 'countered') {
+              // The dealer's offer rules countered straight away (20261211120000).
+              showOffer({ id: data.offer_id, status: 'countered', amount_cents: data.amount_cents, expires_at: data.expires_at, can_counter: data.can_counter !== false,
+                          card_count: 1, history: [{ by: 'buyer', cents }, { by: 'dealer', cents: data.amount_cents }] });
+              osay(`The dealer countered at ${dollars(data.amount_cents)}. Accept, counter or decline below.`);
+              notifyOffer(data.offer_id);
             } else {
               showOffer({ id: data.offer_id, status: 'pending', amount_cents: cents, expires_at: data.expires_at, history: [{ by: 'buyer', cents }] });
               osay('Offer sent. The dealer has been told.');

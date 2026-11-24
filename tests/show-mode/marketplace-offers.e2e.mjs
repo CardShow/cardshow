@@ -49,6 +49,12 @@ await page.evaluate(([inH20, inH5, ago]) => {
       amount_cents: 3000, offer_cents: 3000, last_by: 'buyer', moves: 1, history: [{ by: 'buyer', cents: 3000 }], expires_at: inH5 },
     { id: 'o4', dealer_id: 'u1', listing_id: 'c2', buyer_name: 'Lo', buyer_contact: 'lo@example.test', status: 'declined', decided_by: 'auto',
       end_reason: 'below_minimum', amount_cents: 1000, offer_cents: 1000, last_by: 'buyer', moves: 1, history: [], expires_at: ago, ended_at: ago },
+    { id: 'o5', dealer_id: 'u1', listing_id: 'c2', buyer_name: 'Rule Low', buyer_contact: 'r@example.test', status: 'declined', decided_by: 'auto',
+      end_reason: 'below_minimum', amount_cents: 2500, offer_cents: 2500, last_by: 'buyer', moves: 1, history: [], expires_at: ago, ended_at: ago,
+      auto_log: [{ action: 'decline', rule: 'rule_decline', rule_pct: 80, basis: 'comp', threshold_cents: 3200, cents: 2500 }] },
+    { id: 'o6', dealer_id: 'u1', listing_id: 'c2', buyer_name: 'Rule High', buyer_contact: 'h@example.test', status: 'accepted', decided_by: 'auto',
+      end_reason: 'accepted', amount_cents: 3900, offer_cents: 3900, last_by: 'buyer', moves: 1, history: [], expires_at: ago, ended_at: ago,
+      auto_log: [{ action: 'accept', rule: 'rule_accept', rule_pct: 95, pct_of_asking: 97, threshold_cents: 3800, cents: 3900 }] },
     { id: 'ox', dealer_id: 'someone_else', listing_id: 'zz', buyer_name: 'Nope', buyer_contact: 'x', status: 'pending', amount_cents: 1, moves: 1, history: [], expires_at: inH5 },
   ];
   localStorage.setItem('__srv', JSON.stringify(S));
@@ -69,6 +75,11 @@ const panel = await page.textContent('#moOverlay');
 check('panel: offers with amount, % of price, card code and asking, buyer note, auto-declined in ended', /Alex P offers \$100/.test(panel)
   && /83% of your price/.test(panel) && /S-12/.test(panel) && /asking \$120/.test(panel) && /Cash Saturday/.test(panel)
   && /Declined automatically · below your lowest offer/.test(panel) && !/Nope/.test(panel), panel);
+check('panel: automatic answers say which rule made them', /🤖 Declined automatically: under 80% of the online comp \(\$32\)/.test(panel)
+  && /🤖 Accepted automatically: the offer was 97% of asking \(your rule accepts at 95%\)/.test(panel)
+  && /No offer rules yet/.test(panel) && (await page.locator('#moOverlay button:has-text("Set offer rules")').count()) === 1, panel);
+check('panel: an offer left for the dealer at a show says so', await page.evaluate(() => _moAutoHTML({ cards: [{}], auto_log: [
+  { action: 'left_for_you', would: 'counter', counter_cents: 9000, rule: 'at_show' }] }).includes('at a show. Your rules would have countered at $90')));
 check('panel: contact links', (await page.getAttribute('[data-offer="o1"] .mh-contact a[href^="sms:"]', 'href')) === 'sms:5550100100');
 check('panel: no sideways scroll', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
 

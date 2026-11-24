@@ -115,6 +115,8 @@ js/marketplace-offers.js          → Dealer side of offers: strip above the inv
 netlify/lib/offer-notices.js      → Offer emails through Loops, reusing the two hold emails
 netlify/functions/offer-notify-now.js → POST {offer_id} with a session (buyer or dealer of that offer): sends its due emails now
 supabase/migrations/20261209120000_marketplace_bundle_offers.sql → offers on 2–20 cards from one dealer for one price (offers.listing_ids, make_bundle_offer); accepted → one hold over every card — see "Bundle offers"
+supabase/migrations/20261211120000_marketplace_offer_rules.sql → dealer offer rules: dealer_offer_rules, inventory.use_offer_rules, offers.auto_log, set_offer_rules(), _offer_auto() inside make_bundle_offer / _offer_answer — see "Dealer offer rules"
+js/offer-rules.js                 → Offer rules dialog, Edit Card "Use my offer rules" line, the Offers panel's automatic-decision lines — loaded after js/marketplace-offers.js
 supabase/migrations/20261130120000_marketplace_pricing_search.sql → Marketplace Phase 1: card_values / pricing_cards / pricing_api_usage, search_listings(), get_listing(), list_upcoming_shows(), saved_searches, agent_actions, rate limits — see "Phase 1: pricing, search, MCP"
 netlify/lib/card-values.js        → Card pricing service: Card Hedge match + all-grade values, daily budget (stop at 90%, alert at 80%)
 netlify/functions/refresh-card-values.js → Scheduled (every 5 min): match new listings, refresh due card values (on-demand first); admin POST runs it once
@@ -430,6 +432,9 @@ shows no offers, and the 5-minute job logs that `expire_offers` is missing and c
 Then `20261209120000_marketplace_bundle_offers.sql` (bundle offers, see "Bundle offers"). Until it runs, the bundle page says it couldn't send the
 offer; one-card offers keep working. **Don't re-run 20261208 after it** (that puts back the one-card functions, and their inserts fail on
 `listing_ids`); if you do, run 20261209 again.
+Then `20261211120000_marketplace_offer_rules.sql` (dealer offer rules, see "Dealer offer rules"). It replaces `make_bundle_offer` and
+`_offer_answer` again, so **if you ever re-run 20261209, run 20261211 after it**. Until it runs, the rules dialog says it's being set up
+and offers behave as before.
 
 Required for The Card Shop Finder events sync (see "Card Shop Finder events"), after the bundle offers migration (and the
 Show Directory, geocoding, shows/show_inventory security and show pages migrations it builds on):
@@ -7043,6 +7048,47 @@ offers like any card; this adds one offer covering **2–20 cards from one deale
   A lot listed as one card is one seller's by definition.
 - Tests: 12 tile checks in `buyer/test/site.e2e.mjs` (iPhone 13 + Desktop Chrome).
 - **Not built:** a bundle across dealers (deliberately); Show Mode "sold to the holder" for bundles.
+
+### Dealer offer rules (Phase 2, step 4, session 2026-11-24)
+From the plan's "Dealer offer rules (the base of the dealer agent)". A dealer sets rules once for all their listings; the server
+applies them inside the offer functions; every automatic answer is logged and shown to the dealer.
+- **Migration `20261211120000_marketplace_offer_rules.sql`** (after bundle offers; re-runnable):
+  - `dealer_offer_rules` (one row per dealer, read-own RLS, no client writes): `decline_below_pct` + `decline_basis` (`asking` /
+    `comp`), `counter_pct`, `accept_at_pct` (each 1–99, null = off), `no_auto_at_show`. Saved only by `set_offer_rules(decline, basis,
+    counter, accept, at_show)`: sellers only; counter below accept; with an asking-price decline, decline ≤ counter < accept
+    (`bad_pct` / `bad_order` / `bad_basis` / `not_a_seller`).
+  - `inventory.use_offer_rules` (default true; the seller writes it from Edit Card). `offers.auto_log` (jsonb list of automatic
+    decisions; in `dealer_offers()` only, never `my_offers()`).
+  - Per card (`_offer_terms(ids)`, added up for bundles): lowest offer = the card's `min_offer_cents`, else the decline rule (on the
+    asking price, or on the comp when `_comp_visible()`; no comp → no decline line for that card); auto-accept = the card's
+    `auto_accept_cents`, else the accept rule; counter = asking × counter %, rounded to whole dollars, only when every card uses the
+    rules, and never above the auto-accept line (capped to it). An opted-out card still uses its own lowest offer / auto-accept.
+  - `_offer_auto(offer, stage)` runs from `make_bundle_offer` (stage `new`: accept at full price or the auto-accept line → hold;
+    under the lowest-offer line → declined (`below_minimum`, no email to the dealer); else counter → status `countered`, `last_by
+    'dealer'`, history entry `auto: true`, buyer emailed (event `countered`), returns `{status:'countered', amount_cents}`) and from
+    `_offer_answer` after a buyer's counter (accept only). Dealers without rules get exactly the old behavior (offers / bundle
+    suites unchanged with the migration loaded).
+  - **At a show** (`no_auto_at_show` and the dealer joined a show running today in its time zone, else Pacific): nothing is accepted
+    (full price included) or countered automatically; logged `left_for_you` with what would have happened. Declines still happen.
+  - Log entries: `{action: accept|decline|counter|left_for_you, rule: full_price|rule_accept|card_auto|rule_decline|card_min|
+    rule_counter|at_show, cents, pct_of_asking, threshold_cents, rule_pct, basis, counter_cents, would, at}`.
+- **Dealer app** (`js/offer-rules.js`, or*; behind the marketplace switch; `orLoad()` from `moStart()`):
+  - **Offer rules** dialog (`openOfferRules()`): three % boxes (empty = off), asking/comp for the decline, the at-show box, a live
+    example on a $100 card, same checks as the server. Opened from the Marketplace panel (which now shows the rules summary instead
+    of per-card % fields: listing from the panel no longer writes `min_offer_cents` / `auto_accept_cents`), the Offers panel, Edit
+    Card and the Feature guide ("Offer rules").
+  - Edit Card → Marketplace: **Use my offer rules on this card** + a line saying what happens on this card ("Under $96 declined ·
+    $96 to $107.99 countered at $108 · … · $110 and up accepted"), updated as the price / card prices change. The card's own fields
+    are labeled "This card's lowest offer / auto-accept". `use_offer_rules` is only sent when changed.
+  - Offers panel: 🤖 lines from `auto_log` ("Countered automatically at $90: your rule counters at 90% of asking", "Declined
+    automatically: under 80% of the online comp ($96)", "Left for you because you're at a show…").
+- **Buyer site:** an offer answered with `countered` shows the dealer's counter at once with Accept / Counter / Decline (`/c/…`);
+  the bundle page says the dealer countered. The buyer isn't told it was automatic.
+- **Tests:** `marketplace-offer-rules.test.sh` (35 SQL checks; the offers and bundle SQL suites now load this migration too, 43 / 25),
+  `marketplace-dealer.e2e.mjs` (rules dialog, Edit Card line + opt-out, panel summary), `marketplace-offers.e2e.mjs` (automatic
+  lines), `buyer/test/site.e2e.mjs` (automatic counter), all on iPhone 13 + Pixel 7 / Desktop Chrome.
+- **Not built:** the plan's wholesale minimum (Phase 3, no wholesale yet); rules on lots beyond bundles; a per-card counter price;
+  showing the dealer a count of automatic answers in the strip.
 
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only

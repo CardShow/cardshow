@@ -375,6 +375,19 @@ try {
   check('offer: no offer box on a card that takes no offers', (await page.locator('#offerBox').count()) === 0 && await page.isVisible('#holdBtn'));
   await page.goto(BASE + '/c/33333333-3333-4333-8333-333333333333-wemby-prizm-bgs-9-5');
   check('offer: no offer box on a held card', (await page.locator('#offerBox').count()) === 0);
+  // The dealer's offer rules counter at once (20261211120000): the answer buttons show straight away.
+  mock.all.find(x => x.id === '22222222-2222-4222-8222-222222222222').accepts_offers = true;
+  mock.state.autoCounterCents = 4000;
+  await page.goto(BASE + '/c/22222222-2222-4222-8222-222222222222-2024-prizm-jayden-daniels-silver'); await page.waitForSelector('#offerBtn');
+  await page.click('#offerBtn'); await page.waitForSelector('#offerForm:not([hidden])');
+  await page.fill('#offerForm [name=amount]', '30'); await page.click('#offerSubmit');
+  await page.waitForSelector('#offerAnswer:not([hidden])');
+  check('offer: an automatic counter shows at once with Accept / Counter / Decline', /countered at \$40/.test(await page.textContent('#offerHead'))
+    && /You offered \$30/.test(await page.textContent('#offerSub')) && (await page.textContent('#offerAccept')) === 'Accept $40'
+    && await page.isVisible('#offerCounterBtn') && /The dealer countered at \$40/.test(await page.textContent('#offerMsg')));
+  delete mock.state.autoCounterCents;
+  mock.state.offers.at(-1).status = 'withdrawn';
+  mock.all.find(x => x.id === '22222222-2222-4222-8222-222222222222').accepts_offers = false;
   await page.goto(BASE + '/account'); await page.click('#signOut'); await wait(300);
 
   // ── bundle offers: several cards from one dealer, one price ──

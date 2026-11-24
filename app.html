@@ -2653,6 +2653,22 @@
   .mh-empty { color: var(--muted); font-size: 0.86rem; }
   .mh-help { font-size: 0.75rem; color: var(--muted); margin-top: 0.8rem; }
   /* ── Marketplace offers (js/marketplace-offers.js) ── */
+  /* ── Offer rules (js/offer-rules.js) ── */
+  .or-modal { max-width: 520px; text-align: left; }
+  .or-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem 0.8rem; padding: 0.45rem 0;
+    border-bottom: 1px solid var(--border); font-size: 0.86rem; color: var(--text); }
+  .or-label { flex: 1 1 12rem; }
+  .or-row .mk-pct input { min-height: 44px; font-size: 1rem; }
+  .or-basis { width: auto; margin: 0; min-height: 44px; font-size: 0.85rem; padding: 0 0.4rem; }
+  .or-example { background: var(--surface); border: 1px dashed var(--accent); border-radius: 8px; padding: 0.55rem 0.7rem;
+    font-size: 0.82rem; color: var(--text); margin-top: 0.6rem; }
+  .or-example:empty { display: none; }
+  .or-muted { color: var(--muted); }
+  .or-cem-line { font-size: 0.78rem; color: var(--muted); margin: 0 0 0.5rem; overflow-wrap: anywhere; }
+  .or-cem-line .mk-link, .or-summary .mk-link { font-size: 0.78rem; }
+  .or-summary { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem;
+    font-size: 0.82rem; color: var(--text); margin: 0.2rem 0 0.5rem; }
+  .mo-auto { font-size: 0.78rem; color: var(--accent); margin: 0.2rem 0; overflow-wrap: anywhere; }
   .mo-line { font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0; overflow-wrap: anywhere; }
   .mo-counter { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end; margin-top: 0.5rem; }
   .mo-counter-label { display: flex; flex-direction: column; gap: 0.25rem; flex: 1 1 12rem; font-size: 0.78rem; color: var(--muted); }
@@ -7022,15 +7038,21 @@
             <div class="mk-cem-status" id="cem_mk_status"></div>
             <div class="mk-cem-comp" id="cem_mk_comp"></div>
             <label class="mk-check"><input type="checkbox" id="cem_mk_accept" onchange="mkCemToggleOffers()"> Accept offers</label>
-            <div class="cost-grid" id="cem_mk_offer_rows">
+            <div id="cem_mk_offer_rows">
+            <div class="or-cem" id="cem_mk_rules_box">
+              <label class="mk-check"><input type="checkbox" id="cem_mk_rules" onchange="orCemLine()"> Use my offer rules on this card</label>
+              <div class="or-cem-line" id="cem_mk_rules_line"></div>
+            </div>
+            <div class="cost-grid">
               <div>
-                <div class="section-label" style="margin-bottom:0.3rem">Lowest offer <span class="cost-opt">optional</span></div>
+                <div class="section-label" style="margin-bottom:0.3rem">This card's lowest offer <span class="cost-opt">optional</span></div>
                 <div class="cost-input-wrap"><span>$</span><input id="cem_mk_min" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Any"></div>
               </div>
               <div>
-                <div class="section-label" style="margin-bottom:0.3rem">Auto-accept at <span class="cost-opt">optional</span></div>
+                <div class="section-label" style="margin-bottom:0.3rem">This card's auto-accept <span class="cost-opt">optional</span></div>
                 <div class="cost-input-wrap"><span>$</span><input id="cem_mk_auto" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Never"></div>
               </div>
+            </div>
             </div>
             <div class="mk-row">
               <label class="mk-check"><input type="checkbox" id="cem_mk_ship" onchange="mkCemToggleDelivery()"> Ship to buyer</label>
@@ -8187,10 +8209,11 @@
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261122a"></script>
-<script src="/js/marketplace-dealer.js?v=20261124a"></script>
+<script src="/js/marketplace-dealer.js?v=20261211a"></script>
 <script src="/js/show-feed-admin.js?v=20261124b"></script>
 <script src="/js/marketplace-holds.js?v=20261209a"></script>
-<script src="/js/marketplace-offers.js?v=20261209a"></script>
+<script src="/js/marketplace-offers.js?v=20261211a"></script>
+<script src="/js/offer-rules.js?v=20261211a"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
 <script>
 // ── STATE ──
@@ -22165,7 +22188,8 @@ const FEATURE_GUIDE = [
   { group: 'Price and manage', items: [
     { icon: '💲', name: 'Check comps', desc: 'Look up recent market prices for the cards you select (or all unsold cards) and update your prices.', action: () => _helpPoint('compCheckBtn') },
     { icon: '🏷️', name: 'Validate sport', desc: 'Fills in the sport for cards that show no sport badge.', action: () => _helpPoint('sportValidateBtn') },
-    { icon: '🛒', name: 'Marketplace listings', desc: 'Choose which cards buyers can find on the CardShow marketplace, whether you take offers (and your lowest and auto-accept prices), and ship or pickup. A card sold at your table comes off by itself.', action: () => openMarketplacePanel(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
+    { icon: '🛒', name: 'Marketplace listings', desc: 'Choose which cards buyers can find on the CardShow marketplace, whether you take offers, and ship or pickup. A card sold at your table comes off by itself.', action: () => openMarketplacePanel(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
+    { icon: '🤝', name: 'Offer rules', desc: 'Answer offers without being there: decline offers below a % of your price (or of the online comp), counter in between, accept at a % and up. Optionally nothing automatic while you\'re at a show. Every automatic answer is shown in Offers.', action: () => openOfferRules(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
     { icon: '🏷', name: 'Stock codes', desc: 'Short codes like S-12 (slabs), R-40 (raw), B-3 (sealed), L-1 (lots). New cards get one automatically; "Assign codes" numbers the rest. Search "slab 12" to find a card fast.', action: () => _helpPoint('assignCodesBtn') },
     { icon: '🔒', name: 'Cost & profit', desc: 'Add what you paid under "Cost (private)" when adding or editing a card. Sales then show your profit. Only you can see it.', action: () => openAddCard() },
     { icon: '⬇', name: 'Export inventory', desc: 'Download your unsold cards as CSV or Excel to list them on other platforms.', action: () => _helpPoint('exportInventoryBtn') },
@@ -23189,6 +23213,7 @@ function dbRowToCard(row) {
     AcceptsOffers:      row.accepts_offers !== false,
     MinOfferCents:      row.min_offer_cents      != null ? row.min_offer_cents : null,
     AutoAcceptCents:    row.auto_accept_cents    != null ? row.auto_accept_cents : null,
+    UseOfferRules:      row.use_offer_rules !== false,   // js/offer-rules.js: the dealer's offer rules apply to this card
     SaleModes:          Array.isArray(row.sale_modes) ? row.sale_modes : null,
     PickupShowId:       row.pickup_show_id || null,
     ShippingCents:      row.shipping_options && row.shipping_options.flat_cents != null ? row.shipping_options.flat_cents : null,

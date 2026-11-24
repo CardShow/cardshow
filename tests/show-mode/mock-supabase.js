@@ -273,6 +273,13 @@
           data = { ok: true };
         }
       }
+    } else if (name === 'set_offer_rules') {
+      // Enough of 20261211120000_marketplace_offer_rules.sql (the checks are tested in SQL).
+      const row = { dealer_id: UID, decline_below_pct: a.p_decline_pct, decline_basis: a.p_decline_basis || 'asking',
+        counter_pct: a.p_counter_pct, accept_at_pct: a.p_accept_pct, no_auto_at_show: !!a.p_no_auto_at_show, updated_at: new Date().toISOString() };
+      S.dealer_offer_rules = [row];
+      const { dealer_id, ...rules } = row;
+      data = { ok: true, rules };
     } else if (name === 'dealer_offers' || name === 'respond_offer') {
       // Enough of 20261208120000_marketplace_offers.sql. __moMissing simulates the migration not run.
       if (window.__moMissing) return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + name } });

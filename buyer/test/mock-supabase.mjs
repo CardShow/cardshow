@@ -208,6 +208,11 @@ export async function start({ port = 0 } = {}) {
           expires_at: iso(Date.now() + day), created_at: iso(Date.now()), updated_at: iso(Date.now()), buyer_name: j.p_name };
         state.offers.push(n);
         if (state.autoAcceptCents && j.p_amount_cents >= state.autoAcceptCents) return send(200, accept(n, l));
+        if (state.autoCounterCents && j.p_amount_cents < state.autoCounterCents) {   // the dealer's offer rules counter at once
+          Object.assign(n, { status: 'countered', amount_cents: state.autoCounterCents, last_by: 'dealer', moves: 2,
+            history: [...n.history, { by: 'dealer', cents: state.autoCounterCents, auto: true }] });
+          return send(200, { ok: true, status: 'countered', auto: true, offer_id: n.id, amount_cents: n.amount_cents, expires_at: n.expires_at, can_counter: true });
+        }
         return send(200, { ok: true, status: 'pending', offer_id: n.id, expires_at: n.expires_at });
       }
       if (name === 'request_card_value_refresh') { state.refresh.push(j.p_listing_id); return send(200, { ok: true }); }
