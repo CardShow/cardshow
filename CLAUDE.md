@@ -7147,6 +7147,10 @@ whole feed in one request). Built from "Claude Code build spec: The Card Shop Fi
   as asked), and that the event count equals `total`. `total` changing between pages → start over once; twice → failed run,
   nothing changed. 401 → "CSF key rejected", no retry. 429 → waits once if `Retry-After` ≤ 15s, else fails (next run tries).
   400/500/bad body/network → failed run, nothing changed. Only the listing fields are passed on (`pickEvent()`).
+  A non-JSON error page (CSF's own errors are JSON) is reported as **blocked**: the firewall in front of CSF (Cloudflare) refused
+  our server; the run log keeps the status, `cf-ray` and page title to send to CSF. From a test container CSF's API answered a
+  bad key with its normal JSON 401, so a 403 seen from Netlify means CSF's Cloudflare is blocking Netlify's servers (CSF must
+  allow `/api/partner/events.php` requests carrying a key). "Run sync now" also tells our own 403 (not the platform owner) apart.
 - `external_events`: one row per CSF event, `source_url` exactly as sent, status active / ended / removed.
 - **Safety guard**: 0 events, or fewer than half the events active before → run marked suspicious, nothing marked removed.
 - Not in the feed: last day today or earlier (event's local date, `_us_state_tz(state)`) → `ended`; else `removed`.

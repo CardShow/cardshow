@@ -34,7 +34,7 @@ function csf(responses) {
     if (!r) throw new Error('no more stub responses');
     const status = r.status || 200;
     return { status, ok: status >= 200 && status < 300, headers: { get: k => (r.headers || {})[k.toLowerCase()] ?? null },
-             json: async () => (r.body === undefined ? page([]) : r.body) };
+             text: async () => { const b = r.body === undefined ? page([]) : r.body; return typeof b === 'string' ? b : JSON.stringify(b); } };
   };
   fn.calls = calls;
   return fn;
@@ -121,6 +121,17 @@ const noSleep = async () => {};
   const d4 = fakeDb();
   const o4 = await runSync(d4, { key: KEY, fetchImpl: csf([{ body: page([ev(1)], { filters: { state: 'TX' } }) }]), sleep: noSleep });
   ok('filters we didn\'t ask for: failed, nothing applied', !o4.ok && o4.error === 'unexpected_filters' && !applyOf(d4));
+  const d7 = fakeDb();
+  const o7 = await runSync(d7, { key: KEY, sleep: noSleep, fetchImpl: csf([{ status: 403,
+    headers: { server: 'cloudflare', 'cf-ray': 'abc123-IAD', 'content-type': 'text/html; charset=UTF-8' },
+    body: '<!DOCTYPE html><html><head><title>Attention Required! | Cloudflare</title></head><body>blocked</body></html>' }]) });
+  ok('403 HTML from Cloudflare: "blocked", with the ray id, nothing applied', !o7.ok && o7.error === 'blocked'
+     && d7.runs[0].http_status === 403 && /Blocked before reaching the CSF API/.test(d7.runs[0].error)
+     && /cf-ray abc123-IAD/.test(d7.runs[0].error) && /Attention Required/.test(d7.runs[0].error) && !applyOf(d7));
+  const d8 = fakeDb();
+  const o8 = await runSync(d8, { key: KEY, sleep: noSleep, fetchImpl: csf([{ status: 403, headers: { server: 'cloudflare' },
+    body: { ok: false, error: 'Key not allowed from this address' } }]) });
+  ok('403 JSON from CSF itself: its own error shown', !o8.ok && o8.error === 'http_403' && /CSF answered 403: Key not allowed/.test(d8.runs[0].error));
   const d5 = fakeDb();
   const o5 = await runSync(d5, { key: KEY, fetchImpl: csf([{ body: { ok: false } }]), sleep: noSleep });
   ok('ok:false body: failed', !o5.ok && o5.error === 'bad_response');

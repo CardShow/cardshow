@@ -64,7 +64,9 @@ function sfRender() {
   else if (!run.ok) status = `<span class="sf-status bad">Last sync failed ${_sfWhen(run.started_at)}: ${_sfEsc(run.error || 'error')}</span>`;
   else if (run.suspicious) status = `<span class="sf-status bad">Suspicious sync ${_sfWhen(run.started_at)}: ${_sfEsc(run.error || '')}</span>`;
   else status = `<span class="sf-status ok">Last sync ${_sfWhen(run.started_at)}: ${run.events_received} events · ${run.inserted} new · ${run.updated} updated · ${run.ended} ended · ${run.removed} removed</span>`;
-  const keyWarn = run && run.http_status === 401
+  const keyWarn = run && run.http_status === 403 && /Blocked before reaching/.test(run.error || '')
+    ? '<div class="dir-warn">The Card Shop Finder\'s firewall (Cloudflare) is blocking our server before the request reaches their API. Send them the run\'s cf-ray id (Details) and ask them to allow requests to /api/partner/events.php that carry a valid X-API-Key.</div>'
+    : run && run.http_status === 401
     ? '<div class="dir-warn">CSF key rejected. Check CSF_API_KEY in Netlify, or ask The Card Shop Finder for a new key.</div>' : '';
   const flags = [matches.length ? `${matches.length} to review` : '', openRemovals.length ? `${openRemovals.length} removed show${openRemovals.length === 1 ? '' : 's'}` : '']
     .filter(Boolean).join(' · ');
@@ -156,6 +158,7 @@ async function sfRunNow() {
     const out = await res.json().catch(() => ({}));
     if (out.ok) showToast(`Synced: ${out.received} events · ${out.shows_created || 0} new shows · ${out.removed || 0} removed${out.suspicious ? ' · suspicious, nothing removed' : ''}`);
     else if (out.skipped) showToast('The feed sync is switched off (CSF_SYNC_ENABLED)');
+    else if (res.status === 403 && out.error === 'platform_owner_only') showToast('Only the platform owner can run the sync (sign in again if you are)', 'error');
     else showToast(`Sync failed: ${out.message || out.error || res.status}`, 'error');
   } catch (e) {
     showToast('Sync failed: ' + e.message, 'error');

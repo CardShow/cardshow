@@ -46,8 +46,27 @@ async function fetchPage(offset, { key, fetchImpl, sleep, deadline }) {
       throw new FeedError('rate_limited', `Daily limit reached (429), retry after ${Number.isFinite(wait) ? wait + 's' : 'an unknown wait'}`, 429);
     }
     let body = null;
-    try { body = await res.json(); } catch { /* not JSON */ }
-    if (!res.ok) throw new FeedError('http_' + res.status, `CSF answered ${res.status}${body?.error ? ': ' + String(body.error).slice(0, 200) : ''}`, res.status);
+    let text = '';
+    try { text = await res.text(); body = JSON.parse(text); } catch { body = null; /* not JSON */ }
+    if (!res.ok) {
+      // CSF's own errors are JSON {ok:false, error}. Anything else (an HTML page) came from in front of the API,
+      // usually Cloudflare blocking the request before it reached CSF: say so, with what we can see of it.
+      if (body && typeof body === 'object' && 'ok' in body) {
+        throw new FeedError('http_' + res.status, `CSF answered ${res.status}${body.error ? ': ' + String(body.error).slice(0, 200) : ''}`, res.status);
+      }
+      const server = res.headers.get('server') || '';
+      const ray = res.headers.get('cf-ray') || '';
+      const ctype = (res.headers.get('content-type') || '').split(';')[0];
+      const title = (/<title>([^<]{0,120})<\/title>/i.exec(text) || [])[1] || '';
+      const blocked = /cloudflare/i.test(server) || ray || /attention required|access denied|just a moment|blocked/i.test(title);
+      const detail = [server && `server ${server}`, ray && `cf-ray ${ray}`, ctype && `type ${ctype}`, title && `page "${title.trim()}"`]
+        .filter(Boolean).join(', ');
+      throw new FeedError(blocked ? 'blocked' : 'http_' + res.status,
+        blocked
+          ? `Blocked before reaching the CSF API (HTTP ${res.status}${detail ? '; ' + detail : ''}). The site's firewall is refusing our server; ask The Card Shop Finder to allow requests to /api/partner/events.php that carry a valid X-API-Key.`
+          : `CSF answered ${res.status} without its usual JSON error${detail ? ' (' + detail + ')' : ''}`,
+        res.status);
+    }
     if (!body || body.ok !== true || !Array.isArray(body.events)) throw new FeedError('bad_response', 'CSF response was not { ok: true, events: [...] }', res.status);
     const f = body.filters || {};
     if (f.state || f.type || f.from || f.to || f.updated_since || (f.offset != null && Number(f.offset) !== offset)) {
