@@ -2668,6 +2668,15 @@
   .or-cem-line .mk-link, .or-summary .mk-link { font-size: 0.78rem; }
   .or-summary { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem;
     font-size: 0.82rem; color: var(--text); margin: 0.2rem 0 0.5rem; }
+  /* ── Buy Now orders (js/marketplace-orders.js) ── */
+  .ord-addr { font-size: 0.82rem; color: var(--text); margin: 0.3rem 0; overflow-wrap: anywhere; }
+  .ord-addr b { color: var(--muted); font-weight: 600; margin-right: 0.3rem; }
+  .ord-paid-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.5rem; }
+  .ord-paid-row select { width: auto; margin: 0; min-height: 44px; flex: 1 1 8rem; }
+  .ord-paid-row .btn { min-height: 44px; flex: 1 1 auto; }
+  .ord-ship { margin-top: 0.4rem; }
+  .ord-ship input { min-height: 44px; padding: 0 0.6rem; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; }
+  .ord-pay-input { flex: 1 1 14rem; margin: 0; min-height: 44px; font-size: 0.95rem; }
   .mo-auto { font-size: 0.78rem; color: var(--accent); margin: 0.2rem 0; overflow-wrap: anywhere; }
   .mo-line { font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0; overflow-wrap: anywhere; }
   .mo-counter { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end; margin-top: 0.5rem; }
@@ -6202,6 +6211,8 @@
         <div id="mhStrip" class="mh-strip" role="status" style="display:none"></div>
         <!-- Marketplace offers (js/marketplace-offers.js): buyers offering less than the asking price. -->
         <div id="moStrip" class="mh-strip" role="status" style="display:none"></div>
+        <!-- Marketplace Buy Now orders (js/marketplace-orders.js). -->
+        <div id="ordStrip" class="mh-strip" role="status" style="display:none"></div>
 
         <div class="toolbar">
           <h2 id="inventoryTitle">Inventory</h2>
@@ -8209,11 +8220,12 @@
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261122a"></script>
-<script src="/js/marketplace-dealer.js?v=20261211a"></script>
+<script src="/js/marketplace-dealer.js?v=20261212a"></script>
 <script src="/js/show-feed-admin.js?v=20261124b"></script>
 <script src="/js/marketplace-holds.js?v=20261209a"></script>
 <script src="/js/marketplace-offers.js?v=20261211a"></script>
 <script src="/js/offer-rules.js?v=20261211a"></script>
+<script src="/js/marketplace-orders.js?v=20261212a"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
 <script>
 // ── STATE ──
@@ -14357,6 +14369,7 @@ function loginAsSeller(handle, opts) {
   if (typeof mkUpdateEntry === 'function') mkUpdateEntry('inventory');
   if (typeof mhStart === 'function') mhStart();   // marketplace holds: strip + polling
   if (typeof moStart === 'function') moStart();   // marketplace offers: strip + polling
+  if (typeof ordStart === 'function') ordStart(); // marketplace Buy Now orders: strip + polling
   const baselineBtn = document.getElementById('baselineBtn');
   if (baselineBtn) baselineBtn.style.display = '';
   const exportInvWrap = document.getElementById('exportInventoryWrap');
@@ -14642,6 +14655,7 @@ async function signOut() {
   if (currentRole === 'seller') smClearOfflineCache(currentSeller);   // don't leave a seller's cards on a shared phone
   if (typeof mhReset === 'function') mhReset();
   if (typeof moReset === 'function') moReset();
+  if (typeof ordReset === 'function') ordReset();
   const conflictEl = document.getElementById('smConflictOverlay'); if (conflictEl) { conflictEl.remove(); _smConflict = null; }
   await db.auth.signOut().catch(() => {});
   currentRole          = null;
@@ -22189,6 +22203,8 @@ const FEATURE_GUIDE = [
     { icon: '💲', name: 'Check comps', desc: 'Look up recent market prices for the cards you select (or all unsold cards) and update your prices.', action: () => _helpPoint('compCheckBtn') },
     { icon: '🏷️', name: 'Validate sport', desc: 'Fills in the sport for cards that show no sport badge.', action: () => _helpPoint('sportValidateBtn') },
     { icon: '🛒', name: 'Marketplace listings', desc: 'Choose which cards buyers can find on the CardShow marketplace, whether you take offers, and ship or pickup. A card sold at your table comes off by itself.', action: () => openMarketplacePanel(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
+    { icon: '🛍', name: 'Buy Now orders', desc: 'Buyers can buy a listed card at your price. You confirm you still have it (within 2 hours, or 15 minutes at a show), they pay you straight through your own Venmo, PayPal, Cash App or Zelle (or at your table), and you mark it paid. CardShow takes no fee.', action: () => openOrdersPanel(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
+    { icon: '💳', name: 'How buyers pay you', desc: 'Your Venmo, PayPal, Cash App, Zelle or payment link, shown to a buyer once you confirm their order, with the amount filled in.', action: () => openPaymentMethods(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
     { icon: '🤝', name: 'Offer rules', desc: 'Answer offers without being there: decline offers below a % of your price (or of the online comp), counter in between, accept at a % and up. Optionally nothing automatic while you\'re at a show. Every automatic answer is shown in Offers.', action: () => openOfferRules(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
     { icon: '🏷', name: 'Stock codes', desc: 'Short codes like S-12 (slabs), R-40 (raw), B-3 (sealed), L-1 (lots). New cards get one automatically; "Assign codes" numbers the rest. Search "slab 12" to find a card fast.', action: () => _helpPoint('assignCodesBtn') },
     { icon: '🔒', name: 'Cost & profit', desc: 'Add what you paid under "Cost (private)" when adding or editing a card. Sales then show your profit. Only you can see it.', action: () => openAddCard() },

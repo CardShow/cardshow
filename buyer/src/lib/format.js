@@ -94,3 +94,35 @@ export function admissionText(price) {
   if (!Number.isFinite(n) || n < 0) return '';
   return n === 0 ? 'Free entry' : `${money(Math.round(n * 100))} entry`;
 }
+
+// A dealer's payment methods (dealer_payment_methods, shown once they confirm an order) as buttons or text, with
+// the amount filled in where the app allows it. → [{ label, href?, text }]
+export function payLinks(methods, totalCents) {
+  const amt = totalCents != null ? (totalCents / 100).toFixed(2) : '';
+  return (Array.isArray(methods) ? methods : []).map(m => {
+    const v = String(m?.value || '');
+    if (m?.kind === 'venmo') return { label: 'Venmo', href: `https://venmo.com/${encodeURIComponent(v)}?txn=pay&amount=${amt}`, text: `@${v}` };
+    if (m?.kind === 'paypal') return { label: 'PayPal', href: `https://paypal.me/${encodeURIComponent(v)}/${amt}`, text: `paypal.me/${v}` };
+    if (m?.kind === 'cashapp') return { label: 'Cash App', href: `https://cash.app/$${encodeURIComponent(v)}/${amt}`, text: `$${v}` };
+    if (m?.kind === 'zelle') return { label: 'Zelle', text: v };
+    if (m?.kind === 'link' && /^https:\/\//i.test(v)) return { label: 'Pay', href: v, text: v.replace(/^https:\/\//i, '') };
+    return { label: 'Other', text: v };
+  }).filter(x => x.text);
+}
+
+// What an order's status means to the buyer.
+export function orderStatusText(o, fmtWhen = iso => new Date(iso).toLocaleString()) {
+  const dealer = o?.dealer?.display_name || o?.dealer?.handle || 'The dealer';
+  switch (o?.status) {
+    case 'awaiting_confirmation': return `Waiting for ${dealer} to confirm they have it (by ${fmtWhen(o.confirm_by)}).`;
+    case 'awaiting_payment': return o.fulfillment === 'local_pickup'
+      ? `Confirmed. Pay ${dealer} at pickup or now, by ${fmtWhen(o.pay_by)}.` : `Confirmed. Pay ${dealer} by ${fmtWhen(o.pay_by)}.`;
+    case 'paid': return o.fulfillment === 'ship' ? `Paid. ${dealer} will ship it.` : `Paid. Pick it up from ${dealer}.`;
+    case 'shipped': return `Shipped${o.carrier ? ' with ' + o.carrier : ''}${o.tracking_number ? ' · tracking ' + o.tracking_number : ''}.`;
+    case 'completed': return 'Complete.';
+    case 'cancelled': return ({ buyer_cancelled: 'You cancelled it.', not_available: `${dealer} doesn’t have it any more. You weren’t charged.`,
+      not_paid: `${dealer} cancelled it: payment didn’t arrive.`, sold_elsewhere: 'It sold at the dealer’s table first. You weren’t charged.' })[o.end_reason] || 'Cancelled.';
+    case 'expired': return o.end_reason === 'not_paid' ? 'It ran out before it was marked paid.' : `${dealer} didn’t confirm in time. You weren’t charged.`;
+    default: return '';
+  }
+}

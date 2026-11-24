@@ -117,6 +117,10 @@ netlify/functions/offer-notify-now.js → POST {offer_id} with a session (buyer 
 supabase/migrations/20261209120000_marketplace_bundle_offers.sql → offers on 2–20 cards from one dealer for one price (offers.listing_ids, make_bundle_offer); accepted → one hold over every card — see "Bundle offers"
 supabase/migrations/20261211120000_marketplace_offer_rules.sql → dealer offer rules: dealer_offer_rules, inventory.use_offer_rules, offers.auto_log, set_offer_rules(), _offer_auto() inside make_bundle_offer / _offer_answer — see "Dealer offer rules"
 js/offer-rules.js                 → Offer rules dialog, Edit Card "Use my offer rules" line, the Offers panel's automatic-decision lines — loaded after js/marketplace-offers.js
+supabase/migrations/20261212120000_marketplace_orders.sql → Buy Now orders: dealer_payment_methods, orders (fee columns 0, fee_status 'not_billed'), order_events, place_order/order_from_hold/confirm_order/mark_order_paid/ship_order/cancel_order, my_orders/dealer_orders, expire_orders — see "Buy Now and orders"
+js/marketplace-orders.js          → Dealer side of orders: strip, Orders panel (confirm / not available / mark paid / shipped), How buyers pay you — loaded after js/offer-rules.js
+netlify/lib/order-notices.js      → Order emails through Loops, reusing the two hold emails (payment links prefilled with the total)
+netlify/functions/order-notify-now.js → POST {order_id} with a session (buyer or dealer of that order): sends its due emails now
 supabase/migrations/20261130120000_marketplace_pricing_search.sql → Marketplace Phase 1: card_values / pricing_cards / pricing_api_usage, search_listings(), get_listing(), list_upcoming_shows(), saved_searches, agent_actions, rate limits — see "Phase 1: pricing, search, MCP"
 netlify/lib/card-values.js        → Card pricing service: Card Hedge match + all-grade values, daily budget (stop at 90%, alert at 80%)
 netlify/functions/refresh-card-values.js → Scheduled (every 5 min): match new listings, refresh due card values (on-demand first); admin POST runs it once
@@ -435,6 +439,8 @@ offer; one-card offers keep working. **Don't re-run 20261208 after it** (that pu
 Then `20261211120000_marketplace_offer_rules.sql` (dealer offer rules, see "Dealer offer rules"). It replaces `make_bundle_offer` and
 `_offer_answer` again, so **if you ever re-run 20261209, run 20261211 after it**. Until it runs, the rules dialog says it's being set up
 and offers behave as before.
+Then `20261212120000_marketplace_orders.sql` (Buy Now and orders, see "Buy Now and orders"). Until it runs, Buy now says it couldn't place
+the order, the dealer app shows no orders, and the 5-minute job logs that `expire_orders` is missing and carries on.
 
 Required for The Card Shop Finder events sync (see "Card Shop Finder events"), after the bundle offers migration (and the
 Show Directory, geocoding, shows/show_inventory security and show pages migrations it builds on):
@@ -7089,6 +7095,53 @@ applies them inside the offer functions; every automatic answer is logged and sh
   lines), `buyer/test/site.e2e.mjs` (automatic counter), all on iPhone 13 + Pixel 7 / Desktop Chrome.
 - **Not built:** the plan's wholesale minimum (Phase 3, no wholesale yet); rules on lots beyond bundles; a per-card counter price;
   showing the dealer a count of automatic answers in the strip.
+
+### Buy Now and orders (Phase 2, step 5, session 2026-11-24)
+"Build Buy Now and orders based on dealer payment links, no fees for now and prices recorded for later billing" (Stephen,
+2026-11-24). CardShow takes no money: the dealer confirms they have the card, the buyer pays them directly (their own Venmo /
+PayPal / Cash App / Zelle / payment link, or at the table), the dealer marks it paid. **No fees during the pilot**: every order
+records `buyer_fee_cents = 0`, `seller_fee_cents = 0`, `fee_status 'not_billed'` and its prices, so fees can be billed later.
+- **Migration `20261212120000_marketplace_orders.sql`** (after offer rules; re-runnable):
+  - `dealer_payment_methods` (one row per dealer, read-own RLS): `methods` [{kind venmo|paypal|cashapp|zelle|link|other, value}],
+    `note`. Saved only by `set_payment_methods(methods, note)` (handles cleaned of @/$, Zelle 5–80 chars, links must be https,
+    max 6; sellers only).
+  - `orders` (buyer and dealer read their own rows; writes only through the functions): `listing_ids` (1–20, one dealer),
+    `fulfillment` ship / local_pickup, `ship_to` (US address, 2-letter state, ZIP; `_order_ship_to()`), `pickup_show_id`,
+    `subtotal_cents`, `shipping_cents` (null = the dealer sets it at confirm), the fee columns, `status` awaiting_confirmation →
+    awaiting_payment → paid → shipped → completed (or cancelled / expired, `end_reason`), buyer name / contact / note,
+    `confirm_by`, `pay_by`, carrier / tracking, a 6-digit `pickup_code`, `reservation_id` (a `buy_now` reservation),
+    `offer_id` / `from_reservation_id`. `order_events` = the email queue (service only).
+  - `place_order(listing, fulfillment, name, contact, note, ship_to)`: checks `sale_modes` (null = ship), price, early access,
+    own card, caps (`max_orders_per_day` 20 and the 10-cards-reserved cap); shipping = the cards' flat prices when every card has
+    one. The buyer's own hold or accepted-offer hold on the card becomes the order at the agreed price (`order_from_hold`, hold
+    ended as `ordered`); a second Buy now on a card they ordered → `already_ordered`.
+  - Dealer: `confirm_order(order, shipping?)` (needed for ship orders without a flat price), `dealer_cancel_order(order,
+    not_available|not_paid|dealer_cancelled)` (not_available also takes the card down), `mark_order_paid(order, method, picked_up)`
+    (calls `mark_sold(..., 'cardshow', reservation)`, sold price split by asking price, payment method; pickup + picked up →
+    completed), `ship_order(order, carrier, tracking)`. Buyer: `cancel_order` (before paid), `order_received`.
+  - Deadlines: confirm within 2 hours (15 min when the dealer is at a show today, `_dealer_at_show`); pay within 24 hours for
+    shipping, by the end of the pickup show (else 3 days) for pickup. `expire_orders()` (5-minute job, before the hold sweep)
+    expires them, cancels orders whose card sold at the table (`sold_elsewhere`), and completes orders shipped 14+ days ago.
+  - `my_orders()` (buyer, 90 days; the dealer's payment methods only once confirmed; pickup code) and `dealer_orders()`
+    (open + 7 days ended, buyer contact). Settings `order_confirm_minutes`, `order_confirm_show_minutes`, `order_pay_minutes`,
+    `order_pickup_pay_days`, `order_auto_complete_days`, `max_orders_per_day`.
+- **Emails** (`netlify/lib/order-notices.js`, reusing "Hold - Dealer" / "Hold - Buyer"): dealer: new order (with address), buyer
+  cancelled, not confirmed / not paid in time. Buyer: confirmed with the payment links prefilled with the total and the dealer's
+  note, paid, shipped (tracking), cancelled (why), ran out. Sent by `order-notify-now` after each step and by the 5-minute job.
+- **Buyer site** (`/c/<slug>`): **Buy now · $X** above Hold (signed out → `/account?next=<listing>?buy=1`): ship or pickup (as the
+  dealer allows), name / contact, US address (remembered on the device, `cardshowShipTo`), note, live total. After ordering the
+  How to buy box shows the order: waiting for the dealer, then pay buttons (Venmo / PayPal / Cash App with the amount; Zelle and
+  other as text) and the note, pickup show + table + code, tracking with **Got it**, Cancel before payment. A hold shows **Buy it
+  now** (at the agreed price). `/account` → **Your orders** (`#orders`, linked from the emails) with pay links, Cancel, Got it.
+- **Dealer app** (`js/marketplace-orders.js`, behind the marketplace switch): strip "N orders to confirm · X min left · N waiting
+  for payment · N to ship", toast per new order, **Orders** panel: To confirm (shipping $ when needed, Confirm / Not available),
+  Waiting for payment (method, Mark paid / Paid & picked up, They didn't pay), To ship (carrier + tracking), Paid, Ended. **How
+  buyers pay you** editor. ORDERED chip on the table row; Edit Card names the buyer. Mark paid re-reads the cards so the sale shows
+  in the stats and Report.
+- **Tests:** `marketplace-orders.test.sh` (53 SQL checks), `order-notices.test.mjs` (15), `marketplace-orders.e2e.mjs` (iPhone 13 +
+  Pixel 7), 18 order checks in `buyer/test/site.e2e.mjs` (iPhone 13 + Desktop Chrome).
+- **Not built:** fees / Stripe (recorded only); "Buy all" on `/bundle` (a bundle becomes an order through an accepted bundle offer's
+  hold); buyer ratings and disputes; order sales on the organizer ledger (marketplace sales aren't show-floor sales); shipping labels.
 
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only

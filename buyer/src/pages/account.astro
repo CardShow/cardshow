@@ -33,6 +33,9 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
 
     <section id="signedIn" hidden>
       <p>Signed in as <b id="who"></b> · <button class="linkish" type="button" id="signOut">Sign out</button></p>
+      <h2 id="orders-head">Your orders</h2>
+      <p class="muted small">Cards you bought with Buy now. You pay the dealer directly; CardShow charges you nothing.</p>
+      <div id="orders" class="saved"><p class="muted">Loading…</p></div>
       <h2>Your holds</h2>
       <p class="muted small">Cards dealers are setting aside for you. Pay the dealer when you meet.</p>
       <div id="holds" class="saved"><p class="muted">Loading…</p></div>
@@ -73,6 +76,7 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
 <script>
   import { sb, takePendingSave, saveSearch } from '../lib/browser.js';
   import { toQuery } from '../lib/search.js';
+  import { payLinks, orderStatusText } from '../lib/format.js';
 
   const $ = (id: string) => document.getElementById(id)!;
   const msg = (text: string, html = false) => { const m = $('acctMsg'); m.hidden = !text; if (html) m.innerHTML = text; else m.textContent = text; };
@@ -101,16 +105,66 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
       location.replace(next); return;
     }
     loadSaved();
+    loadOrders();
     loadHolds();
     loadOffers();
+    if (location.hash === '#orders') document.getElementById('orders-head')?.scrollIntoView();
   }
 
   const ENDED: Record<string, string> = {
     buyer_cancelled: 'You cancelled', dealer_released: 'The dealer released it', 'hold expired': 'Expired',
-    sold_to_holder: 'Bought', sold_elsewhere: 'Sold at the dealer’s table',
+    sold_to_holder: 'Bought', ordered: 'Ordered · see Your orders', sold_elsewhere: 'Sold at the dealer’s table',
   };
   const fmt = (iso: string) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const usd = (c: number) => '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 });
+
+  const OPEN_ORDER = ['awaiting_confirmation', 'awaiting_payment', 'paid', 'shipped'];
+  async function loadOrders() {
+    const box = $('orders');
+    const { data, error } = await sb().rpc('my_orders');
+    if (error) { box.innerHTML = '<p class="muted">No orders yet.</p>'; return; }
+    const rows = Array.isArray(data) ? data : [];
+    if (!rows.length) { box.innerHTML = '<p class="muted">No orders yet. Open a card and tap “Buy now”.</p>'; return; }
+    box.innerHTML = rows.map((o: any) => {
+      const c = (o.cards || [])[0] || {};
+      const n = o.card_count || (o.cards || []).length || 1;
+      const d = o.dealer || {};
+      const open = OPEN_ORDER.includes(o.status);
+      const total = o.fulfillment === 'ship' && o.shipping_cents == null ? `${usd(o.subtotal_cents)} + shipping` : usd(o.total_cents);
+      const pay = o.status === 'awaiting_payment' ? payLinks(o.payment?.methods, o.total_cents) : [];
+      const payHtml = pay.map(p => p.href
+        ? `<a href="${esc(p.href)}" rel="nofollow noopener" target="_blank">Pay with ${esc(p.label)}</a>`
+        : `<span>${esc(p.label)}: ${esc(p.text)}</span>`).join('');
+      const pickup = o.fulfillment === 'local_pickup' && open
+        ? `Pickup${o.pickup_show ? ' at ' + esc(o.pickup_show.name) + (o.pickup_show.table_number ? ', table ' + esc(o.pickup_show.table_number) : '') : ''}${o.pickup_code ? ` · code ${esc(o.pickup_code)}` : ''}` : '';
+      return `<div class="hold-row${open || o.status === 'completed' ? '' : ' ended'}" data-id="${esc(o.id)}">
+        <a class="name" href="${esc(c.url || '#')}">${esc(c.title || 'Card')}${n > 1 ? ` + ${n - 1} more` : ''}</a>
+        <span class="muted small">${total} · ${o.fulfillment === 'ship' ? 'Shipping' : 'Pickup'} · ${esc(d.display_name || d.handle || '')}</span>
+        <span class="st${o.status === 'awaiting_payment' ? ' turn' : open || o.status === 'completed' ? ' on' : ''}">${esc(orderStatusText(o, fmt))}</span>
+        ${pickup ? `<span class="muted small">${pickup}</span>` : ''}
+        ${o.status === 'awaiting_payment' && o.payment?.note ? `<span class="muted small">${esc(o.payment.note)}</span>` : ''}
+        ${(payHtml || ['awaiting_confirmation', 'awaiting_payment', 'shipped'].includes(o.status)) ? `<span class="acts">${payHtml}${
+          o.status === 'shipped' ? '<button class="linkish" type="button" data-act="got">Got it</button>' : ''}${
+          ['awaiting_confirmation', 'awaiting_payment'].includes(o.status) ? '<button class="linkish" type="button" data-act="cancel">Cancel order</button>' : ''}</span>` : ''}
+      </div>`;
+    }).join('');
+  }
+  $('orders').addEventListener('click', async e => {
+    const t = e.target as HTMLElement;
+    const act = t.dataset.act; if (act !== 'cancel' && act !== 'got') return;
+    const row = t.closest<HTMLElement>('.hold-row')!;
+    if (act === 'cancel' && !confirm('Cancel this order? The card goes back on sale.')) return;
+    const { data, error } = await sb().rpc(act === 'cancel' ? 'cancel_order' : 'order_received', { p_order_id: row.dataset.id });
+    if (error || data?.error) { msg(act === 'cancel' ? 'Couldn’t cancel. Try again.' : 'Couldn’t save that. Try again.'); return; }
+    msg(act === 'cancel' ? 'Order cancelled.' : 'Thanks! Enjoy the card.');
+    if (act === 'cancel') {
+      const { data: sess } = await sb().auth.getSession();
+      if (sess?.session) fetch('/.netlify/functions/order-notify-now', { method: 'POST', keepalive: true,
+        headers: { Authorization: `Bearer ${sess.session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: row.dataset.id }) }).catch(() => {});
+    }
+    loadOrders();
+  });
 
   async function loadHolds() {
     const box = $('holds');
