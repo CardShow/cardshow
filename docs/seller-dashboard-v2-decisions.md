@@ -64,9 +64,10 @@ Show Mode covers the tab bar, so the Market badge isn't visible during a show. W
 ## Open questions (replaces the spec's list)
 1. ~~Phone tabs: Marketplace under More or its own tab?~~ **Closed 2026-11-25:** its own tab, gated by the
    marketplace switch (above).
-2. Set baseline: Sales & reports card (as specced), Inventory bulk bar → More, or Settings?
-3. Bulk "Add to show" and `activeShowId`: recommended yes. The bulk action reuses `sellerPublishToShow()`,
-   which already acts on checked rows and already sets `activeShowId`.
+2. ~~Set baseline?~~ **Closed 2026-11-25:** an "Inventory baseline" card on Sales & reports, as specced.
+3. ~~Bulk "Add to show" and `activeShowId`?~~ **Closed 2026-11-25:** yes, it makes that show the active one, exactly
+   like ⚡ Add My Cards. The bulk action reuses `sellerPublishToShow()`, which already acts on checked rows and sets
+   `activeShowId`.
 4. ~~Flag rollout?~~ **Closed 2026-11-25:** beta sellers first, each opening the app once with `?seller_nav=1`
    (remembered on that device as localStorage `sellerNavTest`; `?seller_nav=0` turns it off). After the next show,
    set `SELLER_NAV_V2_ENABLED = true` in `js/seller-shell.js` for everyone. The flag-off UI stays until v2 has been

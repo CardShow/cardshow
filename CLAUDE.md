@@ -6554,7 +6554,7 @@ across a re-render, sale + sync + Undo, two cards offline, lot → Snap & Sell, 
 - Questions for Tito from the import README (direction of the $20, Captain Pikachu $100, $25 on
   NOV7-09, which Glaceon, Slab 50, the 12 ungrouped trades, missing costs/asks).
 
-## Seller Dashboard v2 (Phase 1 built, session 2026-11-25)
+## Seller Dashboard v2 (Phases 1–2 built, session 2026-11-25)
 
 Build spec: "CardShow — Seller Dashboard Redesign — Build Spec v1" (Stephen, given in chat), amended by
 `docs/seller-dashboard-v2-decisions.md` (that file wins where they disagree). Replaces the seller tab bar, toolbar and
@@ -6590,7 +6590,7 @@ part and `ss2Teardown()` at the start of `signOut()`, `loginAsAdmin()`, `enterAs
   marketplace switch on, slot 5 is **Market** (`#/s/market/buyers`, badge) and an avatar button on Home opens the same
   sheet (profile, Sales & reports, Table QR, Settings, help items, Sign out). Sales has a back chevron to Home. Toast and
   `#costAddBar` sit above the tab bar.
-- **Tests:** `tests/show-mode/seller-v2.e2e.mjs` (iPhone 13, Pixel 7, Desktop Chrome): flag off unchanged, routing,
+- **Tests:** `tests/show-mode/seller-v2.e2e.mjs` (iPhone 13, Pixel 7, Desktop Chrome; Phase 2 checks too): flag off unchanged, routing,
   back/forward, refresh, Show Mode open/close, search, Market switch on/off, ≥44px targets, sign out restores the sidebar,
   buyer view. Existing suites give the same results with the flag off.
 - **Phase 0 findings** worth keeping: bulk "Add to show" = `sellerPublishToShow(showId)` (already acts on checked rows,
@@ -6599,8 +6599,39 @@ part and `ss2Teardown()` at the start of `signOut()`, `loginAsAdmin()`, `enterAs
   `dbRowToCard()` maps `inventory.sold_channel` / `source` (open question). Marketplace toasts do show above Show Mode, but
   once, for 3s, untappable; strips don't (see the decisions doc).
 
-**Not built yet:** Phase 2 (saved views, filter + bulk-action bar), 3 (Home), 4 (Shows page), 5 (Marketplace page), 6 (Sales
-merge), 7 (phone polish, Sell / Add sheet restyle), 8 (help targets, tour copy).
+**Decisions (2026-11-25):** phone Market tab gated by the marketplace switch; Set baseline lives on Sales & reports; bulk
+"Add to show" makes that show the active one (like ⚡ Add My Cards); rollout as above. Details in the decisions doc.
+
+**Phase 2 (Inventory, built 2026-11-25):**
+- The classic `renderSellerTable()` still draws the rows; the shell wraps it (`ss2InvRender()`) and decides which rows it gets
+  (`ss2InvRows()`: view → reason → sport → graded/raw → show → search → sort). Rows start **unticked** in v2 (the classic
+  view pre-ticks every unsold card). The selection (`_ss2Sel`, card objects) survives re-renders and is cleared when the view,
+  a filter or the search changes, and when leaving Inventory (so Shows' Add My Cards still acts on every unsold card).
+- `#ss2InvChrome` (before the hidden classic `.toolbar`): header (Select on phone, **Import / Export ▾** = upload spreadsheet,
+  template, export CSV/Excel; **+ Add cards**), views `#ss2Views` (All, Available (default), At a show, Listed online (switch
+  on), Needs attention, Sold, with counts; **+ Save view** stores up to 12 named views in localStorage `ss2Views:<handle>`,
+  this device only), filter bar `#ss2FilterBar` (the moved `#sellerSearchInput`, Sport, Graded, Show, Sort), and the bulk bar
+  `#ss2BulkBar` that replaces the filter bar while cards are ticked.
+- Needs attention reasons (`ss2AttentionReason()`): stolen/lost flag, Needs details, no asking price, no photo (switch on only).
+  `ss2InvOpen(view, reason)` opens Inventory on a view from another page.
+- Bulk actions, all existing functions reading the ticked rows: **Add to show ▾** (joined shows not over →
+  `sellerPublishToShow()`, own toast counting "already there" / held back), **List online** (`openMarketplacePanel()`, switch
+  on), **Check comps**, **Mark sold** (exactly one card → `openSellDrawer()`; disabled for 2+), **More ▾** (Take out of a show →
+  `sellerRemoveFromShow(showId, cards)`, Assign stock codes → `assignStockCodesBulk(cards)`, Validate sport, Export selected
+  CSV/Excel, Delete selected), Clear. Popover `#ss2Pop`. Header checkbox `#ss2SelAll` ticks every row in the view (the table
+  isn't paged, so there's no "select all N" link).
+- Both `sellerRemoveFromShow()` and `assignStockCodesBulk()` gained an optional cards argument (omitted = old behavior).
+- "Where it's for sale" chips under each card title (`_ss2AddWhereChips()`): one per show (date · name), NO PHOTO (switch on),
+  NOT FOR SALE YET; LISTED / ON HOLD / ORDERED still come from `mkChipHTML()`. The table's columns are otherwise unchanged
+  (the spec's Code / Asking / Comp column layout isn't built).
+- Hidden in v2: the classic toolbar, the holds/offers/orders strips (their counts are on Home and the Market badge),
+  `#bulkDeleteBtn`. Moved: `#gsChecklist` → Home, `#baselineStrip` → a Sales "Inventory baseline" card with Set baseline.
+- Home "Needs you" (interim until Phase 3, `_ss2RenderNeeds()`): orders to confirm, offers, holds ending in 24h, orders to ship
+  (switch on), Snap & Sell needing details (→ Show Mode `/needs`), cards that can't go on sale by reason (→ Inventory).
+- Phone: checkboxes only in Select mode; the bulk bar is fixed at the bottom in place of the tab bar; Done ends it.
+
+**Not built yet:** 3 (Home), 4 (Shows page), 5 (Marketplace page), 6 (Sales merge), 7 (phone polish, Sell / Add sheet restyle),
+8 (help targets, tour copy).
 
 ## CardShow Marketplace (Phase 0 done, Phase 1 back end built, session 2026-11-20)
 

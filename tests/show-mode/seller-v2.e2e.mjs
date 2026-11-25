@@ -52,7 +52,16 @@ check('flag off: classic tab bar shown', await vis('#sellerTabBar'));
 check('flag off: no left nav / tab bar', !(await vis('#sellerNav')) && !(await vis('#sellerTabBarV2')));
 check('flag off: no #/s/ hash', !(await hash()).startsWith('#/s/'));
 if (phone) check('flag off: FAB still there', await vis('#fabAddCard'));
+check('flag off: unsold rows start ticked, as before', await page.evaluate(() =>
+  [...document.querySelectorAll('#inventoryBody .card-check')].filter(b => b.checked).length === 2));
 await page.evaluate(() => signOut()); await wait(600);
+// Two more cards for Phase 2: one not at any show, one with no asking price.
+await page.evaluate(() => {
+  const S = window.__srv;
+  S.inventory.push({ id: 'c4', seller_id: 'u1', card_title: '2022 Topps Bobby Witt Jr.', player: 'Bobby Witt Jr.', year: 2022, card_set: 'Topps', price: 25, status: 'Available' });
+  S.inventory.push({ id: 'c5', seller_id: 'u1', card_title: '2021 Donruss Wander Franco', player: 'Wander Franco', year: 2021, card_set: 'Donruss', price: 0, status: 'Available' });
+  localStorage.setItem('__srv', JSON.stringify(S));
+});
 
 // ── Flag on ──
 await page.goto(BASE + '/app.html?seller_nav=1'); await wait(400);
@@ -136,6 +145,86 @@ if (phone) {
   check('Escape closes More', !(await vis('#ss2MoreSheet .ss2-sheet')));
 }
 
+// ── Phase 2: Inventory views, filters, bulk bar ──
+await page.evaluate(() => { window.prompt = () => 'Graded only'; });
+await go('inventory');
+const rowsShown = () => page.locator('#inventoryBody tr[id^="inv-row-"]').count();
+const tickRow = async id => {
+  const idx = await page.evaluate(id => inventory.findIndex(c => c._dbId === id), id);
+  await page.click(`#inventoryBody .card-check[data-idx="${idx}"]`); await wait(120);
+};
+check('inventory: classic toolbar and strips hidden', !(await vis('#adminInventoryPanel > .toolbar')) && !(await vis('#mhStrip')));
+check('inventory: header, views and filter bar shown', await vis('#ss2InvChrome .ss2-inv-head') && await vis('#ss2Views') && await vis('#ss2FilterBar'));
+check('Available view by default: 4 cards, none ticked', (await rowsShown()) === 4 && await page.evaluate(() => !document.querySelector('#inventoryBody .card-check:checked')), String(await rowsShown()));
+const viewText = await page.textContent('#ss2Views');
+check('view counts: All 5 · Available 4 · At a show 2 · Needs attention 1 · Sold 1',
+  /All\s*5/.test(viewText) && /Available\s*4/.test(viewText) && /At a show\s*2/.test(viewText) && /Needs attention\s*1/.test(viewText) && /Sold\s*1/.test(viewText), viewText.replace(/\s+/g, ' '));
+check('no Listed online view with the switch off', !/Listed online/.test(viewText));
+await page.click('#ss2Views .ss2-view:has-text("At a show")'); await wait(200);
+check('At a show view: 2 cards with a show chip', (await rowsShown()) === 2 && (await page.locator('#inventoryBody .ss2-chip-show').count()) === 2);
+await page.click('#ss2Views .ss2-view:has-text("Needs attention")'); await wait(200);
+check('Needs attention view: the card with no price', (await rowsShown()) === 1 && (await page.textContent('#inventoryBody')).includes('Wander Franco'));
+await page.click('#ss2Views .ss2-view:has-text("Available")'); await wait(200);
+await page.selectOption('#ss2FGraded', 'graded'); await wait(200);
+check('Graded filter: 1 card', (await rowsShown()) === 1);
+await page.click('#ss2Views .ss2-view-save'); await wait(200);
+check('Save view adds a tab', (await page.textContent('#ss2Views')).includes('Graded only'));
+await page.selectOption('#ss2FGraded', ''); await wait(200);
+await page.fill('#sellerSearchInput', 'crews'); await wait(200);
+check('search inside the filter bar: 1 card', (await rowsShown()) === 1);
+await page.fill('#sellerSearchInput', ''); await page.dispatchEvent('#sellerSearchInput', 'input'); await wait(200);
+check('Not for sale yet chip on a card at no show', (await page.textContent('#inventoryBody')).includes('Not for sale yet'));
+
+if (phone) {
+  check('phone: no checkboxes until Select', !(await vis('#inventoryBody .card-check')));
+  await page.click('#ss2SelectBtn'); await wait(150);
+}
+await tickRow('c4');
+check('one ticked: bulk bar replaces the filter bar', await vis('#ss2BulkBar') && !(await vis('#ss2FilterBar')) && (await page.textContent('#ss2BulkCount')).includes('1 selected'));
+if (phone) check('phone: bulk bar replaces the tab bar', !(await vis('#sellerTabBarV2')));
+check('Mark sold enabled with one card', await page.isEnabled('#ss2BulkSell'));
+await tickRow('c2');
+check('Mark sold disabled with two cards', !(await page.isEnabled('#ss2BulkSell')) && (await page.getAttribute('#ss2BulkSell', 'title')) === 'Select one card to sell');
+const before = await page.evaluate(() => window.__srv.show_inventory.length);
+const errs0 = errors.length;
+await page.click('#ss2BulkBar button:has-text("Add to show")'); await wait(150);
+await page.click('#ss2Pop .ss2-pop-item:has-text("Monster Show")'); await wait(700);
+const st = await page.evaluate(() => ({ rows: window.__srv.show_inventory.map(r => r.card_id), active: activeShowId, toast: document.getElementById('toast').textContent }));
+check('Add to show: only the new card is published', st.rows.length === before + 1 && st.rows.includes('c4'), JSON.stringify(st.rows));
+check('Add to show: toast says one was already there', /Added 1 card to Monster Show · 1 was already there/.test(st.toast), st.toast);
+check('Add to show: that show becomes the active show', st.active === 'show_a');
+check('Add to show: selection cleared, no errors', !(await vis('#ss2BulkBar')) && errors.length === errs0);
+if (phone && !(await page.evaluate(() => document.body.classList.contains('ss2-selecting')))) { await page.click('#ss2SelectBtn'); await wait(150); }
+await tickRow('c4');
+await page.click('#ss2BulkBar button:has-text("More")'); await wait(150);
+await page.click('#ss2Pop .ss2-pop-item:has-text("Take out of Monster Show")'); await wait(500);
+check('Take out of show: just that card', await page.evaluate(() => {
+  const c = id => inventory.find(x => x._dbId === id);
+  return !c('c4')._shows.has('show_a') && c('c1')._shows.has('show_a') && !window.__srv.show_inventory.some(r => r.card_id === 'c4');
+}));
+if (phone && !(await page.evaluate(() => document.body.classList.contains('ss2-selecting')))) { await page.click('#ss2SelectBtn'); await wait(150); }
+await tickRow('c2');
+await page.click('#ss2BulkSell'); await wait(300);
+check('Mark sold opens the Sell Drawer for that card', await page.evaluate(() => document.getElementById('sellDrawerOverlay').classList.contains('open')));
+await page.evaluate(() => closeSellDrawer()); await wait(200);
+await page.click('#ss2SelAll').catch(() => {}); await wait(150);
+if (!phone) check('header checkbox selects every card in the view', (await page.textContent('#ss2BulkCount')).includes(String(await rowsShown())));
+check('inventory: no sideways scroll with the bulk bar', await noSideScroll());
+if (phone) { await page.click('#ss2SelectBtn'); await wait(150); check('phone: Done ends select mode and brings the tab bar back', await vis('#sellerTabBarV2')); }
+await go('home');
+check('leaving Inventory clears the selection', await page.evaluate(() => !document.querySelector('#inventoryBody .card-check:checked') && !document.body.classList.contains('ss2-has-sel')));
+check('Home: Needs you lists the card with no price', (await page.textContent('#ss2HomeNeeds')).includes('no asking price'));
+await page.click('#ss2HomeNeeds .ss2-row:has-text("no asking price")'); await wait(400);
+check('Needs you → Inventory filtered to that reason', (await hash()) === '#/s/inventory' && (await rowsShown()) === 1 && await vis('#ss2Reason'));
+check('Getting started checklist moved to Home', await page.evaluate(() => document.getElementById('ss2HomeChecklist').contains(document.getElementById('gsChecklist'))));
+await go('sales');
+check('Sales: Inventory baseline card with Set baseline', await vis('#ss2BaselineCard') && await vis('#ss2BaselineCard button:has-text("Set baseline")'));
+await go('inventory');
+check('saved view survives on the device', (await page.textContent('#ss2Views')).includes('Graded only'));
+await page.click('#ss2Views .ss2-view:has-text("Graded only")'); await wait(200);
+check('saved view reapplies its filters', (await rowsShown()) === 1 && (await page.inputValue('#ss2FGraded')) === 'graded');
+await page.click('#ss2Views .ss2-view-x'); await wait(150);
+check('saved view can be deleted', !(await page.textContent('#ss2Views')).includes('Graded only'));
 // Marketplace switch on: Market tab replaces More (phone), nav item + badge (desktop)
 await page.evaluate(() => localStorage.setItem('marketplaceTest', '1'));
 await page.reload(); await wait(2500);
@@ -168,7 +257,9 @@ check('sign out: v2 removed, moved panels back in the sidebar', await page.evalu
   !document.body.classList.contains('seller-v2') && !location.hash.startsWith('#/s/')
   && document.getElementById('mainSidebar').contains(document.getElementById('sellerShowsPanel'))
   && document.getElementById('mainSidebar').contains(document.getElementById('sellerQrPanel'))
-  && document.getElementById('mainSidebar').contains(document.getElementById('sellerStatsRow'))));
+  && document.getElementById('mainSidebar').contains(document.getElementById('sellerStatsRow'))
+  && !!document.querySelector('#adminInventoryPanel > .toolbar #sellerSearchInput')
+  && !document.getElementById('ss2SelAll')));
 
 // Buyer view never mounts the shell
 await page.evaluate(() => enterAsBuyer()); await wait(500);

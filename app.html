@@ -5561,6 +5561,77 @@
     body.seller-v2 .toast { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
     body.seller-v2 #costAddBar { bottom: calc(8.5rem + env(safe-area-inset-bottom, 0px)); }
   }
+
+  /* Seller Dashboard v2, Phase 2: Inventory views, filter bar, bulk-action bar */
+  #ss2InvChrome { display: none; }
+  body.seller-v2.ss2-route-inventory #ss2InvChrome { display: block; }
+  body.seller-v2 #adminInventoryPanel > .toolbar,
+  body.seller-v2 #mhStrip, body.seller-v2 #moStrip, body.seller-v2 #ordStrip,
+  body.seller-v2 #bulkDeleteBtn { display: none !important; }
+  .ss2-inv-head { justify-content: space-between; }
+  .ss2-inv-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-left: auto; }
+  .ss2-select-btn { display: none; }
+  .ss2-views { display: flex; gap: 0.35rem; overflow-x: auto; padding-bottom: 0.4rem; margin-bottom: 0.6rem; scrollbar-width: thin; }
+  .ss2-view {
+    flex: 0 0 auto; min-height: 40px; padding: 0 0.85rem; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--muted-text); font: 600 0.84rem 'DM Sans', sans-serif; cursor: pointer; white-space: nowrap;
+  }
+  .ss2-view:hover { color: var(--text); }
+  .ss2-view.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+  .ss2-view-n { font: 0.72rem 'DM Mono', monospace; color: var(--muted-text); margin-left: 0.25rem; }
+  .ss2-view-save { border-style: dashed; }
+  .ss2-view-custom { display: inline-flex; align-items: center; flex: 0 0 auto; }
+  .ss2-view-custom .ss2-view { border-radius: 999px 0 0 999px; border-right: 0; }
+  .ss2-view-x {
+    min-width: 32px; min-height: 40px; border: 1px solid var(--border); border-radius: 0 999px 999px 0; background: var(--surface);
+    color: var(--muted-text); cursor: pointer; font-size: 1rem;
+  }
+  .ss2-reason .ss2-view-x { min-height: 28px; border-radius: 999px; margin-left: 0.4rem; }
+  .ss2-view-custom.active .ss2-view-x { border-color: var(--accent); }
+  .ss2-reason { color: var(--muted-text); font-size: 0.85rem; margin: -0.2rem 0 0.6rem; display: flex; align-items: center; }
+  .ss2-filterbar, .ss2-bulk { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; min-height: 46px; }
+  .ss2-filter-search { flex: 1 1 220px; min-width: 0; }
+  .ss2-filter-search .search-input { width: 100%; min-height: 44px; }
+  .ss2-filterbar .filter-select { min-height: 44px; flex: 0 1 auto; max-width: 100%; }
+  .ss2-bulk { background: var(--card); border: 1px solid var(--accent); border-radius: 12px; padding: 0.4rem 0.6rem; }
+  .ss2-bulk-count { font: 600 0.9rem 'DM Sans', sans-serif; color: var(--text); margin-right: 0.3rem; }
+  .ss2-bulk .ss2-cta:disabled { opacity: 0.45; cursor: not-allowed; }
+  .ss2-mk-only { display: none !important; }
+  body.ss2-mk .ss2-mk-only { display: inline-flex !important; }
+  .ss2-pop { position: fixed; z-index: 1500; max-height: 60vh; overflow-y: auto; display: none; }
+  .ss2-pop-item { display: block; width: 100%; min-height: 44px; text-align: left; border: 0; background: none; color: var(--text);
+    font: 0.9rem 'DM Sans', sans-serif; cursor: pointer; text-decoration: none; }
+  .ss2-pop-label { padding: 0.5rem 0.75rem 0.25rem; color: var(--muted-text); font-size: 0.78rem; }
+  .ss2-where { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+  .ss2-where span { font: 600 0.6rem 'DM Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 4px; }
+  .ss2-chip-show { background: rgba(245,200,66,0.12); color: var(--accent); }
+  .ss2-chip-warn { background: rgba(239,68,68,0.14); color: #fca5a5; }
+  .ss2-chip-muted { background: var(--surface); color: var(--muted-text); border: 1px solid var(--border); }
+  .ss2-empty { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 2.5rem 1rem; color: var(--muted-text); text-align: center; }
+  .ss2-empty b { color: var(--text); font-size: 1rem; }
+  #ss2SelAll { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .ss2-card-title { font: 600 0.72rem 'DM Mono', monospace; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-text); padding: 0.4rem 0.8rem 0.2rem; }
+  .ss2-baseline { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .ss2-baseline-text { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+  body.seller-v2 #ss2BaselineHolder .sh-baseline { margin: 0; padding: 0; border: 0; background: none; }
+  body.seller-v2 #ss2HomeChecklist .gs-card { margin-bottom: 1rem; }
+  @media (max-width: 767px) {
+    .ss2-select-btn { display: inline-flex; }
+    .ss2-inv-actions .btn-primary { display: none; }   /* the + in the tab bar adds cards on phone */
+    .ss2-views { flex-wrap: nowrap; }
+    .ss2-filterbar .filter-select { flex: 1 1 calc(50% - 0.25rem); }
+    body.seller-v2:not(.ss2-selecting) #inventoryBody .checkbox-cell { display: none !important; }
+    body.seller-v2.ss2-route-inventory.ss2-has-sel #sellerTabBarV2 { display: none; }
+    body.seller-v2.ss2-route-inventory .ss2-bulk {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 121; margin: 0; border-radius: 14px 14px 0 0;
+      padding: 0.5rem 0.6rem calc(0.5rem + env(safe-area-inset-bottom, 0px)); display: grid;
+      grid-template-columns: repeat(4, 1fr); gap: 0.4rem; border-width: 1px 0 0;
+    }
+    body.seller-v2.ss2-route-inventory .ss2-bulk[style*="display: none"] { display: none !important; }
+    .ss2-bulk-count { grid-column: 1 / -1; text-align: center; margin: 0; }
+    .ss2-bulk .ss2-cta { min-height: 48px; padding: 0 0.3rem; font-size: 0.8rem; justify-content: center; }
+    .ss2-bulk .ss2-cta:last-child { display: none; }   /* Clear: the Done button and More cover it */
+  }
 </style>
 </head>
 <body>
@@ -8368,7 +8439,7 @@
 <!-- Show Mode v2 (flag show_mode_v2). Bump ?v= when it changes: the service worker caches by URL. -->
 <script src="/js/show-mode.js?v=20261120p"></script>
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
-<script src="/js/cost-tracking.js?v=20261114a"></script>
+<script src="/js/cost-tracking.js?v=20261125a"></script>
 <script src="/js/snap-sell.js?v=20261121a"></script>
 <script src="/js/show-home.js?v=20261121a"></script>
 <script src="/js/show-log-import.js?v=20261120a"></script>
@@ -8382,7 +8453,7 @@
 <script src="/js/offer-rules.js?v=20261211a"></script>
 <script src="/js/marketplace-orders.js?v=20261212c"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
-<script src="/js/seller-shell.js?v=20261125a"></script>
+<script src="/js/seller-shell.js?v=20261125b"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -16090,13 +16161,15 @@ function sellerPublishToShow(showId) {
     + (unidentifiedSkipped ? ` · ${unidentifiedSkipped} card${unidentifiedSkipped !== 1 ? 's' : ''} need details first` : ''));
 }
 
-function sellerRemoveFromShow(showId) {
-  const myCards = getSellerInventory();
+// onlyCards (optional, seller dashboard v2 bulk bar): take just these cards out of the show.
+// Without it, every one of the seller's cards leaves the show, as before.
+function sellerRemoveFromShow(showId, onlyCards) {
+  const myCards = Array.isArray(onlyCards) ? onlyCards : getSellerInventory();
   const dbIds = myCards.filter(card => card._shows && card._shows.has(showId) && card._dbId).map(c => c._dbId);
   myCards.forEach(card => { if (card._shows) card._shows.delete(showId); });
-  if (activeShowId === showId) { activeShowId = null; _persistActiveShowId(currentSeller, null); }
+  if (activeShowId === showId && !Array.isArray(onlyCards)) { activeShowId = null; _persistActiveShowId(currentSeller, null); }
   renderSellerShowsList();
-  showToast('Cards removed from show');
+  showToast(Array.isArray(onlyCards) ? `${dbIds.length} card${dbIds.length !== 1 ? 's' : ''} taken out of the show` : 'Cards removed from show');
 
   // Mirror-image fix to the persistence gap above: remove the corresponding
   // show_inventory rows so the card doesn't silently reappear under this
