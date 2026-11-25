@@ -15,6 +15,9 @@ await ctx.addInitScript(([today]) => {
   window.confirm = () => true;
 }, [today]);
 await ctx.route('**/.netlify/functions/**', r => r.fulfill({ contentType: 'application/json', body: '{"success":false}' }));
+// Registered after the catch-all above: Playwright tries the newest route first.
+await ctx.route('**/.netlify/functions/card-image**', r => r.fulfill({ status: 200, contentType: 'image/png',
+  body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64') }));
 await ctx.route('**/supabase-js@2*', r => r.fulfill({ contentType: 'application/javascript', body: mock }));
 await ctx.route('https://fonts.**', r => r.fulfill({ body: '' }));
 const page = await ctx.newPage();
@@ -58,7 +61,7 @@ await page.evaluate(() => signOut()); await wait(600);
 // Two more cards for Phase 2: one not at any show, one with no asking price.
 await page.evaluate(() => {
   const S = window.__srv;
-  S.inventory.push({ id: 'c4', seller_id: 'u1', card_title: '2022 Topps Bobby Witt Jr.', player: 'Bobby Witt Jr.', year: 2022, card_set: 'Topps', price: 25, status: 'Available' });
+  S.inventory.push({ id: 'c4', seller_id: 'u1', card_title: '2022 Topps Bobby Witt Jr.', player: 'Bobby Witt Jr.', year: 2022, card_set: 'Topps', price: 25, status: 'Available', catalog_card_id: '11111111-2222-4333-8444-555555555555' });
   S.inventory.push({ id: 'c5', seller_id: 'u1', card_title: '2021 Donruss Wander Franco', player: 'Wander Franco', year: 2021, card_set: 'Donruss', price: 0, status: 'Available' });
   localStorage.setItem('__srv', JSON.stringify(S));
 });
@@ -173,6 +176,22 @@ await page.selectOption('#ss2FGraded', ''); await wait(200);
 await page.fill('#sellerSearchInput', 'crews'); await wait(200);
 check('search inside the filter bar: 1 card', (await rowsShown()) === 1);
 await page.fill('#sellerSearchInput', ''); await page.dispatchEvent('#sellerSearchInput', 'input'); await wait(200);
+await wait(600);
+const thumbs = await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('#inventoryBody tr[id^="inv-row-"]')];
+  const c4 = rows.find(tr => tr.id === 'inv-row-' + inventory.findIndex(c => c._dbId === 'c4'));
+  const img = c4 && c4.querySelector('.ss2-thumb img');
+  return { rows: rows.length, withThumb: rows.filter(tr => tr.querySelector('.ss2-thumb')).length,
+           catalog: !!(img && img.complete && img.naturalWidth > 0 && /card-image\?id=/.test(img.src)),
+           blank: rows.filter(tr => tr.querySelector('.ss2-thumb--none')).length };
+});
+check('every row has a thumbnail; catalog image for the card with a catalog id, blank tiles for the rest',
+  thumbs.rows > 0 && thumbs.withThumb === thumbs.rows && thumbs.catalog && thumbs.blank === thumbs.rows - 1, JSON.stringify(thumbs));
+const thumbBox = await page.locator('#inventoryBody .ss2-thumb').first().boundingBox();
+check('thumbnail is at least 44px', thumbBox && thumbBox.width >= 44 && thumbBox.height >= 44, JSON.stringify(thumbBox));
+await page.locator('#inventoryBody .ss2-thumb').first().click(); await wait(200);
+check('tapping a thumbnail opens Edit Card', await page.evaluate(() => document.getElementById('cardEditOverlay').classList.contains('open')));
+await page.evaluate(() => closeCEM()); await wait(150);
 check('Not for sale yet chip on a card at no show', (await page.textContent('#inventoryBody')).includes('Not for sale yet'));
 
 if (phone) {

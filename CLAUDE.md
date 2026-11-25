@@ -6622,8 +6622,12 @@ part and `ss2Teardown()` at the start of `signOut()`, `loginAsAdmin()`, `enterAs
   isn't paged, so there's no "select all N" link).
 - Both `sellerRemoveFromShow()` and `assignStockCodesBulk()` gained an optional cards argument (omitted = old behavior).
 - "Where it's for sale" chips under each card title (`_ss2AddWhereChips()`): one per show (date · name), NO PHOTO (switch on),
-  NOT FOR SALE YET; LISTED / ON HOLD / ORDERED still come from `mkChipHTML()`. The table's columns are otherwise unchanged
-  (the spec's Code / Asking / Comp column layout isn't built).
+  NOT FOR SALE YET; LISTED / ON HOLD / ORDERED still come from `mkChipHTML()`.
+- Card thumbnail left of the title (`_ss2AddThumb()`, 44×62, tap → Edit Card), from Show Mode's `smCardImage()`: the seller's
+  photo on this phone, else their photo from another device (signed URL, `_smLoadRemoteThumbs()`), else the catalog image
+  (`card-image.js`, letterboxed), else a blank tile. `_ss2LoadThumbs()` loads this phone's photo index once per sign-in and
+  re-renders only when new photos arrive. The table's other columns are unchanged (the spec's separate Code / Asking / Comp
+  columns aren't built).
 - Hidden in v2: the classic toolbar, the holds/offers/orders strips (their counts are on Home and the Market badge),
   `#bulkDeleteBtn`. Moved: `#gsChecklist` → Home, `#baselineStrip` → a Sales "Inventory baseline" card with Set baseline.
 - Home "Needs you" (interim until Phase 3, `_ss2RenderNeeds()`): orders to confirm, offers, holds ending in 24h, orders to ship

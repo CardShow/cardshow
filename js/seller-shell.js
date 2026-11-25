@@ -298,6 +298,7 @@ function ss2Init() {
 
 function ss2Teardown() {
   if (!_ss2Built) return;
+  _ss2ThumbIndexLoaded = false;
   _ss2InvUnmount();
   _ss2On = false;
   document.body.classList.remove('seller-v2');
@@ -575,7 +576,59 @@ function ss2InvRender(origRender) {
     cb.setAttribute('aria-label', 'Select ' + ((card && card['Card Title']) || 'card'));
   });
   rows.forEach(_ss2AddWhereChips);
+  rows.forEach(_ss2AddThumb);
+  _ss2LoadThumbs();
   ss2InvRefreshChrome();
+}
+
+// Card thumbnail beside the title (spec 2.5). Same lookup as Show Mode:
+// the seller's photo (this device, or another device via a signed URL), then
+// the catalog image, then a blank tile. Tap it to open Edit Card.
+function _ss2ThumbHTML(c, idx) {
+  const img = typeof smCardImage === 'function' ? smCardImage(c) : null;
+  const label = _ss2Esc('Edit ' + (c['Card Title'] || 'card'));
+  const inner = img
+    ? `<img src="${_ss2Esc(img.url)}" alt="" loading="lazy"${img.source === 'stock' ? ` data-catalog="${_ss2Esc(c.CatalogCardId || '')}"` : ''} onerror="_ss2ThumbFailed(this)">`
+    : '';
+  return `<button type="button" class="ss2-thumb${img && img.source === 'stock' ? ' ss2-thumb--stock' : ''}${img ? '' : ' ss2-thumb--none'}" aria-label="${label}" onclick="openCEM(${idx})">${inner}</button>`;
+}
+function _ss2ThumbFailed(img) {
+  if (img.dataset.catalog && navigator.onLine && typeof _smStockMissing !== 'undefined') _smStockMissing.add(img.dataset.catalog);
+  const b = img.parentElement;
+  if (b) b.classList.add('ss2-thumb--none');
+  img.remove();
+}
+function _ss2AddThumb(c) {
+  const idx = inventory.indexOf(c);
+  const tr = document.getElementById('inv-row-' + idx);
+  const cell = tr && tr.children[1];
+  if (!cell || cell.querySelector('.ss2-cardcell')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'ss2-cardcell';
+  wrap.innerHTML = _ss2ThumbHTML(c, idx) + '<div class="ss2-cardtext"></div>';
+  const text = wrap.lastChild;
+  while (cell.firstChild) text.appendChild(cell.firstChild);
+  cell.appendChild(wrap);
+  if (c.Status === 'Sold') wrap.firstChild.style.opacity = '0.4';
+}
+// Photos saved on this phone (once per sign-in) and signed URLs for photos
+// taken on other devices; re-render only when something new arrived.
+let _ss2ThumbIndexLoaded = false, _ss2ThumbBusy = false;
+async function _ss2LoadThumbs() {
+  if (_ss2ThumbBusy || typeof _smLoadRemoteThumbs !== 'function') return;
+  _ss2ThumbBusy = true;
+  let changed = false;
+  try {
+    if (!_ss2ThumbIndexLoaded && typeof _smLoadCaptureIndex === 'function') {
+      _ss2ThumbIndexLoaded = true;
+      const before = typeof _smThumbUrls !== 'undefined' ? _smThumbUrls.size : 0;
+      await _smLoadCaptureIndex();
+      changed = typeof _smThumbUrls !== 'undefined' && _smThumbUrls.size !== before;
+    }
+    if (await _smLoadRemoteThumbs()) changed = true;
+  } catch (e) { console.warn('[seller-v2] thumbnails', e); }
+  _ss2ThumbBusy = false;
+  if (changed && _ss2On && _ss2Route === 'inventory' && typeof applyInventoryFilters === 'function') applyInventoryFilters();
 }
 
 // "Where it's for sale" chips under the card title: shows, and not-for-sale-yet.

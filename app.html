@@ -5602,6 +5602,13 @@
   .ss2-pop-item { display: block; width: 100%; min-height: 44px; text-align: left; border: 0; background: none; color: var(--text);
     font: 0.9rem 'DM Sans', sans-serif; cursor: pointer; text-decoration: none; }
   .ss2-pop-label { padding: 0.5rem 0.75rem 0.25rem; color: var(--muted-text); font-size: 0.78rem; }
+  body.seller-v2 .ss2-cardcell { display: flex; align-items: flex-start; gap: 0.7rem; }
+  body.seller-v2 .ss2-cardtext { min-width: 0; flex: 1; }
+  body.seller-v2 .ss2-thumb { width: 44px; height: 62px; flex-shrink: 0; padding: 0; border-radius: 6px; overflow: hidden; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); display: block; }
+  body.seller-v2 .ss2-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  body.seller-v2 .ss2-thumb--stock img { object-fit: contain; }
+  body.seller-v2 .ss2-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .ss2-where { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
   .ss2-where span { font: 600 0.6rem 'DM Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 4px; }
   .ss2-chip-show { background: rgba(245,200,66,0.12); color: var(--accent); }
@@ -8453,7 +8460,7 @@
 <script src="/js/offer-rules.js?v=20261211a"></script>
 <script src="/js/marketplace-orders.js?v=20261212c"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
-<script src="/js/seller-shell.js?v=20261125b"></script>
+<script src="/js/seller-shell.js?v=20261125c"></script>
 <script>
 // ── STATE ──
 let inventory = [];
