@@ -272,9 +272,11 @@ function stockCodeSet(card, code) {
 }
 
 // "Assign codes": every unsold card shown in the table that has no code, in table order.
-async function assignStockCodesBulk() {
+// onlyCards (optional, seller dashboard v2 bulk bar): code just these cards, in this order.
+async function assignStockCodesBulk(onlyCards) {
   if (_stockCodesMissing) { showToast('Stock codes aren\'t set up yet', 'gold'); return; }
-  const order = [...document.querySelectorAll('#inventoryBody .card-check')].map(cb => inventory[parseInt(cb.dataset.idx, 10)]);
+  const order = Array.isArray(onlyCards) ? onlyCards
+    : [...document.querySelectorAll('#inventoryBody .card-check')].map(cb => inventory[parseInt(cb.dataset.idx, 10)]);
   const cards = order.filter(c => c && c.Status !== 'Sold' && !c.StockCode && c._dbId);
   if (!cards.length) { showToast('Every unsold card shown already has a stock code'); return; }
   if (!confirm(`Give stock codes to ${cards.length} card${cards.length !== 1 ? 's' : ''}?\n\nSlabs get S-1, S-2…, raw singles R-1…, sealed B-1…, lots L-1…, continuing from your highest number.`)) return;

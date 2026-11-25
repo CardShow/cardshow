@@ -67,6 +67,7 @@
     --muted: #6b7280;
     --success: #22c55e;
     --danger: #ef4444;
+    --muted-text: #9aa3c2;   /* labels / secondary text that must pass 4.5:1 (seller dashboard v2) */
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5407,6 +5408,237 @@
     #siReviewBody .si-actions { flex-direction:column; align-items:stretch; }
     #siReviewBody .si-actions .btn, #siReviewBody .si-actions select { width:100%; }
   }
+
+  /* ══════ Seller Dashboard v2 shell (js/seller-shell.js, flag seller_nav_v2) ══════
+     Everything is scoped to body.seller-v2, so with the flag off nothing here applies. */
+  #sellerNav, #sellerTopBar, #sellerTabBarV2, #ss2MoreSheet { display: none; }
+  body.seller-v2 #view-seller .seller-layout { display: flex; flex-wrap: wrap; align-items: flex-start; }
+  body.seller-v2 #mainSidebar,
+  body.seller-v2 #sellerTabBar,
+  body.seller-v2 #fabAddCard,
+  body.seller-v2 #sidebarToggle,
+  body.seller-v2 #navHelpWrap,
+  body.seller-v2 #navShowModeBtn,
+  body.seller-v2 #navProfileBtn { display: none !important; }
+  body.seller-v2 #view-seller .main-content { flex: 999 1 560px; min-width: 0; }
+  body.seller-v2.ss2-route-sales #adminInventoryPanel .toolbar,
+  body.seller-v2.ss2-route-sales #gsChecklist { display: none !important; }
+
+  body.seller-v2 #sellerNav {
+    display: flex; flex-direction: column; gap: 0.75rem;
+    flex: 0 0 248px; width: 248px; position: sticky; top: 52px; align-self: flex-start;
+    height: calc(100vh - 52px); overflow-y: auto;
+    padding: 1rem 0.75rem; background: var(--surface); border-right: 1px solid var(--border);
+  }
+  .ss2-ico { flex: 0 0 auto; }
+  .ss2-add-btn {
+    display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+    min-height: 44px; border: 0; border-radius: 10px; background: var(--accent); color: #0a0a0a;
+    font: 700 0.95rem 'DM Sans', sans-serif; cursor: pointer;
+  }
+  .ss2-add-btn:focus-visible, .ss2-nav-item:focus-visible, .ss2-tab:focus-visible, .ss2-sheet-row:focus-visible,
+  .ss2-sm-btn:focus-visible, .ss2-avatar-btn:focus-visible, .ss2-seg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ss2-nav { display: flex; flex-direction: column; gap: 2px; }
+  .ss2-nav-item {
+    display: flex; align-items: center; gap: 0.65rem; width: 100%; min-height: 44px; padding: 0 0.7rem;
+    border: 0; border-radius: 8px; background: none; color: var(--muted-text); text-decoration: none; text-align: left;
+    font: 500 0.92rem 'DM Sans', sans-serif; cursor: pointer;
+  }
+  .ss2-nav-item:hover { background: var(--card); color: var(--text); }
+  .ss2-nav-item.active { background: var(--card); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+  .ss2-nav-label { flex: 1; min-width: 0; }
+  .ss2-count { font: 0.72rem 'DM Mono', monospace; color: var(--muted-text); }
+  .ss2-chip { font: 600 0.66rem 'DM Mono', monospace; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 6px; }
+  .ss2-badge {
+    min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #0a0a0a;
+    font: 700 0.7rem 'DM Mono', monospace; display: inline-flex; align-items: center; justify-content: center;
+  }
+  #ss2NavMarket { display: none; }
+  body.ss2-mk #ss2NavMarket { display: block; }
+  .ss2-nav-sub { display: none; flex-direction: column; padding-left: 2.35rem; }
+  body.ss2-route-market .ss2-nav-sub { display: flex; }
+  .ss2-nav-subitem { min-height: 36px; display: flex; align-items: center; color: var(--muted-text); text-decoration: none; font-size: 0.85rem; }
+  .ss2-nav-subitem:hover, .ss2-nav-subitem.active { color: var(--text); }
+  .ss2-nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+  .ss2-account { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.7rem 0; color: var(--muted-text); font-size: 0.82rem; }
+  .ss2-account-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .ss2-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--card); display: flex; align-items: center; justify-content: center; }
+  .ss2-signout { width: 44px; height: 44px; border: 0; background: none; color: var(--muted-text); cursor: pointer; border-radius: 8px; }
+  .ss2-signout:hover { color: var(--text); background: var(--card); }
+
+  body.seller-v2 #sellerTopBar { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
+  .ss2-search {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.5rem; min-height: 44px; padding: 0 0.8rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--muted-text);
+  }
+  .ss2-search:focus-within { border-color: var(--accent); }
+  .ss2-search input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--text); font: 0.92rem 'DM Sans', sans-serif; }
+  .ss2-sm-btn {
+    display: inline-flex; align-items: center; gap: 0.45rem; min-height: 44px; padding: 0 0.9rem; white-space: nowrap;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text);
+    font: 600 0.88rem 'DM Sans', sans-serif; cursor: pointer;
+  }
+  .ss2-sm-btn:hover { border-color: var(--accent); }
+  .ss2-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px rgba(34,197,94,0.25); }
+  .ss2-avatar-btn { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+
+  .ss2-head { margin-bottom: 1rem; }
+  .ss2-head-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .ss2-title { font: 2rem/1 'Bebas Neue', sans-serif; letter-spacing: 0.03em; color: var(--text); }
+  .ss2-lede { color: var(--muted-text); font-size: 0.9rem; margin-top: 0.3rem; }
+  .ss2-back { display: none; width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--muted-text); border-radius: 8px; }
+  .ss2-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+  .ss2-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  .ss2-cta { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+  .ss2-rows { padding: 0.3rem; display: flex; flex-direction: column; }
+  .ss2-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 52px; padding: 0 0.8rem;
+    border: 0; border-radius: 8px; background: none; color: var(--text); font: 600 0.95rem 'DM Sans', sans-serif; text-align: left; cursor: pointer;
+  }
+  .ss2-row:hover { background: var(--card); }
+  .ss2-row-meta { color: var(--muted-text); font-weight: 400; font-size: 0.82rem; text-align: right; }
+  .ss2-seg { margin-left: auto; display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+  .ss2-seg-btn { min-height: 38px; padding: 0 0.9rem; display: inline-flex; align-items: center; border-radius: 8px; color: var(--muted-text); text-decoration: none; font-size: 0.85rem; font-weight: 600; }
+  .ss2-seg-btn.active { background: var(--card); color: var(--text); }
+  body.seller-v2 #ss2Shows #sellerShowsPanel,
+  body.seller-v2 #ss2Qr .seller-qr-panel { margin: 0; }
+  body.seller-v2 #ss2Qr .seller-qr-panel { display: block; }
+
+  /* More sheet (phone More tab, or the avatar button once Market takes slot 5) */
+  body.seller-v2 #ss2MoreSheet.open {
+    display: flex; position: fixed; inset: 0; z-index: 400; background: rgba(0,0,0,0.6);
+    align-items: flex-end; justify-content: center;
+  }
+  .ss2-sheet {
+    width: 100%; max-width: 480px; max-height: 88vh; overflow-y: auto; background: var(--surface);
+    border-radius: 16px 16px 0 0; padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column;
+  }
+  .ss2-sheet-grab { width: 40px; height: 4px; border-radius: 2px; background: var(--border); margin: 0.3rem auto 0.6rem; }
+  .ss2-sheet-row {
+    display: flex; align-items: center; gap: 0.8rem; min-height: 52px; padding: 0 0.6rem; width: 100%;
+    border: 0; border-radius: 10px; background: none; color: var(--text); text-decoration: none; text-align: left;
+    font: 500 1rem 'DM Sans', sans-serif; cursor: pointer;
+  }
+  .ss2-sheet-row:hover { background: var(--card); }
+  .ss2-sheet-row small { display: block; color: var(--muted-text); font-size: 0.8rem; font-weight: 400; }
+  .ss2-sheet-profile { min-height: 64px; border-bottom: 1px solid var(--border); border-radius: 10px 10px 0 0; margin-bottom: 0.25rem; }
+  .ss2-sheet-label { color: var(--muted-text); font: 0.7rem 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; padding: 0.8rem 0.6rem 0.3rem; }
+  .ss2-sheet-close { min-height: 48px; margin-top: 0.5rem; }
+
+  /* Phone: bottom tab bar instead of the left nav. z-index 120: above content,
+     below Show Mode (150) and every modal (200+). */
+  @media (max-width: 767px) {
+    body.seller-v2 #sellerNav { display: none; }
+    body.seller-v2 #view-seller .main-content { flex-basis: 100%; }
+    body.seller-v2 #view-seller { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+    body.seller-v2 #sellerTabBarV2 {
+      display: grid; grid-template-columns: repeat(5, 1fr); align-items: stretch;
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 120;
+      min-height: 64px; padding-bottom: env(safe-area-inset-bottom, 0px);
+      background: rgba(17,19,24,0.97); border-top: 1px solid var(--border);
+    }
+    .ss2-tab {
+      position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      min-height: 56px; border: 0; background: none; color: var(--muted-text); text-decoration: none;
+      font: 600 0.68rem 'DM Sans', sans-serif; cursor: pointer;
+    }
+    .ss2-tab.active { color: var(--accent); }
+    .ss2-tab-plus { align-self: center; justify-self: center; width: 52px; height: 52px; min-height: 52px; border-radius: 50%; background: var(--accent); color: #0a0a0a; }
+    .ss2-tab-plus .ss2-ico { width: 24px; height: 24px; }
+    .ss2-tab .ss2-badge { position: absolute; top: 4px; left: calc(50% + 6px); }
+    #ss2TabMarket { display: none; }
+    body.ss2-mk #ss2TabMarket { display: flex; }
+    body.ss2-mk #ss2TabMore { display: none; }
+    body.ss2-mk.ss2-route-home #ss2AvatarBtn { display: inline-flex !important; }
+    body.seller-v2 #sellerTopBar { gap: 0.4rem; }
+    .ss2-sm-btn span:last-child { display: none; }
+    .ss2-sm-btn { padding: 0 0.75rem; }
+    .ss2-title { font-size: 1.7rem; }
+    body.seller-v2.ss2-route-sales .ss2-back { display: inline-flex; }
+    .ss2-seg { margin-left: 0; width: 100%; }
+    .ss2-seg-btn { flex: 1; justify-content: center; min-height: 44px; }
+    body.seller-v2 .toast { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+    body.seller-v2 #costAddBar { bottom: calc(8.5rem + env(safe-area-inset-bottom, 0px)); }
+  }
+
+  /* Seller Dashboard v2, Phase 2: Inventory views, filter bar, bulk-action bar */
+  #ss2InvChrome { display: none; }
+  body.seller-v2.ss2-route-inventory #ss2InvChrome { display: block; }
+  body.seller-v2 #adminInventoryPanel > .toolbar,
+  body.seller-v2 #mhStrip, body.seller-v2 #moStrip, body.seller-v2 #ordStrip,
+  body.seller-v2 #bulkDeleteBtn { display: none !important; }
+  .ss2-inv-head { justify-content: space-between; }
+  .ss2-inv-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-left: auto; }
+  .ss2-select-btn { display: none; }
+  .ss2-views { display: flex; gap: 0.35rem; overflow-x: auto; padding-bottom: 0.4rem; margin-bottom: 0.6rem; scrollbar-width: thin; }
+  .ss2-view {
+    flex: 0 0 auto; min-height: 40px; padding: 0 0.85rem; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--muted-text); font: 600 0.84rem 'DM Sans', sans-serif; cursor: pointer; white-space: nowrap;
+  }
+  .ss2-view:hover { color: var(--text); }
+  .ss2-view.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+  .ss2-view-n { font: 0.72rem 'DM Mono', monospace; color: var(--muted-text); margin-left: 0.25rem; }
+  .ss2-view-save { border-style: dashed; }
+  .ss2-view-custom { display: inline-flex; align-items: center; flex: 0 0 auto; }
+  .ss2-view-custom .ss2-view { border-radius: 999px 0 0 999px; border-right: 0; }
+  .ss2-view-x {
+    min-width: 32px; min-height: 40px; border: 1px solid var(--border); border-radius: 0 999px 999px 0; background: var(--surface);
+    color: var(--muted-text); cursor: pointer; font-size: 1rem;
+  }
+  .ss2-reason .ss2-view-x { min-height: 28px; border-radius: 999px; margin-left: 0.4rem; }
+  .ss2-view-custom.active .ss2-view-x { border-color: var(--accent); }
+  .ss2-reason { color: var(--muted-text); font-size: 0.85rem; margin: -0.2rem 0 0.6rem; display: flex; align-items: center; }
+  .ss2-filterbar, .ss2-bulk { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; min-height: 46px; }
+  .ss2-filter-search { flex: 1 1 220px; min-width: 0; }
+  .ss2-filter-search .search-input { width: 100%; min-height: 44px; }
+  .ss2-filterbar .filter-select { min-height: 44px; flex: 0 1 auto; max-width: 100%; }
+  .ss2-bulk { background: var(--card); border: 1px solid var(--accent); border-radius: 12px; padding: 0.4rem 0.6rem; }
+  .ss2-bulk-count { font: 600 0.9rem 'DM Sans', sans-serif; color: var(--text); margin-right: 0.3rem; }
+  .ss2-bulk .ss2-cta:disabled { opacity: 0.45; cursor: not-allowed; }
+  .ss2-mk-only { display: none !important; }
+  body.ss2-mk .ss2-mk-only { display: inline-flex !important; }
+  .ss2-pop { position: fixed; z-index: 1500; max-height: 60vh; overflow-y: auto; display: none; }
+  .ss2-pop-item { display: block; width: 100%; min-height: 44px; text-align: left; border: 0; background: none; color: var(--text);
+    font: 0.9rem 'DM Sans', sans-serif; cursor: pointer; text-decoration: none; }
+  .ss2-pop-label { padding: 0.5rem 0.75rem 0.25rem; color: var(--muted-text); font-size: 0.78rem; }
+  body.seller-v2 .ss2-cardcell { display: flex; align-items: flex-start; gap: 0.7rem; }
+  body.seller-v2 .ss2-cardtext { min-width: 0; flex: 1; }
+  body.seller-v2 .ss2-thumb { width: 44px; height: 62px; flex-shrink: 0; padding: 0; border-radius: 6px; overflow: hidden; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); display: block; }
+  body.seller-v2 .ss2-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  body.seller-v2 .ss2-thumb--stock img { object-fit: contain; }
+  body.seller-v2 .ss2-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ss2-where { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+  .ss2-where span { font: 600 0.6rem 'DM Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 4px; }
+  .ss2-chip-show { background: rgba(245,200,66,0.12); color: var(--accent); }
+  .ss2-chip-warn { background: rgba(239,68,68,0.14); color: #fca5a5; }
+  .ss2-chip-muted { background: var(--surface); color: var(--muted-text); border: 1px solid var(--border); }
+  .ss2-empty { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 2.5rem 1rem; color: var(--muted-text); text-align: center; }
+  .ss2-empty b { color: var(--text); font-size: 1rem; }
+  #ss2SelAll { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .ss2-card-title { font: 600 0.72rem 'DM Mono', monospace; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-text); padding: 0.4rem 0.8rem 0.2rem; }
+  .ss2-baseline { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .ss2-baseline-text { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+  body.seller-v2 #ss2BaselineHolder .sh-baseline { margin: 0; padding: 0; border: 0; background: none; }
+  body.seller-v2 #ss2HomeChecklist .gs-card { margin-bottom: 1rem; }
+  @media (max-width: 767px) {
+    .ss2-select-btn { display: inline-flex; }
+    .ss2-inv-actions .btn-primary { display: none; }   /* the + in the tab bar adds cards on phone */
+    .ss2-views { flex-wrap: nowrap; }
+    .ss2-filterbar .filter-select { flex: 1 1 calc(50% - 0.25rem); }
+    body.seller-v2:not(.ss2-selecting) #inventoryBody .checkbox-cell { display: none !important; }
+    body.seller-v2.ss2-route-inventory.ss2-has-sel #sellerTabBarV2 { display: none; }
+    body.seller-v2.ss2-route-inventory .ss2-bulk {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 121; margin: 0; border-radius: 14px 14px 0 0;
+      padding: 0.5rem 0.6rem calc(0.5rem + env(safe-area-inset-bottom, 0px)); display: grid;
+      grid-template-columns: repeat(4, 1fr); gap: 0.4rem; border-width: 1px 0 0;
+    }
+    body.seller-v2.ss2-route-inventory .ss2-bulk[style*="display: none"] { display: none !important; }
+    .ss2-bulk-count { grid-column: 1 / -1; text-align: center; margin: 0; }
+    .ss2-bulk .ss2-cta { min-height: 48px; padding: 0 0.3rem; font-size: 0.8rem; justify-content: center; }
+    .ss2-bulk .ss2-cta:last-child { display: none; }   /* Clear: the Done button and More cover it */
+  }
 </style>
 </head>
 <body>
@@ -8214,7 +8446,7 @@
 <!-- Show Mode v2 (flag show_mode_v2). Bump ?v= when it changes: the service worker caches by URL. -->
 <script src="/js/show-mode.js?v=20261120p"></script>
 <script src="/js/show-mode-scan.js?v=20261031a"></script>
-<script src="/js/cost-tracking.js?v=20261114a"></script>
+<script src="/js/cost-tracking.js?v=20261125a"></script>
 <script src="/js/snap-sell.js?v=20261121a"></script>
 <script src="/js/show-home.js?v=20261121a"></script>
 <script src="/js/show-log-import.js?v=20261120a"></script>
@@ -8228,6 +8460,7 @@
 <script src="/js/offer-rules.js?v=20261211a"></script>
 <script src="/js/marketplace-orders.js?v=20261212c"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
+<script src="/js/seller-shell.js?v=20261125c"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -8658,6 +8891,7 @@ async function submitAuth() {
 }
 
 function enterAsBuyer() {
+  if (typeof ss2Teardown === 'function') ss2Teardown();   // seller dashboard v2 shell
   currentRole   = 'buyer';
   currentSeller = null;
   const overlay = document.getElementById('authOverlay');
@@ -14414,6 +14648,7 @@ function loginAsSeller(handle, opts) {
   renderSellerShowsList();
   buildSellerQrPanel();
   updateProfileUI(handle);
+  if (typeof ss2Init === 'function') ss2Init();   // seller dashboard v2 shell (flag; js/seller-shell.js)
 
   // Fetch from Supabase — loads only this seller's real cards
   fetchSellerInventoryFromDB(handle).then(async loaded => {
@@ -14516,6 +14751,7 @@ async function _isSocialReviewer(uid) {
 
 // opts.reviewer: read-only Social Sales access only (no shows, no edits).
 function loginAsAdmin(opts = {}) {
+  if (typeof ss2Teardown === 'function') ss2Teardown();   // seller dashboard v2 shell
   const reviewer = !!opts.reviewer;
   closeShowMode();
   const smNavBtn = document.getElementById('navShowModeBtn');
@@ -14651,6 +14887,7 @@ async function _restoreSellerSession() {
 }
 
 async function signOut() {
+  if (typeof ss2Teardown === 'function') ss2Teardown();   // seller dashboard v2 shell
   _dropShareHandle = null; _dropHandleTouched = false;   // next seller loads their own share-handle choice
   if (_obStateTimer) _obSaveStateNow(); // flush a pending checklist/tips save while currentSeller is still set
   _obStateLoaded = false; _obStateSync = false;
@@ -15931,13 +16168,15 @@ function sellerPublishToShow(showId) {
     + (unidentifiedSkipped ? ` · ${unidentifiedSkipped} card${unidentifiedSkipped !== 1 ? 's' : ''} need details first` : ''));
 }
 
-function sellerRemoveFromShow(showId) {
-  const myCards = getSellerInventory();
+// onlyCards (optional, seller dashboard v2 bulk bar): take just these cards out of the show.
+// Without it, every one of the seller's cards leaves the show, as before.
+function sellerRemoveFromShow(showId, onlyCards) {
+  const myCards = Array.isArray(onlyCards) ? onlyCards : getSellerInventory();
   const dbIds = myCards.filter(card => card._shows && card._shows.has(showId) && card._dbId).map(c => c._dbId);
   myCards.forEach(card => { if (card._shows) card._shows.delete(showId); });
-  if (activeShowId === showId) { activeShowId = null; _persistActiveShowId(currentSeller, null); }
+  if (activeShowId === showId && !Array.isArray(onlyCards)) { activeShowId = null; _persistActiveShowId(currentSeller, null); }
   renderSellerShowsList();
-  showToast('Cards removed from show');
+  showToast(Array.isArray(onlyCards) ? `${dbIds.length} card${dbIds.length !== 1 ? 's' : ''} taken out of the show` : 'Cards removed from show');
 
   // Mirror-image fix to the persistence gap above: remove the corresponding
   // show_inventory rows so the card doesn't silently reappear under this

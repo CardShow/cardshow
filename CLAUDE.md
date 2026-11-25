@@ -132,6 +132,8 @@ netlify/lib/geocode.js / us-places.js / us-places.json → Census Geocoder call 
 supabase/migrations/20261201120000_show_geocoding.sql → shows.street_address/postal_code/geo_*; coordinates locked to the service role / platform owner, cleared on address change
 supabase/migrations/20261202120000_pricing_admin.sql → pricing tables readable by the platform owner only (was every organizer), 'ignored' status, pricing_admin_summary/_unmatched/_resolve — see "Pricing admin"
 netlify/functions/pricing-admin.js → Platform owner POST {action: summary|queue|lookup|match|retry|ignore}: the Pricing tab's server (Card Hedge key stays here)
+js/seller-shell.js               → Seller Dashboard v2 shell (flag SELLER_NAV_V2_ENABLED, off; test with ?seller_nav=1): left nav / phone tab bar, #/s/ routes — loaded last; see "Seller Dashboard v2"
+docs/seller-dashboard-v2-decisions.md → Seller Dashboard v2 decisions that amend the build spec (phone Market tab, rollout, open questions)
 js/pricing-admin.js               → Admin "💲 Pricing" tab (platform owner): pricing summary + queue of cards Card Hedge couldn't match — loaded after js/marketplace-dealer.js
 buyer/                            → Marketplace buyer site (Astro, server-rendered, its own Netlify site "cardshow-buyer", base dir buyer/); getcardshow.com proxies /search, /shows, /c/*, /d/*, /s/*, /account, /_astro/* to it — see "Buyer site" and buyer/README.md
 supabase/migrations/20261203120000_marketplace_buyer_site.sql → inventory.public_photo_path/_capture_id (server-managed), public listing-photos bucket, listing_photos_due()/listing_photo_set(), _listing_json() adds photo_path + dealer WhatsApp/Instagram on the listing page
@@ -6551,6 +6553,89 @@ across a re-render, sale + sync + Undo, two cards offline, lot → Snap & Sell, 
 - Snap & Sell's `snap_resolve` still doesn't write `transaction_item_costs` for lot cards.
 - Questions for Tito from the import README (direction of the $20, Captain Pikachu $100, $25 on
   NOV7-09, which Glaceon, Slab 50, the 12 ungrouped trades, missing costs/asks).
+
+## Seller Dashboard v2 (Phases 1–2 built, session 2026-11-25)
+
+Build spec: "CardShow — Seller Dashboard Redesign — Build Spec v1" (Stephen, given in chat), amended by
+`docs/seller-dashboard-v2-decisions.md` (that file wins where they disagree). Replaces the seller tab bar, toolbar and
+sidebar with a left nav (desktop) / bottom tab bar (phone) around four jobs: add cards → get ready for shows →
+marketplace → sales. **Re-home, don't rewrite:** no sale, publish, Show Mode, outbox or SQL code changes.
+
+**Flag:** `SELLER_NAV_V2_ENABLED = false` in `js/seller-shell.js`. Test switch `?seller_nav=1` / `=0` (localStorage
+`sellerNavTest`). Rollout (decided 2026-11-25): beta sellers via the test switch, then the flag on for everyone after the
+next show; the flag-off UI stays until v2 has been on for everyone for 2 weeks. With the flag off nothing changes: all
+CSS is scoped to `body.seller-v2`, and the only app.html JS edits are `ss2Init()` at the end of `loginAsSeller()`'s sync
+part and `ss2Teardown()` at the start of `signOut()`, `loginAsAdmin()`, `enterAsBuyer()`. New token `--muted-text: #9aa3c2`.
+
+**Phase 1 (shell):**
+- `ss2Init()` builds once: `#sellerNav` (prepended to `.seller-layout`; + Add cards, Home, Inventory count, Shows date
+  chip for a joined show ≤7 days out, Marketplace with badge + sub-items, Sales & reports; footer Table QR, Settings =
+  Profile, Help & tour = `#navHelpMenu` beside the button, account + sign out), `#sellerTopBar` (search mirrored into
+  `#sellerSearchInput` → Inventory; **Open Show Mode** = `smOpenFromNav()`, green dot when a joined show runs today),
+  panels `#ss2Home` / `#ss2Shows` / `#ss2Market` / `#ss2Qr` / `#ss2SalesHead` (before `#adminInventoryPanel`), the phone
+  tab bar `#sellerTabBarV2` and the More sheet `#ss2MoreSheet` (appended to body).
+- **Moved, not copied** (IDs keep working, moved back by `ss2Teardown()`): `#sellerShowsPanel` → Shows,
+  `#sellerQrPanel` → Table QR, `#sellerStatsRow` → Home. Hidden under v2: `#mainSidebar`, `#sellerTabBar`, `#fabAddCard`,
+  `#sidebarToggle`, `#navHelpWrap`, `#navShowModeBtn`, `#navProfileBtn` (and the toolbar + checklist on Sales).
+- **Routes** `#/s/home|inventory|shows|market[/buyers]|sales[/shows]|qr`. Inventory = `switchSellerTab('inventory')`,
+  Sales = `switchSellerTab('report')`, Sales → Show results = `switchSellerTab('shows')`. Last section per seller in
+  localStorage `ss2Last:<handle>` (refresh returns to it). Unknown `#/s/…` and Market with the switch off → Home. `#/sm/…`
+  is left to Show Mode; a bare `#` (from `href="#"` links) is ignored.
+- **Wrapped app functions** (wrapper calls the original, then refreshes the shell): `updateStats`,
+  `renderSellerShowsList`, `_ordRenderStrip` / `_moRenderStrip` / `_mhRenderStrip` (badges), `closeShowMode` (puts the
+  `#/s/` route back after Show Mode clears its hash), `switchSellerTab` (old callers like the Feature guide update the URL).
+- **Market badge** = `ss2MarketCounts()`: orders to confirm + paid ship orders + offers waiting + holds ending ≤24h, from the
+  existing pollers' in-memory lists. Use it for Home's Needs-you rows too (Phase 3).
+- **Phone (≤767px):** tab bar Home · Cards · + · Shows · More (z-index 120: below Show Mode 150 and modals 200+). With the
+  marketplace switch on, slot 5 is **Market** (`#/s/market/buyers`, badge) and an avatar button on Home opens the same
+  sheet (profile, Sales & reports, Table QR, Settings, help items, Sign out). Sales has a back chevron to Home. Toast and
+  `#costAddBar` sit above the tab bar.
+- **Tests:** `tests/show-mode/seller-v2.e2e.mjs` (iPhone 13, Pixel 7, Desktop Chrome; Phase 2 checks too): flag off unchanged, routing,
+  back/forward, refresh, Show Mode open/close, search, Market switch on/off, ≥44px targets, sign out restores the sidebar,
+  buyer view. Existing suites give the same results with the flag off.
+- **Phase 0 findings** worth keeping: bulk "Add to show" = `sellerPublishToShow(showId)` (already acts on checked rows,
+  skips cards already in the show / flagged / Needs details, sets `activeShowId`; picker must list joined shows only).
+  There is no multi-card sale path. Marketplace order sales and off-show manual sales can only be told apart if
+  `dbRowToCard()` maps `inventory.sold_channel` / `source` (open question). Marketplace toasts do show above Show Mode, but
+  once, for 3s, untappable; strips don't (see the decisions doc).
+
+**Decisions (2026-11-25):** phone Market tab gated by the marketplace switch; Set baseline lives on Sales & reports; bulk
+"Add to show" makes that show the active one (like ⚡ Add My Cards); rollout as above. Details in the decisions doc.
+
+**Phase 2 (Inventory, built 2026-11-25):**
+- The classic `renderSellerTable()` still draws the rows; the shell wraps it (`ss2InvRender()`) and decides which rows it gets
+  (`ss2InvRows()`: view → reason → sport → graded/raw → show → search → sort). Rows start **unticked** in v2 (the classic
+  view pre-ticks every unsold card). The selection (`_ss2Sel`, card objects) survives re-renders and is cleared when the view,
+  a filter or the search changes, and when leaving Inventory (so Shows' Add My Cards still acts on every unsold card).
+- `#ss2InvChrome` (before the hidden classic `.toolbar`): header (Select on phone, **Import / Export ▾** = upload spreadsheet,
+  template, export CSV/Excel; **+ Add cards**), views `#ss2Views` (All, Available (default), At a show, Listed online (switch
+  on), Needs attention, Sold, with counts; **+ Save view** stores up to 12 named views in localStorage `ss2Views:<handle>`,
+  this device only), filter bar `#ss2FilterBar` (the moved `#sellerSearchInput`, Sport, Graded, Show, Sort), and the bulk bar
+  `#ss2BulkBar` that replaces the filter bar while cards are ticked.
+- Needs attention reasons (`ss2AttentionReason()`): stolen/lost flag, Needs details, no asking price, no photo (switch on only).
+  `ss2InvOpen(view, reason)` opens Inventory on a view from another page.
+- Bulk actions, all existing functions reading the ticked rows: **Add to show ▾** (joined shows not over →
+  `sellerPublishToShow()`, own toast counting "already there" / held back), **List online** (`openMarketplacePanel()`, switch
+  on), **Check comps**, **Mark sold** (exactly one card → `openSellDrawer()`; disabled for 2+), **More ▾** (Take out of a show →
+  `sellerRemoveFromShow(showId, cards)`, Assign stock codes → `assignStockCodesBulk(cards)`, Validate sport, Export selected
+  CSV/Excel, Delete selected), Clear. Popover `#ss2Pop`. Header checkbox `#ss2SelAll` ticks every row in the view (the table
+  isn't paged, so there's no "select all N" link).
+- Both `sellerRemoveFromShow()` and `assignStockCodesBulk()` gained an optional cards argument (omitted = old behavior).
+- "Where it's for sale" chips under each card title (`_ss2AddWhereChips()`): one per show (date · name), NO PHOTO (switch on),
+  NOT FOR SALE YET; LISTED / ON HOLD / ORDERED still come from `mkChipHTML()`.
+- Card thumbnail left of the title (`_ss2AddThumb()`, 44×62, tap → Edit Card), from Show Mode's `smCardImage()`: the seller's
+  photo on this phone, else their photo from another device (signed URL, `_smLoadRemoteThumbs()`), else the catalog image
+  (`card-image.js`, letterboxed), else a blank tile. `_ss2LoadThumbs()` loads this phone's photo index once per sign-in and
+  re-renders only when new photos arrive. The table's other columns are unchanged (the spec's separate Code / Asking / Comp
+  columns aren't built).
+- Hidden in v2: the classic toolbar, the holds/offers/orders strips (their counts are on Home and the Market badge),
+  `#bulkDeleteBtn`. Moved: `#gsChecklist` → Home, `#baselineStrip` → a Sales "Inventory baseline" card with Set baseline.
+- Home "Needs you" (interim until Phase 3, `_ss2RenderNeeds()`): orders to confirm, offers, holds ending in 24h, orders to ship
+  (switch on), Snap & Sell needing details (→ Show Mode `/needs`), cards that can't go on sale by reason (→ Inventory).
+- Phone: checkboxes only in Select mode; the bulk bar is fixed at the bottom in place of the tab bar; Done ends it.
+
+**Not built yet:** 3 (Home), 4 (Shows page), 5 (Marketplace page), 6 (Sales merge), 7 (phone polish, Sell / Add sheet restyle),
+8 (help targets, tour copy).
 
 ## CardShow Marketplace (Phase 0 done, Phase 1 back end built, session 2026-11-20)
 
