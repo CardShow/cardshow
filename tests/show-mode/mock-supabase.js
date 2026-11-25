@@ -273,6 +273,48 @@
           data = { ok: true };
         }
       }
+    } else if (['dealer_orders','confirm_order','mark_order_paid','ship_order','dealer_cancel_order','set_payment_methods'].includes(name)) {
+      // Enough of 20261212120000_marketplace_orders.sql (the rules are tested in SQL). __ordMissing simulates the migration not run.
+      if (window.__ordMissing) return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + name } });
+      S.orders = S.orders || [];
+      const cardOf = id => { const r = S.inventory.find(x => x.id === id) || {};
+        return { id, title: r.card_title, stock_code: r.stock_code, price_cents: Math.round(Number(r.price || 0) * 100), status: r.status, listing_status: r.listing_status }; };
+      a = a || {};
+      const o = S.orders.find(x => x.id === a.p_order_id && x.dealer_id === UID);
+      const total = x => x.subtotal_cents + (x.shipping_cents || 0);
+      if (name === 'set_payment_methods') {
+        const bad = (a.p_methods || []).findIndex(m => m.kind === 'venmo' && /\s/.test(m.value));
+        if (bad >= 0) data = { error: 'bad_method', index: bad, kind: 'venmo' };
+        else { const methods = (a.p_methods || []).map(m => ({ kind: m.kind, value: String(m.value).replace(/^[@$]/, '') }));
+          S.dealer_payment_methods = [{ dealer_id: UID, methods, note: a.p_note }]; data = { ok: true, methods }; }
+      } else if (name === 'dealer_orders') {
+        data = S.orders.filter(x => x.dealer_id === UID).map(x => ({ ...x, total_cents: total(x), cards: x.listing_ids.map(cardOf) }));
+      } else if (!o) data = { error: 'not_found' };
+      else if (name === 'confirm_order') {
+        if (o.status !== 'awaiting_confirmation') data = { error: 'not_awaiting' };
+        else if (o.fulfillment === 'ship' && o.shipping_cents == null && a.p_shipping_cents == null) data = { error: 'shipping_required' };
+        else { Object.assign(o, { status: 'awaiting_payment', shipping_cents: o.fulfillment === 'ship' ? (a.p_shipping_cents ?? o.shipping_cents) : null,
+                 pay_by: new Date(Date.now() + 864e5).toISOString(), confirmed_at: new Date().toISOString() });
+               data = { ok: true, status: 'awaiting_payment', pay_by: o.pay_by }; }
+      } else if (name === 'dealer_cancel_order') {
+        o.status = 'cancelled'; o.end_reason = a.p_reason;
+        o.listing_ids.forEach(id => { const r = S.inventory.find(x => x.id === id); if (r) r.listing_status = a.p_reason === 'not_available' ? 'delisted' : 'active'; });
+        data = { ok: true, status: 'cancelled' };
+      } else if (name === 'mark_order_paid') {
+        if (o.status === 'paid' && a.p_picked_up) { o.status = 'completed'; data = { ok: true, status: 'completed' }; }
+        else if (!['awaiting_confirmation','awaiting_payment'].includes(o.status)) data = { error: 'not_open' };
+        else {
+          const rs = o.listing_ids.map(id => S.inventory.find(x => x.id === id));
+          const asks = rs.map(r => Math.round(Number(r.price || 0) * 100)), sum = asks.reduce((p, q) => p + q, 0);
+          rs.forEach((r, i) => Object.assign(r, { status: 'Sold', listing_status: 'sold', payment_method: a.p_payment_method,
+            sold_price: Math.round(o.subtotal_cents * asks[i] / sum) / 100, sold_date: new Date().toLocaleDateString('en-CA') }));
+          o.status = a.p_picked_up && o.fulfillment === 'local_pickup' ? 'completed' : 'paid'; o.paid_at = new Date().toISOString(); o.payment_method = a.p_payment_method;
+          data = { ok: true, status: o.status };
+        }
+      } else if (name === 'ship_order') {
+        if (o.status !== 'paid') data = { error: 'not_paid' };
+        else { Object.assign(o, { status: 'shipped', carrier: a.p_carrier, tracking_number: a.p_tracking }); data = { ok: true, status: 'shipped' }; }
+      }
     } else if (name === 'set_offer_rules') {
       // Enough of 20261211120000_marketplace_offer_rules.sql (the checks are tested in SQL).
       const row = { dealer_id: UID, decline_below_pct: a.p_decline_pct, decline_basis: a.p_decline_basis || 'asking',

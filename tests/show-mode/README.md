@@ -71,6 +71,9 @@ node pricing-admin.e2e.mjs "iPhone 13"      # Pricing tab (platform owner), func
 node catalog-image-search.test.mjs          # catalog-image-search.js with CardSight stubbed (exact vs other matches, autos, inserts, number variants)
 ./trade-logging.test.sh                     # record_trade / update / delete: ids, idempotency, refusals, undo order (fresh db)
 ./marketplace-offer-rules.test.sh           # Dealer offer rules: saving, decline / counter / accept, card overrides and opt-out, at a show, comp basis, bundles (fresh db, 35 checks)
+./marketplace-orders.test.sh                # Buy Now orders: payment methods, place / confirm / paid / shipped, holds and offers into orders, the sweep, privacy (fresh db, 53 checks)
+node order-notices.test.mjs                 # Order emails and order-notify-now with Supabase and Loops stubbed (15 checks)
+node marketplace-orders.e2e.mjs "iPhone 13" # Dealer Orders panel, payment methods, confirm / not available / paid / shipped; also "Pixel 7"
 TITO_FIXTURE_DIR=/path/to/csvs ./trades.test.sh # Trades + Show Home: Tito's Nov 7 Show Report via dealer_show_report(), then show-home.test.sql (fresh db, runs the migrations itself)
 ```
 

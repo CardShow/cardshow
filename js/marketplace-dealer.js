@@ -64,7 +64,9 @@ function mkChipHTML(card) {
   if (!mkEnabled() || currentRole !== 'seller') return '';
   const s = mkListing(card);
   if (s === 'active')   return '<span class="mk-chip mk-chip--on" title="Listed on the CardShow marketplace">LISTED</span>';
-  if (s === 'reserved') return '<span class="mk-chip mk-chip--hold" title="A buyer is holding this card">ON HOLD</span>';
+  if (s === 'reserved') return typeof ordForCard === 'function' && ordForCard(card)
+    ? '<span class="mk-chip mk-chip--hold" title="A buyer bought this card: see Orders">ORDERED</span>'
+    : '<span class="mk-chip mk-chip--hold" title="A buyer is holding this card">ON HOLD</span>';
   return '';
 }
 
@@ -77,6 +79,7 @@ function mkUpdateEntry(tab) {
   btn.style.display = (mkEnabled() && currentRole === 'seller' && onInventory) ? '' : 'none';
   if (typeof _mhRenderStrip === 'function') _mhRenderStrip(onInventory ? 'inventory' : (tab || 'other'));
   if (typeof _moRenderStrip === 'function') _moRenderStrip(onInventory ? 'inventory' : (tab || 'other'));
+  if (typeof _ordRenderStrip === 'function') _ordRenderStrip(onInventory ? 'inventory' : (tab || 'other'));
 }
 
 // ── Defaults for cards listed from the panel (per seller, on this device) ──
@@ -472,6 +475,8 @@ function mkCemFill(card) {
 }
 
 function _mkHeldText(card) {
+  const ord = typeof ordForCard === 'function' ? ordForCard(card) : null;
+  if (ord) return `${ord.buyer_name || 'A buyer'} bought this card (Buy Now). See Orders (above your inventory) to confirm, mark it paid or ship it.`;
   const h = typeof mhHoldForCard === 'function' ? mhHoldForCard(card) : null;
   return h ? `${h.buyer_name || 'A buyer'} is holding this card until ${_mhWhen(h.expires_at)}. See Holds (above your inventory) for their contact.`
            : 'A buyer is holding this card. It can\'t be changed until the hold ends.';

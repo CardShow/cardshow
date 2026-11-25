@@ -47,7 +47,7 @@ export function listings() {
 }
 
 export async function start({ port = 0 } = {}) {
-  const state = { calls: [], saved: [], refresh: [], holds: [], holdCalls: [], offers: [], offerCalls: [], users: { 'buyer@example.test': 'password123' }, failSearch: false };
+  const state = { calls: [], saved: [], refresh: [], holds: [], holdCalls: [], offers: [], offerCalls: [], orders: [], orderCalls: [], users: { 'buyer@example.test': 'password123' }, failSearch: false };
   const all = listings();
   const pub = l => { const { _whatsapp, _instagram, features, ...rest } = l; return rest; };
   const server = http.createServer(async (req, res) => {
@@ -143,6 +143,36 @@ export async function start({ port = 0 } = {}) {
           created_at: iso(Date.now()), expires_at: iso(Date.now() + day), name: j.p_name, contact: j.p_contact, note: j.p_note };
         state.holds.push(h); state.holdCalls.push(j); l.listing_status = 'reserved';
         return send(200, { ok: true, reservation_id: h.id, expires_at: h.expires_at });
+      }
+      // orders (enough of 20261212120000_marketplace_orders.sql; tests move the dealer's side by editing state.orders)
+      if (['place_order', 'my_orders', 'cancel_order', 'order_received'].includes(name)) {
+        if (!/tok-buyer/.test(req.headers.authorization || '')) return send(401, { message: 'JWT required' });
+        state.orderCalls.push({ name, ...j });
+        if (name === 'my_orders') return send(200, state.orders.map(o => ({ ...o, total_cents: o.subtotal_cents + (o.shipping_cents || 0),
+          cards: o.listing_ids.map(id => pub(all.find(x => x.id === id))), dealer: { handle: 'dealer_a', display_name: 'Dealer A' } })));
+        if (name !== 'place_order') {
+          const o = state.orders.find(x => x.id === j.p_order_id);
+          if (!o) return send(200, { error: 'not_found' });
+          if (name === 'cancel_order') { o.status = 'cancelled'; o.end_reason = 'buyer_cancelled'; all.find(x => x.id === o.listing_ids[0]).listing_status = 'active'; return send(200, { ok: true, status: 'cancelled' }); }
+          o.status = 'completed'; return send(200, { ok: true });
+        }
+        const l = all.find(x => x.id === j.p_listing_id);
+        if (!l) return send(200, { error: 'not_found' });
+        if (!String(j.p_name || '').trim()) return send(200, { error: 'missing_name' });
+        const modes = l.sale_modes || ['ship'];
+        if (!modes.includes(j.p_fulfillment)) return send(200, { error: 'fulfillment_not_offered' });
+        const a = j.p_ship_to;
+        if (j.p_fulfillment === 'ship' && !(a && a.name && a.line1 && a.city && /^[A-Z]{2}$/.test(a.state || '') && /^\d{5}(-\d{4})?$/.test(a.postal || '')))
+          return send(200, { error: 'bad_address' });
+        const hold = state.holds.find(h => h.listing_id === l.id && h.status === 'active');
+        if (l.listing_status !== 'active' && !hold) return send(200, { error: 'unavailable' });
+        if (hold) { hold.status = 'converted'; hold.end_reason = 'ordered'; }
+        const o = { id: `0d000000-0000-4000-8000-00000000000${state.orders.length}`, listing_ids: [l.id], card_count: 1, status: 'awaiting_confirmation',
+          fulfillment: j.p_fulfillment, subtotal_cents: hold?.agreed_cents ?? l.price_cents, shipping_cents: j.p_fulfillment === 'ship' ? (l.shipping_cents ?? null) : null,
+          ship_to: a || undefined, confirm_by: iso(Date.now() + 2 * 3600e3), created_at: iso(Date.now()), buyer_name: j.p_name,
+          ...(j.p_fulfillment === 'local_pickup' ? { pickup_code: '482913', pickup_show: { id: 'show_monster', name: 'Monster Show', table_number: '12' } } : {}) };
+        state.orders.push(o); l.listing_status = 'reserved';
+        return send(200, { ok: true, order_id: o.id, status: o.status, confirm_by: o.confirm_by });
       }
       // offers (enough of 20261208120000_marketplace_offers.sql; tests move the dealer's side by editing state.offers)
       if (['make_offer', 'make_bundle_offer', 'my_offers', 'buyer_respond_offer', 'withdraw_offer'].includes(name)) {

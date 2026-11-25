@@ -482,6 +482,88 @@ try {
   check('bundle bar: Clear empties the bundle', await page.isHidden('#bundleBar') && (await page.evaluate(() => localStorage.getItem('cardshowBundle'))) === null);
   jay.accepts_offers = false; wem.listing_status = 'reserved';
 
+  // ── Buy now / orders ──
+  {
+    const char = mock.all.find(x => x.id === CHAR);
+    char.listing_status = 'active'; mock.state.holds = []; mock.state.offers = []; mock.state.orders = [];
+    await page.evaluate(() => { localStorage.removeItem('cardshowBundle'); localStorage.removeItem('cardshowShipTo'); });
+    await page.goto(BASE + '/account'); await wait(300);
+    if (await page.isVisible('#signOut')) { await page.click('#signOut'); await wait(300); }
+    const ornotes = [];
+    await page.route('**/.netlify/functions/order-notify-now', r => { ornotes.push(JSON.parse(r.request().postData() || '{}')); r.fulfill({ body: '{}' }); });
+    await page.goto(BASE + CHAR_URL);
+    check('buy: Buy now with the price on an active card, explains paying the dealer', /Buy now · \$18,000/.test(await page.textContent('#buyBtn'))
+      && /CardShow charges you nothing/.test(await page.textContent('#buyStart')));
+    await page.click('#buyBtn');
+    await page.waitForURL(/\/account\?next=/);
+    await page.fill('#authForm [name=email]', 'buyer@example.test'); await page.fill('#authForm [name=password]', 'password123');
+    await page.click('#authSubmit');
+    await page.waitForURL(/buy=1/);
+    await page.waitForSelector('#buyForm:not([hidden])');
+    check('buy: back on the card with the form open, ship chosen, address asked, total with shipping',
+      (await page.inputValue('#buyForm [name=contact]')) === 'buyer@example.test' && await page.isVisible('#buyAddr')
+      && /\$18,005 total \(\$5 shipping\)/.test(await page.textContent('#buyTotal')), await page.textContent('#buyTotal'));
+    await page.fill('#buyForm [name=name]', 'Alex P'); await page.fill('#buyForm [name=line1]', '1 Main St'); await page.fill('#buyForm [name=city]', 'Austin');
+    await page.fill('#buyForm [name=state]', 'tx'); await page.fill('#buyForm [name=postal]', '12');
+    await page.click('#buySubmit'); await wait(400);
+    check('buy: a bad address is refused with a message', /Check the address/.test(await page.textContent('#buyMsg')) && mock.state.orders.length === 0);
+    await page.fill('#buyForm [name=postal]', '78701');
+    await page.click('#buySubmit');
+    await page.waitForSelector('#orderMine:not([hidden])');
+    const oc = mock.state.orderCalls.filter(c => c.name === 'place_order').at(-1);
+    check('buy: order placed (ship, address with the state in capitals), shown as waiting for the dealer, dealer emailed',
+      oc?.p_fulfillment === 'ship' && oc.p_ship_to?.state === 'TX' && oc.p_ship_to?.name === 'Alex P' && /Waiting for Dealer A to confirm/.test(await page.textContent('#orderStatus'))
+      && ornotes.some(n => n.order_id === mock.state.orders[0].id) && await page.isHidden('#holdBox') && await page.isVisible('#orderCancel'),
+      JSON.stringify({ oc, st: await page.textContent('#orderStatus') }));
+    check('buy: no sideways scroll', await noSideScroll());
+    // the dealer confirms
+    Object.assign(mock.state.orders[0], { status: 'awaiting_payment', pay_by: new Date(Date.now() + 864e5).toISOString(),
+      payment: { methods: [{ kind: 'venmo', value: 'dealer-a' }, { kind: 'zelle', value: 'a@example.test' }], note: 'Put the order # in the note' } });
+    await page.goto(BASE + CHAR_URL); await page.waitForSelector('#orderMine:not([hidden])');
+    const ven = await page.getAttribute('#orderPay a', 'href');
+    check('confirmed: pay links with the total filled in, Zelle and the note shown; Buy now gone',
+      ven === 'https://venmo.com/dealer-a?txn=pay&amount=18005.00' && /Zelle: a@example\.test/.test(await page.textContent('#orderPay'))
+      && /order #/.test(await page.textContent('#orderPayNote')) && /Confirmed\. Pay Dealer A/.test(await page.textContent('#orderStatus'))
+      && (await page.locator('#buyBtn').count()) === 0, String(ven));
+    await page.goto(BASE + '/account#orders'); await page.waitForSelector('#orders .hold-row');
+    let orow = await page.textContent('#orders .hold-row');
+    check('account: your orders lists it with the total and a Venmo link', /Charizard/.test(orow) && /\$18,005/.test(orow)
+      && (await page.getAttribute('#orders .hold-row a[href^="https://venmo"]', 'href'))?.includes('amount=18005.00'), orow);
+    await page.click('#orders [data-act=cancel]');
+    await page.waitForSelector('#orders .hold-row.ended');
+    check('account: cancel an order; the dealer is told', mock.state.orders[0].status === 'cancelled' && /You cancelled it/.test(await page.textContent('#orders .hold-row'))
+      && ornotes.filter(n => n.order_id === mock.state.orders[0].id).length >= 2);
+    // pickup
+    char.listing_status = 'active';
+    await page.goto(BASE + CHAR_URL); await page.click('#buyBtn'); await page.waitForSelector('#buyForm:not([hidden])');
+    check('pickup: name and address remembered', (await page.inputValue('#buyForm [name=name]')) === 'Alex P' && (await page.inputValue('#buyForm [name=postal]')) === '78701');
+    await page.check('#buyForm input[value=local_pickup]');
+    check('pickup: no address, pay at pickup', await page.isHidden('#buyAddr') && /pay at pickup/.test(await page.textContent('#buyTotal')));
+    await page.click('#buySubmit'); await page.waitForSelector('#orderMine:not([hidden])');
+    const pc = mock.state.orderCalls.filter(c => c.name === 'place_order').at(-1);
+    check('pickup: order sent without an address; pickup show, table and code shown', pc.p_fulfillment === 'local_pickup' && pc.p_ship_to === null
+      && /Monster Show, table 12/.test(await page.textContent('#orderPickup')) && /482913/.test(await page.textContent('#orderPickup')));
+    // shipped → Got it
+    Object.assign(mock.state.orders[1], { status: 'shipped', carrier: 'USPS', tracking_number: '9400 1' });
+    await page.goto(BASE + CHAR_URL); await page.waitForSelector('#orderGot:not([hidden])');
+    check('shipped: carrier and tracking shown, no cancel', /USPS · tracking 9400 1/.test(await page.textContent('#orderStatus')) && await page.isHidden('#orderCancel'));
+    await page.click('#orderGot'); await wait(300);
+    check('Got it: order completed', mock.state.orders[1].status === 'completed' && /Order complete/.test(await page.textContent('#orderHead')));
+    // a hold (from an offer) becomes an order at the agreed price
+    mock.state.orders = []; char.listing_status = 'reserved';
+    mock.state.holds.push({ id: 'ae000000-0000-4000-8000-000000000001', listing_id: CHAR, status: 'active', agreed_cents: 1500000, from_offer: true,
+      created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 864e5).toISOString() });
+    await page.goto(BASE + CHAR_URL); await page.waitForSelector('#holdMine:not([hidden])');
+    await page.click('#holdBuy'); await page.waitForSelector('#buyForm:not([hidden])');
+    check('hold → buy: total at the agreed price', /\$15,005 total/.test(await page.textContent('#buyTotal')), await page.textContent('#buyTotal'));
+    await page.check('#buyForm input[value=ship]');
+    await page.click('#buySubmit'); await page.waitForSelector('#orderMine:not([hidden])');
+    check('hold → buy: the hold becomes the order at $15,000', mock.state.orders[0]?.subtotal_cents === 1500000 && mock.state.holds.at(-1).status === 'converted'
+      && await page.isHidden('#holdBox'));
+    mock.state.orders = []; mock.state.holds = []; char.listing_status = 'active';
+    await page.goto(BASE + '/account'); await page.click('#signOut'); await wait(300);
+  }
+
   // ── search down ──
   mock.state.failSearch = true;
   res = await page.goto(BASE + '/search?q=down');

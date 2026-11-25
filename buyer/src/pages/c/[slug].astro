@@ -124,6 +124,55 @@ const jsonLd = found ? {
         {status !== 'sold' && (
           <section class="box buy" aria-label="How to buy">
             <h2>How to buy</h2>
+            <div class="hold buy-now" id="buyBox" data-id={l.id} data-status={status} data-url={l.url} data-price={l.price_cents}
+                 data-ship={ships ? '1' : ''} data-pickup={pickup ? '1' : ''} data-ship-cents={l.shipping_cents ?? ''}
+                 data-dealer-name={dealer?.display_name || dealer?.handle}>
+              {status === 'active' && (
+                <div id="buyStart">
+                  <button class="btn btn-primary" type="button" id="buyBtn">Buy now · {money(l.price_cents)}</button>
+                  <p class="muted small">The dealer confirms they still have it, then you pay them directly (Venmo, PayPal, Zelle or at their table). CardShow charges you nothing.</p>
+                </div>
+              )}
+              <form id="buyForm" class="hold-form" hidden>
+                <fieldset class="buy-how" id="buyHow">
+                  <legend>How do you want it?</legend>
+                  {ships && <label class="radio"><input type="radio" name="fulfillment" value="ship" checked={ships} /> Ship it to me <span class="muted small">({shipText.replace(/^Ships · /, '')})</span></label>}
+                  {pickup && <label class="radio"><input type="radio" name="fulfillment" value="local_pickup" checked={!ships} /> Pick it up {show?.pickup ? `at ${show.name}` : show ? `at ${show.name}` : 'in person'}</label>}
+                </fieldset>
+                <label class="field">Your name<input name="name" maxlength="60" autocomplete="name" required /></label>
+                <label class="field">How the dealer can reach you<input name="contact" maxlength="120" placeholder="Phone, email or Instagram" required /></label>
+                <div id="buyAddr" class="buy-addr">
+                  <label class="field">Ship to (name)<input name="ship_name" maxlength="80" autocomplete="shipping name" /></label>
+                  <label class="field">Street address<input name="line1" maxlength="120" autocomplete="shipping address-line1" /></label>
+                  <label class="field">Apt, suite (optional)<input name="line2" maxlength="120" autocomplete="shipping address-line2" /></label>
+                  <div class="buy-row">
+                    <label class="field">City<input name="city" maxlength="80" autocomplete="shipping address-level2" /></label>
+                    <label class="field">State<input name="state" maxlength="2" autocomplete="shipping address-level1" placeholder="CA" /></label>
+                    <label class="field">ZIP<input name="postal" maxlength="10" inputmode="numeric" autocomplete="shipping postal-code" /></label>
+                  </div>
+                  <p class="muted small">US addresses only for now.</p>
+                </div>
+                <label class="field">Note for the dealer (optional)<textarea name="note" maxlength="300" rows="2"></textarea></label>
+                <p class="buy-total" id="buyTotal"></p>
+                <div class="hold-actions">
+                  <button class="btn btn-primary" type="submit" id="buySubmit">Place order</button>
+                  <button class="btn" type="button" id="buyBack">Cancel</button>
+                </div>
+              </form>
+              <div id="orderMine" class="hold-mine order-mine" hidden>
+                <b id="orderHead"></b>
+                <span id="orderStatus"></span>
+                <span id="orderTotal" class="muted small"></span>
+                <div id="orderPay" class="order-pay" hidden></div>
+                <span id="orderPayNote" class="muted small" hidden></span>
+                <span id="orderPickup" class="muted small" hidden></span>
+                <div class="hold-actions">
+                  <button class="btn btn-primary" type="button" id="orderGot" hidden>Got it</button>
+                  <button class="linkish" type="button" id="orderCancel" hidden>Cancel my order</button>
+                </div>
+              </div>
+              <p class="notice small" id="buyMsg" role="status" hidden></p>
+            </div>
             <div class="hold" id="holdBox" data-id={l.id} data-status={status} data-url={l.url}>
               {status === 'reserved' && <p class="hold-other" id="holdOther">Another buyer is holding this card. If they don’t buy it, it goes back on sale within a day.</p>}
               <div id="holdMine" class="hold-mine" hidden>
@@ -131,6 +180,7 @@ const jsonLd = found ? {
                 <span id="holdPrice" hidden></span>
                 <span id="holdUntil"></span>
                 <span class="muted small">Pay the dealer when you meet{show ? `, at ${show.name}${show.table_number ? ` (table ${show.table_number})` : ''}` : ''}. They have your contact details.</span>
+                <button class="btn btn-primary" type="button" id="holdBuy">Buy it now</button>
                 <button class="linkish" type="button" id="holdCancel">Cancel my hold</button>
               </div>
               {status === 'active' && (
@@ -263,7 +313,18 @@ const jsonLd = found ? {
   .hold-form textarea { font: inherit; }
   .hold-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .linkish { background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 0; align-self: flex-start; font: inherit; font-size: 14px; }
-  #holdMsg, #offerMsg { margin: 0; }
+  #holdMsg, #offerMsg, #buyMsg { margin: 0; }
+  .buy-now [hidden] { display: none !important; }
+  .buy-how { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+  .buy-how legend { font-weight: 600; margin-bottom: 4px; }
+  .radio { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .buy-addr { display: flex; flex-direction: column; gap: 10px; }
+  .buy-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.3fr); gap: 8px; }
+  .buy-total { margin: 0; font-weight: 600; }
+  .order-mine { border-color: var(--accent); }
+  .order-mine b { color: var(--accent); }
+  .order-pay { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .order-pay .pay-text { font-family: var(--font-mono); font-size: 14px; }
   .offer { display: flex; flex-direction: column; gap: 8px; }
   .offer [hidden] { display: none !important; }
   .offer-mine { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
@@ -272,7 +333,9 @@ const jsonLd = found ? {
   #bundleHint { margin: 0; }
   #bundleBtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
   @media (max-width: 760px) {
-    .hold-actions .btn, #holdBtn, #offerBtn { flex: 1 1 100%; width: 100%; }
+    .hold-actions .btn, #holdBtn, #offerBtn, #buyBtn { flex: 1 1 100%; width: 100%; }
+    .buy-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .buy-row label:first-child { grid-column: 1 / -1; }
     .listing { grid-template-columns: minmax(0, 1fr); gap: 16px; }
     .media img { max-height: 60vh; }
     .contact .btn { flex: 1 1 100%; }
@@ -281,6 +344,7 @@ const jsonLd = found ? {
 
 <script>
   import { sb, currentUser, getBundle, addToBundle, dropFromBundle, inBundle, BUNDLE_MAX } from '../../lib/browser.js';
+  import { payLinks, orderStatusText } from '../../lib/format.js';
 
   // ── Holds: the dealer sets the card aside for 24 hours; the buyer pays them when they meet. ──
   const box = document.getElementById('holdBox') as HTMLElement | null;
@@ -566,6 +630,165 @@ const jsonLd = found ? {
         });
       }
     }
+  }
+
+  // ── Buy Now: the dealer confirms they have it, then the buyer pays them directly (no CardShow fees). ──
+  const buy = document.getElementById('buyBox') as HTMLElement | null;
+  if (buy) {
+    const q = (id: string) => document.getElementById(id) as any;
+    const listingId = buy.dataset.id!;
+    const price = Number(buy.dataset.price || 0);
+    const shipCents = buy.dataset.shipCents === '' ? null : Number(buy.dataset.shipCents);
+    const f = q('buyForm') as HTMLFormElement;
+    let order: any = null;
+    const bsay = (t: string) => { const m = q('buyMsg'); m.hidden = !t; m.textContent = t; };
+    const usd = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+    const when = (iso: string) => new Date(iso).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    const holdBoxEl = () => document.getElementById('holdBox');
+    let holdCents: number | null = null;
+    const fulfillment = () => (f.querySelector('input[name=fulfillment]:checked') as HTMLInputElement | null)?.value
+      || (buy.dataset.ship ? 'ship' : 'local_pickup');
+    const syncForm = () => {
+      const ship = fulfillment() === 'ship';
+      q('buyAddr').hidden = !ship;
+      for (const n of ['ship_name', 'line1', 'city', 'state', 'postal']) (f.elements.namedItem(n) as HTMLInputElement).required = ship;
+      const sub = holdCents ?? price;
+      q('buyTotal').textContent = ship
+        ? (shipCents == null ? `${usd(sub)} + shipping (the dealer sets it when they confirm)` : `${usd(sub + shipCents)} total${shipCents ? ` (${usd(shipCents)} shipping)` : ' (free shipping)'}`)
+        : `${usd(sub)} · pay at pickup`;
+    };
+    f.addEventListener('change', syncForm);
+    const notify = async (orderId: string) => {
+      try {
+        const { data } = await sb().auth.getSession();
+        const t = data?.session?.access_token; if (!t) return;
+        fetch('/.netlify/functions/order-notify-now', { method: 'POST', keepalive: true,
+          headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ order_id: orderId }) }).catch(() => {});
+      } catch {}
+    };
+    const ERR: Record<string, string> = {
+      unavailable: 'Someone else just held or bought this card.',
+      already_ordered: 'You already ordered this card.',
+      order_limit_day: 'You’ve placed a lot of orders today. Try again tomorrow.',
+      reservation_limit: 'You have 10 cards on hold or ordered already. Finish or cancel one first.',
+      own_listing: 'This is your own card.',
+      early_access: 'This card isn’t open for orders yet.',
+      no_price: 'This card has no price. Contact the dealer.',
+      not_found: 'This card isn’t listed any more.',
+      fulfillment_not_offered: 'The dealer doesn’t offer that. Pick the other option.',
+      bad_address: 'Check the address: name, street, city, 2-letter state and ZIP.',
+      missing_name: 'Add your name.',
+      missing_contact: 'Add a phone number, email or Instagram so the dealer can reach you.',
+      hold_ended: 'Your hold ran out. Try Buy now again.',
+    };
+    const showOrder = (o: any) => {
+      order = o;
+      q('orderMine').hidden = false; f.hidden = true; if (q('buyStart')) q('buyStart').hidden = true;
+      // (.hold sets display, so the hidden attribute alone wouldn't hide it)
+      const hb = holdBoxEl(); if (hb && ['awaiting_confirmation', 'awaiting_payment', 'paid', 'shipped', 'completed'].includes(o.status)) { hb.hidden = true; hb.style.display = 'none'; }
+      document.querySelector('.chip-hold')?.remove();
+      const open = ['awaiting_confirmation', 'awaiting_payment', 'paid', 'shipped'].includes(o.status);
+      q('orderHead').textContent = o.status === 'completed' ? '✓ Order complete' : open ? '✓ You ordered this card' : 'Your order ended';
+      q('orderStatus').textContent = orderStatusText(o, when);
+      q('orderTotal').textContent = o.fulfillment === 'ship'
+        ? (o.shipping_cents == null ? `${usd(o.subtotal_cents)} + shipping` : `Total ${usd(o.total_cents)} (${o.shipping_cents ? usd(o.shipping_cents) + ' shipping' : 'free shipping'})`)
+        : `Total ${usd(o.total_cents)} · pickup`;
+      const pay = q('orderPay'); pay.innerHTML = '';
+      const links = o.status === 'awaiting_payment' ? payLinks(o.payment?.methods, o.total_cents) : [];
+      for (const p of links) {
+        const el = document.createElement(p.href ? 'a' : 'span');
+        if (p.href) { (el as HTMLAnchorElement).href = p.href; el.className = 'btn'; (el as HTMLAnchorElement).target = '_blank'; (el as HTMLAnchorElement).rel = 'noopener nofollow'; el.textContent = `${p.label} ${usd(o.total_cents)}`; }
+        else { el.className = 'pay-text'; el.textContent = `${p.label}: ${p.text}`; }
+        pay.appendChild(el);
+      }
+      pay.hidden = !links.length;
+      const note = o.status === 'awaiting_payment' ? (o.payment?.note || (!links.length ? 'Contact the dealer to pay.' : '')) : '';
+      q('orderPayNote').hidden = !note; q('orderPayNote').textContent = note;
+      const pu = o.fulfillment === 'local_pickup' && open && o.pickup_show
+        ? `Pickup at ${o.pickup_show.name}${o.pickup_show.table_number ? `, table ${o.pickup_show.table_number}` : ''}.${o.pickup_code ? ` Your pickup code: ${o.pickup_code}.` : ''}`
+        : (o.fulfillment === 'local_pickup' && open && o.pickup_code ? `Your pickup code: ${o.pickup_code}.` : '');
+      q('orderPickup').hidden = !pu; q('orderPickup').textContent = pu;
+      q('orderCancel').hidden = !['awaiting_confirmation', 'awaiting_payment'].includes(o.status);
+      q('orderGot').hidden = o.status !== 'shipped';
+    };
+    const openForm = async () => {
+      const user = await currentUser();
+      if (!user) { location.href = `/account?next=${encodeURIComponent(buy.dataset.url + '?buy=1')}`; return; }
+      let saved: any = {}; try { saved = JSON.parse(localStorage.getItem('cardshowHoldContact') || '{}'); } catch {}
+      let addr: any = {}; try { addr = JSON.parse(localStorage.getItem('cardshowShipTo') || '{}'); } catch {}
+      const set = (n: string, v: string) => { const i = f.elements.namedItem(n) as HTMLInputElement; if (i && !i.value) i.value = v || ''; };
+      set('name', saved.name); set('contact', saved.contact || user.email || '');
+      set('ship_name', addr.name || saved.name); set('line1', addr.line1); set('line2', addr.line2);
+      set('city', addr.city); set('state', addr.state); set('postal', addr.postal);
+      if (q('buyStart')) q('buyStart').hidden = true;
+      f.hidden = false; bsay(''); syncForm();
+      f.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+    q('buyBtn')?.addEventListener('click', openForm);
+    q('holdBuy')?.addEventListener('click', openForm);
+    q('buyBack').addEventListener('click', () => { f.hidden = true; if (q('buyStart')) q('buyStart').hidden = false; bsay(''); });
+    f.addEventListener('submit', async (e: Event) => {
+      e.preventDefault();
+      const val = (n: string) => ((f.elements.namedItem(n) as HTMLInputElement)?.value || '').trim();
+      const ful = fulfillment();
+      const ship_to = ful === 'ship' ? { name: val('ship_name'), line1: val('line1'), line2: val('line2') || null, city: val('city'),
+        state: val('state').toUpperCase(), postal: val('postal') } : null;
+      const btn = q('buySubmit') as HTMLButtonElement; btn.disabled = true; bsay('');
+      try {
+        const { data, error } = await sb().rpc('place_order', { p_listing_id: listingId, p_fulfillment: ful, p_name: val('name'),
+          p_contact: val('contact'), p_note: val('note') || null, p_ship_to: ship_to });
+        if (error) throw error;
+        if (data?.ok) {
+          try { localStorage.setItem('cardshowHoldContact', JSON.stringify({ name: val('name'), contact: val('contact') }));
+                if (ship_to) localStorage.setItem('cardshowShipTo', JSON.stringify(ship_to)); } catch {}
+          notify(data.order_id);
+          await loadOrder();
+          if (!order) showOrder({ id: data.order_id, status: 'awaiting_confirmation', confirm_by: data.confirm_by, fulfillment: ful,
+            subtotal_cents: holdCents ?? price, shipping_cents: ful === 'ship' ? shipCents : null, total_cents: (holdCents ?? price) + (ful === 'ship' ? shipCents || 0 : 0) });
+          bsay('Order placed. The dealer has been told; you’ll get an email when they confirm, with how to pay.');
+        } else if (data?.error === 'already_ordered') { await loadOrder(); bsay(ERR.already_ordered); }
+        else bsay(ERR[data?.error] || 'Couldn’t place the order. Try again.');
+      } catch { bsay('Couldn’t place the order. Check your connection and try again.'); }
+      finally { btn.disabled = false; }
+    });
+    q('orderCancel').addEventListener('click', async () => {
+      if (!order || !confirm('Cancel your order? The card goes back on sale.')) return;
+      const { data, error } = await sb().rpc('cancel_order', { p_order_id: order.id });
+      if (error || data?.error) { bsay('Couldn’t cancel. Try again.'); return; }
+      notify(order.id);
+      bsay('Order cancelled. The card is back on sale.');
+      setTimeout(() => location.reload(), 900);
+    });
+    q('orderGot').addEventListener('click', async () => {
+      if (!order) return;
+      const { data, error } = await sb().rpc('order_received', { p_order_id: order.id });
+      if (error || data?.error) { bsay('Couldn’t save that. Try again.'); return; }
+      showOrder({ ...order, status: 'completed' }); bsay('Thanks! Enjoy the card.');
+    });
+    async function loadOrder() {
+      try {
+        const { data } = await sb().rpc('my_orders');
+        const list = (Array.isArray(data) ? data : []).filter((o: any) => (o.listing_ids || []).includes(listingId));
+        const live = list.find((o: any) => ['awaiting_confirmation', 'awaiting_payment', 'paid', 'shipped'].includes(o.status));
+        const recent = live || (buy.dataset.status !== 'active' ? list.find((o: any) => o.status === 'completed') : null);
+        if (recent) showOrder(recent);
+      } catch {}
+    }
+    (async () => {
+      const user = await currentUser();
+      const wantBuy = new URLSearchParams(location.search).get('buy') === '1';
+      if (user) await loadOrder();
+      if (order) return;
+      // A hold of mine on this card: the price is the agreed one.
+      if (user) {
+        try {
+          const { data } = await sb().rpc('my_holds');
+          const h = (Array.isArray(data) ? data : []).find((x: any) => x.status === 'active' && (x.cards || []).some((c: any) => c.id === listingId));
+          if (h) holdCents = h.agreed_cents ?? (h.cards || []).reduce((t: number, c: any) => t + (c.price_cents || 0), 0);
+        } catch {}
+      }
+      if (wantBuy && (buy.dataset.status === 'active' || holdCents != null)) openForm();
+    })();
   }
 
   // Ask for a fresh market value when someone looks at an active card (never waits; the pricing job
