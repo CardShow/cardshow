@@ -106,13 +106,11 @@ check('sealed product is not asked for a photo', !/Sealed Hobby Box/.test(blocke
 check('sold card not shown as blocked', !/Prizm Luka/.test(blocked));
 check('take-off button hidden with nothing listed', await page.isDisabled('#mkDelistBtn') && !(await page.isVisible('#mkDelistBtn')));
 
-// Bad percentages block listing
-await page.fill('#mkMinPct', '90'); await page.fill('#mkAutoPct', '80');
-await page.click('#mkListBtn'); await wait(300);
-let S = await srv();
-check('auto-accept below lowest offer is refused, nothing listed', /at or above/.test(await page.textContent('#mkErr')) && !S.inventory.some(r => r.listing_status === 'active'));
-
-await page.fill('#mkMinPct', '80'); await page.fill('#mkAutoPct', '90'); await page.check('#mkPickup');
+// Offers in the panel come from the dealer's offer rules, not per-card percentages
+check('panel shows the offer rules summary with a Set offer rules link', /No offer rules yet/.test(await page.textContent('#mkOfferRows'))
+  && (await page.locator('#mkOfferRows button:has-text("Set offer rules")').count()) === 1 && (await page.locator('#mkMinPct').count()) === 0);
+let S;
+await page.check('#mkPickup');
 check('pickup show list: shows the seller is in', await page.evaluate(() =>
   [...document.querySelectorAll('#mkPickupShow option')].map(o => o.value).join(',') === ',show_a'));
 await page.fill('#mkShipPrice', '-3');
@@ -124,16 +122,16 @@ S = await srv();
 check('c1 and c2 listed on the server', row(S, 'c1').listing_status === 'active' && row(S, 'c2').listing_status === 'active');
 check('blocked cards stay unlisted', ['c7', 'c8', 'c9', 'c10', 'c12', 'c13'].every(id => !row(S, id).listing_status));
 check('sealed box listed without a photo', row(S, 'c11').listing_status === 'active');
-check('offer settings from percentages of asking (c1 $120)', row(S, 'c1').min_offer_cents === 9600 && row(S, 'c1').auto_accept_cents === 10800, JSON.stringify(row(S, 'c1')));
+check('listing from the panel leaves the card\'s own offer prices alone', !('min_offer_cents' in row(S, 'c1')) && row(S, 'c1').accepts_offers === true, JSON.stringify(row(S, 'c1')));
 check('ship + pickup saved', JSON.stringify(row(S, 'c2').sale_modes) === '["ship","local_pickup"]');
 check('shipping price and pickup show saved', row(S, 'c2').shipping_options?.flat_cents === 450 && row(S, 'c2').pickup_show_id === 'show_a',
   JSON.stringify(row(S, 'c2')));
 check('settings written before listing', await page.evaluate(() => {
-  const L = window.__mockLog; const u = L.findIndex(e => e.table === 'inventory' && e.op === 'update' && e.payload && 'min_offer_cents' in e.payload);
+  const L = window.__mockLog; const u = L.findIndex(e => e.table === 'inventory' && e.op === 'update' && e.payload && 'accepts_offers' in e.payload);
   const p = L.findIndex(e => e.op === 'publish_listings'); return u >= 0 && p > u; }));
 check('result message', /3 cards listed/.test(await page.textContent('.mk-result')));
 check('listing never written directly from the app', await page.evaluate(() => !window.__mockLog.some(e => e.payload && 'listing_status' in Object(e.payload) && e.table === 'inventory')));
-check('defaults remembered for next time', await page.evaluate(() => JSON.parse(localStorage.getItem('mkDefaults:tester')).minPct === '80'));
+check('defaults remembered for next time', await page.evaluate(() => JSON.parse(localStorage.getItem('mkDefaults:tester')).pickup === true));
 await page.click('.mk-x'); await wait(200);
 check('LISTED chips in the table', (await page.locator('.mk-chip--on').count()) === 3);
 
@@ -151,7 +149,7 @@ await page.click('.mk-x'); await wait(200);
 // ── Edit Card section ──
 await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c1'); await wait(200);
 check('Edit Card shows the Marketplace section', await page.isVisible('#cem_mk_details'));
-check('Edit Card filled from the card', await page.evaluate(() => document.getElementById('cem_mk_min').value === '96' && document.getElementById('cem_mk_pickup').checked
+check('Edit Card filled from the card', await page.evaluate(() => document.getElementById('cem_mk_min').value === '' && document.getElementById('cem_mk_pickup').checked
   && document.getElementById('cem_mk_ship_price').value === '4.5' && document.getElementById('cem_mk_pickup_show').value === 'show_a'));
 await page.evaluate(() => { document.getElementById('cem_mk_details').open = true; });
 await page.fill('#cem_mk_auto', '500');
@@ -163,6 +161,37 @@ await page.evaluate(() => saveCEM()); await wait(600);
 S = await srv();
 check('Edit Card saves offer settings', row(S, 'c1').auto_accept_cents === 11000 && JSON.stringify(row(S, 'c1').sale_modes) === '["ship"]', JSON.stringify(row(S, 'c1')));
 check('Edit Card: free shipping, pickup show cleared', row(S, 'c1').shipping_options?.flat_cents === 0 && row(S, 'c1').pickup_show_id === null);
+
+// ── Offer rules (js/offer-rules.js) ──
+await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c1'); await wait(200);
+await page.evaluate(() => { document.getElementById('cem_mk_details').open = true; });
+check('Edit Card: rules on by default, no rules yet → link to set them', await page.isChecked('#cem_mk_rules')
+  && /No offer rules yet/.test(await page.textContent('#cem_mk_rules_line')));
+await page.click('#cem_mk_rules_line button'); await wait(200);
+check('rules dialog opens above Edit Card, no sideways scroll', await page.isVisible('#orOverlay.open')
+  && await page.evaluate(() => { const m = document.querySelector('#orOverlay .modal'); return m.scrollWidth <= m.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1; }));
+await page.fill('#orForm [name=decline]', '80'); await page.fill('#orForm [name=counter]', '96'); await page.fill('#orForm [name=accept]', '95');
+check('rules out of order: error shown, Save refused', /below the accept line/.test(await page.textContent('#orErr')));
+await page.click('#orSaveBtn'); await wait(200);
+check('nothing saved while invalid', !(await srv()).dealer_offer_rules?.length);
+await page.fill('#orForm [name=counter]', '90');
+check('example on a $100 card', /under \$80 declined · \$80 to \$89\.99 countered at \$90 · \$90 to \$94\.99 wait for you · \$95 and up accepted/.test(await page.textContent('#orExample')),
+  await page.textContent('#orExample'));
+await page.check('#orForm [name=atshow]');
+await page.click('#orSaveBtn'); await wait(500);
+check('rules saved through set_offer_rules', await page.evaluate(() => window.__mockLog.some(e => e.op === 'set_offer_rules'
+  && e.payload.p_decline_pct === 80 && e.payload.p_counter_pct === 90 && e.payload.p_accept_pct === 95 && e.payload.p_no_auto_at_show === true)));
+check('Edit Card line uses the card ($120, own auto-accept $110)', /Under \$96 declined · \$96 to \$107\.99 countered at \$108 · \$108 to \$109\.99 wait for you · \$110 and up accepted/
+  .test(await page.textContent('#cem_mk_rules_line')), await page.textContent('#cem_mk_rules_line'));
+await page.uncheck('#cem_mk_rules');
+check('turning rules off for the card updates the line', /offer rules are off for this card/.test(await page.textContent('#cem_mk_rules_line')));
+await page.evaluate(() => saveCEM()); await wait(600);
+S = await srv();
+check('Edit Card saves use_offer_rules = false', row(S, 'c1').use_offer_rules === false, JSON.stringify(row(S, 'c1')));
+await page.click('#mkBtn'); await wait(200);
+check('Marketplace panel shows the saved rules', /Decline under 80% of asking · counter at 90% of asking · accept at 95% of asking and up · nothing automatic while you're at a show/
+  .test(await page.textContent('#mkOfferRows')));
+await page.click('.mk-x'); await wait(200);
 
 await page.evaluate(id => openCEM(inventory.findIndex(c => c._dbId === id)), 'c2'); await wait(200);
 await page.evaluate(() => { document.getElementById('cem_mk_details').open = true; });

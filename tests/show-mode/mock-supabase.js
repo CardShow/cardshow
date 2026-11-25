@@ -117,6 +117,17 @@
         S.show_sellers = S.show_sellers.filter(r => r !== row);
         data = { ok:true, cards_removed: before - S.show_inventory.length };
       }
+    } else if (name === 'csf_feed_admin') {
+      // Card Shop Finder feed admin (20261210120000): canned data from the test.
+      data = (S.platform_admins || []).some(r => r.id === UID) ? (S.csf_feed || { error: 'forbidden' }) : { error: 'forbidden' };
+    } else if (name === 'csf_resolve_match') {
+      (S.csf_resolved = S.csf_resolved || []).push(a);
+      if (S.csf_feed) S.csf_feed.matches = (S.csf_feed.matches || []).filter(m => m.id !== a.p_match);
+      data = { ok: true, status: a.p_action === 'link' ? 'linked' : 'rejected' };
+    } else if (name === 'csf_removal_handled') {
+      const x = S.csf_feed && (S.csf_feed.removals || []).find(r => r.id === a.p_removal);
+      if (x) x.handled_at = new Date().toISOString();
+      data = { ok: true };
     } else if (name === 'is_platform_admin') {
       data = (S.platform_admins || []).some(r => r.id === UID);
     } else if (name === 'set_show_listed') {
@@ -262,6 +273,13 @@
           data = { ok: true };
         }
       }
+    } else if (name === 'set_offer_rules') {
+      // Enough of 20261211120000_marketplace_offer_rules.sql (the checks are tested in SQL).
+      const row = { dealer_id: UID, decline_below_pct: a.p_decline_pct, decline_basis: a.p_decline_basis || 'asking',
+        counter_pct: a.p_counter_pct, accept_at_pct: a.p_accept_pct, no_auto_at_show: !!a.p_no_auto_at_show, updated_at: new Date().toISOString() };
+      S.dealer_offer_rules = [row];
+      const { dealer_id, ...rules } = row;
+      data = { ok: true, rules };
     } else if (name === 'dealer_offers' || name === 'respond_offer') {
       // Enough of 20261208120000_marketplace_offers.sql. __moMissing simulates the migration not run.
       if (window.__moMissing) return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.' + name } });

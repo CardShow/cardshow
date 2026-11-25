@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 const { chromium, devices } = createRequire(import.meta.url)('playwright'); // pre-installed globally
-import { start } from './mock-supabase.mjs';
+import { start , CSF_URL } from './mock-supabase.mjs';
 
 const deviceName = process.argv[2] || 'iPhone 13';
 const PORT = 4300 + Math.floor(Math.random() * 500);
@@ -45,6 +45,10 @@ try {
   const t0text = await t0.textContent();
   check('tile: grade, deal, GTCR, price, market and % under, show', /PSA 10/.test(t0text) && /Deal/.test(t0text) && /GTCR/.test(t0text)
     && /\$18,000/.test(t0text) && /Market \$21,000/.test(t0text) && /14% under market/.test(t0text) && /Monster Show/.test(t0text), t0text);
+  {
+    const tc = page.locator('.tile-cell:has([data-listing="22222222-2222-4222-8222-222222222222"]) a.csf-credit');
+    check('tile at a Card Shop Finder show: credit link beside the card', (await tc.count()) === 1 && (await tc.getAttribute('href')) === CSF_URL);
+  }
   check('tile: dealer photo from the public bucket', (await t0.locator('img').getAttribute('src')) === `${mock.url}/storage/v1/object/public/listing-photos/${CHAR}/cap.jpg`);
   check('tile: catalog image is labeled', /Catalog image/.test(await page.locator('.tile[data-listing^="2222"]').textContent()));
   const catImg = page.locator('.tile[data-listing^="2222"] img');
@@ -128,6 +132,8 @@ try {
   check('listing: catalog image framed at its own size, not stretched', lpW[1] === 160 && lpW[0] <= 160.5
     && /Catalog image/.test(await page.textContent('.media')), JSON.stringify(lpW));
   check('listing: no sideways scroll with a catalog image', await noSideScroll());
+  check('listing at a Card Shop Finder show: credit linked to the exact url, hours, admission',
+    (await page.getAttribute('.show a.csf-credit', 'href')) === CSF_URL && /Hours TBD · Free entry/.test(await page.textContent('.show')));
   await wait(300); const refreshBefore = mock.state.refresh.length;
   await page.goto(BASE + '/c/44444444-4444-4444-8444-444444444444-sold-card'); await wait(300);
   check('sold: chip, no how-to-buy, SoldOut, no refresh asked', /Sold/.test(await page.textContent('.chips')) && !(await page.isVisible('.buy'))
@@ -163,6 +169,14 @@ try {
   check('show page: search within the show', (await tiles()) === 0 && /No cards match/.test(await page.textContent('main')));
   await page.goto(BASE + '/s/show_monster?x=1');
   check('show page: id → slug (301)', page.url() === BASE + '/s/monster-show-2026?x=1');
+  res = await page.goto(BASE + '/s/bay-area-card-show-2026');
+  check('CSF show page: credit to the exact url, hours and admission', res.status() === 200
+    && (await page.getAttribute('.show-head a.csf-credit', 'href')) === CSF_URL && /Hours TBD · Free entry/.test(await page.textContent('.show-head'))
+    && !/No longer listed/.test(await page.textContent('.show-head')));
+  await page.goto(BASE + '/s/gone-show-2026');
+  check('removed CSF show: page says so, not indexed', /No longer listed/.test(await page.textContent('.show-head'))
+    && /may be cancelled/.test(await page.textContent('.show-head'))
+    && (await page.getAttribute('meta[name=robots]', 'content') || '').includes('noindex'));
   res = await page.goto(BASE + '/s/nope');
   check('show page: unknown show → 404', res.status() === 404);
 
@@ -187,10 +201,19 @@ try {
   // ── upcoming shows ──
   res = await page.goto(BASE + '/shows');
   check('shows: 200, the show with dates, place and card count, linked to its page', res.status() === 200
-    && /Upcoming card shows/.test(await page.textContent('h1')) && (await page.locator('.show-card').count()) === 1
+    && /Upcoming card shows/.test(await page.textContent('h1')) && (await page.locator('.show-card').count()) === 2
     && /Cal Expo · Sacramento, CA/.test(await page.textContent('.show-card')) && /1\s*card listed/.test(await page.textContent('.show-card'))
     && (await page.getAttribute('.show-card .show-main', 'href')) === '/s/monster-show-2026');
   check('header links to Shows', (await page.getAttribute('.site-head a[href="/shows"]', 'href')) === '/shows');
+  {
+    const card = page.locator('.show-card[data-show=show_csf77]');
+    const credit = card.locator('a.csf-credit');
+    check('shows: Card Shop Finder show credited, linked to its exact url in a new tab, hours TBD, free entry',
+      (await credit.count()) === 1 && (await credit.textContent()) === 'via The Card Shop Finder'
+      && (await credit.getAttribute('href')) === CSF_URL && (await credit.getAttribute('target')) === '_blank'
+      && /noopener/.test(await credit.getAttribute('rel')) && /Hours TBD · Free entry/.test(await card.textContent())
+      && (await page.locator('.show-card[data-show=show_monster] a.csf-credit').count()) === 0);
+  }
   check('shows: no sideways scroll', await noSideScroll());
   await page.fill('#showFilters [name=loc]', '95814');
   await Promise.all([page.waitForNavigation(), page.click('#showFilters button[type=submit]')]);
@@ -203,7 +226,7 @@ try {
   await page.goto(BASE + '/shows?when=weekend');
   check('shows this weekend: date window sent', !!mock.state.showArgs.date_from && !!mock.state.showArgs.date_to);
   await page.goto(BASE + '/shows?loc=Nowhereville%2C%20CA');
-  check('shows: unknown place explained', /couldn’t find/.test(await page.textContent('#locError')) && (await page.locator('.show-card').count()) === 1);
+  check('shows: unknown place explained', /couldn’t find/.test(await page.textContent('#locError')) && (await page.locator('.show-card').count()) === 2);
 
   // ── save a search (sign in first) ──
   await page.goto(BASE + '/search?q=charizard&deals=1');
@@ -352,6 +375,19 @@ try {
   check('offer: no offer box on a card that takes no offers', (await page.locator('#offerBox').count()) === 0 && await page.isVisible('#holdBtn'));
   await page.goto(BASE + '/c/33333333-3333-4333-8333-333333333333-wemby-prizm-bgs-9-5');
   check('offer: no offer box on a held card', (await page.locator('#offerBox').count()) === 0);
+  // The dealer's offer rules counter at once (20261211120000): the answer buttons show straight away.
+  mock.all.find(x => x.id === '22222222-2222-4222-8222-222222222222').accepts_offers = true;
+  mock.state.autoCounterCents = 4000;
+  await page.goto(BASE + '/c/22222222-2222-4222-8222-222222222222-2024-prizm-jayden-daniels-silver'); await page.waitForSelector('#offerBtn');
+  await page.click('#offerBtn'); await page.waitForSelector('#offerForm:not([hidden])');
+  await page.fill('#offerForm [name=amount]', '30'); await page.click('#offerSubmit');
+  await page.waitForSelector('#offerAnswer:not([hidden])');
+  check('offer: an automatic counter shows at once with Accept / Counter / Decline', /countered at \$40/.test(await page.textContent('#offerHead'))
+    && /You offered \$30/.test(await page.textContent('#offerSub')) && (await page.textContent('#offerAccept')) === 'Accept $40'
+    && await page.isVisible('#offerCounterBtn') && /The dealer countered at \$40/.test(await page.textContent('#offerMsg')));
+  delete mock.state.autoCounterCents;
+  mock.state.offers.at(-1).status = 'withdrawn';
+  mock.all.find(x => x.id === '22222222-2222-4222-8222-222222222222').accepts_offers = false;
   await page.goto(BASE + '/account'); await page.click('#signOut'); await wait(300);
 
   // ── bundle offers: several cards from one dealer, one price ──

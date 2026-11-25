@@ -5,7 +5,8 @@ import Base from '../layouts/Base.astro';
 import { rpc } from '../lib/api.js';
 import { fromQuery, toQuery, MILES, STATES } from '../lib/search.js';
 import { resolveLocation, locationMessage } from '../lib/geo.js';
-import { dateRange, place } from '../lib/format.js';
+import { dateRange, place, showHours, admissionText } from '../lib/format.js';
+import CsfCredit from '../components/CsfCredit.astro';
 
 const { p, form } = fromQuery(Astro.url.searchParams);
 let locError = '';
@@ -69,11 +70,17 @@ const heading = p.near?.label ? `Card shows near ${p.near.label}` : p.state ? `C
   <ul class="show-list">
     {shows.map(s => (
       <li class="show-card" data-show={s.id}>
-        <a class="show-main" href={s.url}>
-          <span class="show-date">{s.start_date ? dateRange(s.start_date, s.end_date) : ''}</span>
-          <b class="show-name">{s.name}</b>
-          <span class="muted">{[s.venue, place(s)].filter(Boolean).join(' · ')}{s.miles != null ? ` · ${s.miles} mi` : ''}</span>
-        </a>
+        <div class="show-info">
+          <a class="show-main" href={s.url}>
+            <span class="show-date">{s.start_date ? dateRange(s.start_date, s.end_date) : ''}</span>
+            <b class="show-name">{s.name}</b>
+            <span class="muted">{[s.venue, place(s)].filter(Boolean).join(' · ')}{s.miles != null ? ` · ${s.miles} mi` : ''}</span>
+          </a>
+          {s.attribution && (
+            <span class="show-facts muted">{[showHours(s), admissionText(s.admission_price)].filter(Boolean).join(' · ')}
+              {' · '}<CsfCredit show={s} /></span>
+          )}
+        </div>
         <div class="show-side">
           <span class="show-count"><b>{(s.listed_cards || 0).toLocaleString('en-US')}</b> {s.listed_cards === 1 ? 'card' : 'cards'} listed</span>
           <a class="btn" href={s.url}>See the show</a>
@@ -95,6 +102,8 @@ const heading = p.near?.label ? `Card shows near ${p.near.label}` : p.state ? `C
   .show-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px;
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
   .show-card:hover { border-color: #33406a; }
+  .show-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .show-facts { font-size: 13px; }
   .show-main { display: flex; flex-direction: column; gap: 2px; text-decoration: none; min-width: 0; }
   .show-date { font-family: var(--font-mono); color: var(--accent); font-size: 13px; }
   .show-name { font-size: 18px; overflow-wrap: anywhere; }

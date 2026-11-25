@@ -56,12 +56,14 @@ function _moToastNew() {
 function moStart() {
   moStop();
   if (!_moOn()) { _moRenderStrip(); return; }
+  if (typeof orLoad === 'function') orLoad();
   moLoad({ quiet: true }).then(() => setTimeout(() => { if (_moTimer) _moToastNew(); }, 4500));
   _moTimer = setInterval(() => { if (document.visibilityState === 'visible') moLoad(); }, MO_POLL_MS);
 }
 function moStop() { if (_moTimer) clearInterval(_moTimer); _moTimer = null; }
 function moReset() {
   moStop(); _moOffers = []; _moMissing = false;
+  if (typeof orReset === 'function') orReset();
   _moRenderStrip();
   document.getElementById('moOverlay')?.classList.remove('open');
 }
@@ -109,7 +111,7 @@ const MO_ENDED = {
   accepted: 'Accepted · now a hold', declined: 'Declined', withdrawn: 'Buyer withdrew it', expired: 'Ran out', closed: 'Closed',
 };
 const MO_WHY = {
-  below_minimum: 'below your lowest offer', other_offer_accepted: 'another offer was accepted', sold: 'card sold',
+  below_minimum: 'below your lowest offer or offer rules', other_offer_accepted: 'another offer was accepted', sold: 'card sold',
   held: 'card on hold', unavailable: 'card no longer listed', no_answer: 'no answer in time',
 };
 
@@ -131,6 +133,13 @@ function _moCardHTML(o) {
     + `<div class="mh-card mo-total"><span class="mh-title">Asking together</span><span class="mh-price">${_mkMoney(moAskingCents(o))}</span></div>`;
 }
 
+// The automatic decisions on an offer (offers.auto_log, js/offer-rules.js), latest last.
+function _moAutoHTML(o) {
+  if (typeof orAutoText !== 'function' || !Array.isArray(o.auto_log) || !o.auto_log.length) return '';
+  const n = moCards(o).length;
+  return o.auto_log.map(e => orAutoText(e, n)).filter(Boolean).map(t => `<div class="mo-auto">🤖 ${_mkEsc(t)}</div>`).join('');
+}
+
 function _moRenderPanel() {
   const ov = document.getElementById('moOverlay');
   if (!ov) return;
@@ -145,6 +154,7 @@ function _moRenderPanel() {
         <span class="mh-left">answer by ${_mkEsc(_moWhen(o.expires_at))}</span></div>
       ${_moCardHTML(o)}
       <div class="mo-line">${pct != null ? `${pct}% of your price · ` : ''}${_mkEsc(_moHistory(o))}</div>
+      ${_moAutoHTML(o)}
       <div class="mh-contact">${typeof mhContactHTML === 'function' ? mhContactHTML(o.buyer_contact) : _mkEsc(o.buyer_contact || '')}</div>
       ${o.buyer_note ? `<div class="mh-note">“${_mkEsc(o.buyer_note)}”</div>` : ''}
       <div class="mh-actions">
@@ -167,12 +177,14 @@ function _moRenderPanel() {
         <span class="mh-left">you countered ${_mkEsc(_mkMoney(o.amount_cents))} · until ${_mkEsc(_moWhen(o.expires_at))}</span></div>
       ${_moCardHTML(o)}
       <div class="mo-line">${_mkEsc(_moHistory(o))} · waiting for the buyer</div>
+      ${_moAutoHTML(o)}
     </div>`).join('');
   const endedHTML = ended.map(o => `
     <div class="mh-hold mh-ended">
       <div class="mh-head"><b>${_mkEsc(o.buyer_name || 'A buyer')} · ${_mkEsc(_mkMoney(o.amount_cents))}</b>
-        <span class="mh-left">${_mkEsc(MO_ENDED[o.status] || 'Ended')}${o.decided_by === 'auto' ? ' automatically' : ''}${MO_WHY[o.end_reason] ? ' · ' + _mkEsc(MO_WHY[o.end_reason]) : ''}</span></div>
+        <span class="mh-left">${_mkEsc(MO_ENDED[o.status] || 'Ended')}${o.decided_by === 'auto' ? ' automatically' : ''}${MO_WHY[o.end_reason] && !_moAutoHTML(o) ? ' · ' + _mkEsc(MO_WHY[o.end_reason]) : ''}</span></div>
       ${_moCardHTML(o)}
+      ${_moAutoHTML(o)}
     </div>`).join('');
   ov.innerHTML = `
     <div class="modal" style="max-width:520px">
@@ -185,7 +197,9 @@ function _moRenderPanel() {
         ${waiting.length ? waitingHTML : '<p class="mh-empty">No offers to answer.</p>'}
         ${countered.length ? `<div class="mh-section">Waiting on the buyer</div>${counteredHTML}` : ''}
         ${ended.length ? `<div class="mh-section">Ended recently</div>${endedHTML}` : ''}
-        <p class="mh-help">An offer waits 24 hours for an answer. You can counter once; the buyer can counter back once, then you accept or decline. Set a lowest offer and an auto-accept price per card in Edit Card → Marketplace, and turn offers off there for cards you won't negotiate on.</p>
+        <div class="or-summary">${typeof orSummaryText === 'function' ? _mkEsc(orSummaryText()) : ''}
+          <button type="button" class="mk-link" onclick="openOfferRules()">${typeof orHasRules === 'function' && orHasRules() ? 'Change offer rules' : 'Set offer rules'}</button></div>
+        <p class="mh-help">An offer waits 24 hours for an answer. You can counter once; the buyer can counter back once, then you accept or decline. Your offer rules answer offers for you; a card's own lowest offer and auto-accept price (Edit Card → Marketplace) win over them, and you can turn offers off there for cards you won't negotiate on.</p>
       </div>
     </div>`;
 }

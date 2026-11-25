@@ -1834,6 +1834,12 @@
   .join-show-info { flex: 1; min-width: 0; }
   .join-show-name { font-weight: 700; font-size: 0.95rem; color: var(--text); }
   .join-show-meta { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; overflow-wrap: anywhere; }
+  /* The Card Shop Finder credit (their terms: on every listing of one of their events, linked to its url). */
+  .csf-line { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; overflow-wrap: anywhere; }
+  .csf-credit { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+  .csf-credit:hover { color: var(--text); }
+  .sm-csf-note { font-size: 0.78rem; color: var(--muted); margin: -0.2rem 0 0.2rem; }
+  .sm-csf-note a { color: var(--accent); }
   .join-show-blocked { font-size: 0.75rem; color: var(--muted); margin-top: 0.3rem; font-style: italic; }
   .join-show-today {
     font-family: 'DM Mono', monospace; font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase;
@@ -1889,6 +1895,19 @@
   }
   .dir-badge.listed { color: #22c55e; border-color: rgba(34,197,94,0.4); }
   .dir-badge.req { color: var(--accent); border-color: var(--accent); }
+  .dir-badge.csf { color: var(--text); }
+  /* Show Directory → Show feed (js/show-feed-admin.js) */
+  .sf-box { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.8rem 0.9rem; margin: 0 0 0.8rem; }
+  .sf-head { display: flex; gap: 0.8rem; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+  .sf-head > div:first-child { flex: 1 1 260px; min-width: 0; }
+  .sf-title { font-weight: 700; color: var(--text); font-size: 0.95rem; }
+  .sf-status.ok { color: #22c55e; }
+  .sf-status.bad { color: #f59e0b; }
+  .sf-section { font-family: 'DM Mono', monospace; font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0.9rem 0 0.4rem; }
+  .sf-match { flex-direction: column; align-items: stretch; margin-bottom: 0.5rem; }
+  .sf-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem; }
+  .sf-pair > div { min-width: 0; }
+  .sf-label { font-family: 'DM Mono', monospace; font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
   .dir-empty { color: var(--muted); font-size: 0.85rem; padding: 1.5rem 0.5rem; text-align: center; }
   .dir-tab-badge {
     background: var(--accent); color: #07080c; border-radius: 999px; font-size: 0.65rem; font-weight: 700;
@@ -2634,6 +2653,22 @@
   .mh-empty { color: var(--muted); font-size: 0.86rem; }
   .mh-help { font-size: 0.75rem; color: var(--muted); margin-top: 0.8rem; }
   /* ── Marketplace offers (js/marketplace-offers.js) ── */
+  /* ── Offer rules (js/offer-rules.js) ── */
+  .or-modal { max-width: 520px; text-align: left; }
+  .or-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem 0.8rem; padding: 0.45rem 0;
+    border-bottom: 1px solid var(--border); font-size: 0.86rem; color: var(--text); }
+  .or-label { flex: 1 1 12rem; }
+  .or-row .mk-pct input { min-height: 44px; font-size: 1rem; }
+  .or-basis { width: auto; margin: 0; min-height: 44px; font-size: 0.85rem; padding: 0 0.4rem; }
+  .or-example { background: var(--surface); border: 1px dashed var(--accent); border-radius: 8px; padding: 0.55rem 0.7rem;
+    font-size: 0.82rem; color: var(--text); margin-top: 0.6rem; }
+  .or-example:empty { display: none; }
+  .or-muted { color: var(--muted); }
+  .or-cem-line { font-size: 0.78rem; color: var(--muted); margin: 0 0 0.5rem; overflow-wrap: anywhere; }
+  .or-cem-line .mk-link, .or-summary .mk-link { font-size: 0.78rem; }
+  .or-summary { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem;
+    font-size: 0.82rem; color: var(--text); margin: 0.2rem 0 0.5rem; }
+  .mo-auto { font-size: 0.78rem; color: var(--accent); margin: 0.2rem 0; overflow-wrap: anywhere; }
   .mo-line { font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0; overflow-wrap: anywhere; }
   .mo-counter { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end; margin-top: 0.5rem; }
   .mo-counter-label { display: flex; flex-direction: column; gap: 0.25rem; flex: 1 1 12rem; font-size: 0.78rem; color: var(--muted); }
@@ -5669,6 +5704,7 @@
             <button class="btn btn-primary" style="width:auto" onclick="openDirEdit(null)">+ Add show</button>
           </div>
         </div>
+        <div class="sf-box" id="dirFeed" style="display:none"></div>
         <div class="dir-filters" id="dirFilters"></div>
         <input class="show-input" id="dirSearch" type="search" placeholder="Search by name, city or state" oninput="renderShowDirectory()" autocomplete="off">
         <div id="dirList" class="dir-list"></div>
@@ -7002,15 +7038,21 @@
             <div class="mk-cem-status" id="cem_mk_status"></div>
             <div class="mk-cem-comp" id="cem_mk_comp"></div>
             <label class="mk-check"><input type="checkbox" id="cem_mk_accept" onchange="mkCemToggleOffers()"> Accept offers</label>
-            <div class="cost-grid" id="cem_mk_offer_rows">
+            <div id="cem_mk_offer_rows">
+            <div class="or-cem" id="cem_mk_rules_box">
+              <label class="mk-check"><input type="checkbox" id="cem_mk_rules" onchange="orCemLine()"> Use my offer rules on this card</label>
+              <div class="or-cem-line" id="cem_mk_rules_line"></div>
+            </div>
+            <div class="cost-grid">
               <div>
-                <div class="section-label" style="margin-bottom:0.3rem">Lowest offer <span class="cost-opt">optional</span></div>
+                <div class="section-label" style="margin-bottom:0.3rem">This card's lowest offer <span class="cost-opt">optional</span></div>
                 <div class="cost-input-wrap"><span>$</span><input id="cem_mk_min" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Any"></div>
               </div>
               <div>
-                <div class="section-label" style="margin-bottom:0.3rem">Auto-accept at <span class="cost-opt">optional</span></div>
+                <div class="section-label" style="margin-bottom:0.3rem">This card's auto-accept <span class="cost-opt">optional</span></div>
                 <div class="cost-input-wrap"><span>$</span><input id="cem_mk_auto" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Never"></div>
               </div>
+            </div>
             </div>
             <div class="mk-row">
               <label class="mk-check"><input type="checkbox" id="cem_mk_ship" onchange="mkCemToggleDelivery()"> Ship to buyer</label>
@@ -7023,7 +7065,8 @@
               </div>
               <div id="cem_mk_pickup_row">
                 <div class="section-label" style="margin-bottom:0.3rem">Pickup at</div>
-                <select class="show-input" id="cem_mk_pickup_show" style="margin:0"></select>
+                <select class="show-input" id="cem_mk_pickup_show" style="margin:0" onchange="mkPickupCredit(this, 'cem_mk_pickup_credit')"></select>
+                <div class="mk-hint" id="cem_mk_pickup_credit"></div>
               </div>
             </div>
             <div class="cost-field-err" id="cem_mk_err"></div>
@@ -7813,6 +7856,7 @@
         <input type="checkbox" id="smSelfJoin" checked>
         <span><strong>Let sellers add themselves</strong><br>Once CardShow lists the show, any CardShow seller can join it from their own account. You can still remove them and assign tables.</span>
       </label>
+      <div class="sm-csf-note">Also list your show free on <a href="https://thecardshopfinder.com/" target="_blank" rel="noopener">The Card Shop Finder</a>, so collectors searching for shows near them find it.</div>
       <div>
         <div class="section-label" style="margin-bottom:0.5rem">Authorized Sellers</div>
         <div class="seller-combobox" id="smSellerCombobox">
@@ -8165,9 +8209,11 @@
 <script src="/js/trade-log.js?v=20261121a"></script>
 <script src="/js/quick-bar.js?v=20261121a"></script>
 <script src="/js/card-photo.js?v=20261122a"></script>
-<script src="/js/marketplace-dealer.js?v=20261123h"></script>
+<script src="/js/marketplace-dealer.js?v=20261211a"></script>
+<script src="/js/show-feed-admin.js?v=20261124b"></script>
 <script src="/js/marketplace-holds.js?v=20261209a"></script>
-<script src="/js/marketplace-offers.js?v=20261209a"></script>
+<script src="/js/marketplace-offers.js?v=20261211a"></script>
+<script src="/js/offer-rules.js?v=20261211a"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
 <script>
 // ── STATE ──
@@ -15768,7 +15814,8 @@ function renderSellerShowsList() {
     return `
     <div class="show-card ${isSelected ? 'active-show' : ''}">
       <div class="show-card-name"><span class="show-status-dot ${dotClass}"></span>${s.name}</div>
-      <div class="show-card-meta">${s.date || ''}${s.location ? ' · ' + s.location : ''}<br>${myCards} of my cards published</div>
+      <div class="show-card-meta">${s.date || ''}${s.location ? ' · ' + s.location : ''}${s.feedRemovedAt ? '<br><b>No longer listed: it may be cancelled</b>' : ''}<br>${myCards} of my cards published</div>
+      ${csfLineHTML(s)}
       <div style="display:flex;align-items:center;gap:0.5rem;margin:0.4rem 0">
         <span style="font-family:'DM Mono',monospace;font-size:0.62rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);flex-shrink:0">My Table #</span>
         <input class="table-num-input"
@@ -15960,6 +16007,35 @@ function _sortShowsForDashboard(list) {
 }
 function _showSortKey(show) { return show.startDate || _showDateISO(show) || '9999'; }
 
+// ── The Card Shop Finder (CSF) credit ── (their terms: every place one of their events shows says
+// "via The Card Shop Finder", linked to the event's url exactly as CSF sent it; listing facts only.)
+const CSF_CREDIT = 'via The Card Shop Finder';
+function csfCreditHTML(show, cls) {
+  const u = show && show.feed && show.feed.source_url;
+  if (!u) return '';
+  return `<a class="csf-credit${cls ? ' ' + cls : ''}" href="${_escHtml(u)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${CSF_CREDIT}</a>`;
+}
+function _csfTime12(t) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || ''));
+  if (!m) return '';
+  const h = +m[1];
+  return `${h % 12 || 12}${m[2] === '00' ? '' : ':' + m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+// "9 AM–5 PM · Free entry" (local times as CSF sends them; "Hours TBD" when either is missing). '' when not from CSF.
+function csfFactsText(show) {
+  const f = show && show.feed;
+  if (!f) return '';
+  const a = _csfTime12(f.time_start), b = _csfTime12(f.time_end);
+  const p = f.admission_price;
+  const fee = p === null || p === undefined || p === '' || !Number.isFinite(Number(p)) ? ''
+    : Number(p) === 0 ? 'Free entry' : `$${Number(p).toLocaleString('en-US', { minimumFractionDigits: Number(p) % 1 ? 2 : 0, maximumFractionDigits: 2 })} entry`;
+  return [a && b ? `${a}–${b}` : 'Hours TBD', fee].filter(Boolean).join(' · ');
+}
+function csfLineHTML(show) {
+  const c = csfCreditHTML(show);
+  return c ? `<div class="csf-line">${_escHtml(csfFactsText(show))} · ${c}</div>` : '';
+}
+
 // Shows the current seller could join right now: open to self-join, not over,
 // not already joined. Shows running today come first, then by date.
 function _joinableShows() {
@@ -16017,6 +16093,7 @@ function renderJoinShowList() {
         <div class="join-show-info">
           <div class="join-show-name">${_escHtml(s.name || 'Show')} ${today}</div>
           <div class="join-show-meta">${_escHtml([s.date, s.location].filter(Boolean).join(' · '))}</div>
+          ${csfLineHTML(s)}
           ${blocked ? `<div class="join-show-blocked">${blocked}</div>` : ''}
         </div>
         ${blocked ? '' : `<button class="btn-primary join-show-btn" onclick="joinShowAsSeller('${s.id}', this)">Join</button>`}
@@ -19045,6 +19122,7 @@ async function loadShowDirectory() {
     _dirSellerCounts = {};
     (ssRes.data || []).forEach(r => { _dirSellerCounts[r.show_id] = (_dirSellerCounts[r.show_id] || 0) + 1; });
     _dirRequests = reqRes.data || [];
+    if (typeof sfLoadEventUrls === 'function') await sfLoadEventUrls(_dirShows);
     const ids = [...new Set(_dirRequests.map(r => r.seller_id))];
     _dirHandles = {};
     if (ids.length) {
@@ -19058,6 +19136,7 @@ async function loadShowDirectory() {
   if (!_dirFilter) _dirFilter = _dirRequests.length ? 'requests' : 'unlisted';
   _dirRefreshBadge();
   renderShowDirectory();
+  if (typeof sfLoad === 'function') sfLoad();
 }
 
 function setDirFilter(f) { _dirFilter = f; renderShowDirectory(); }
@@ -19065,9 +19144,11 @@ function setDirFilter(f) { _dirFilter = f; renderShowDirectory(); }
 function renderShowDirectory() {
   const list = document.getElementById('dirList');
   if (!list) return;
-  const counts = { requests: _dirRequests.length, needs: 0, unlisted: 0, listed: 0, all: _dirShows.length };
-  _dirShows.forEach(r => { const b = _dirBucket(r); if (counts[b] !== undefined) counts[b]++; });
-  const labels = { requests: 'Requests', needs: 'Needs info', unlisted: 'Ready to list', listed: 'Listed', all: 'All' };
+  // Shows made from The Card Shop Finder feed have their own filter, so they don't bury the rest.
+  const bucketOf = r => (r.source === 'csf' && !r.merged_into ? 'csf' : _dirBucket(r));
+  const counts = { requests: _dirRequests.length, needs: 0, unlisted: 0, listed: 0, csf: 0, all: _dirShows.length };
+  _dirShows.forEach(r => { const b = bucketOf(r); if (counts[b] !== undefined) counts[b]++; });
+  const labels = { requests: 'Requests', needs: 'Needs info', unlisted: 'Ready to list', listed: 'Listed', csf: 'Card Shop Finder', all: 'All' };
   document.getElementById('dirFilters').innerHTML = Object.keys(labels).map(k =>
     `<button class="dir-filter${_dirFilter === k ? ' active' : ''}" onclick="setDirFilter('${k}')">${labels[k]} <span>${counts[k]}</span></button>`).join('');
 
@@ -19081,7 +19162,7 @@ function renderShowDirectory() {
     return;
   }
   const rows = _dirShows
-    .filter(r => _dirFilter === 'all' || _dirBucket(r) === _dirFilter)
+    .filter(r => _dirFilter === 'all' || bucketOf(r) === _dirFilter)
     .filter(r => match(r.name, r.city, r.state, r.venue, r.slug));
   const sorted = _sortShowsForDashboard(rows.map(r => ({
     row: r, name: r.name, status: _showStatusForRow(r),
@@ -19119,17 +19200,20 @@ function _dirShowHTML(r) {
   const miss = _dirMissing(r);
   const dups = bucket === 'merged' ? [] : _dirPossibleDuplicates(r);
   const target = r.merged_into && _dirShows.find(o => o.id === r.merged_into);
-  const badge = bucket === 'listed' ? '<span class="dir-badge listed">Listed</span>'
+  const badge = (bucket === 'listed' ? '<span class="dir-badge listed">Listed</span>'
     : bucket === 'merged' ? '<span class="dir-badge">Merged</span>'
-    : '<span class="dir-badge">Not listed</span>';
-  const owner = r.created_by && r.created_by === window._currentAdminUid ? 'You' : 'Another organizer';
+    : '<span class="dir-badge">Not listed</span>')
+    + (r.source === 'csf' ? ' <span class="dir-badge csf">Card Shop Finder</span>' : '');
+  const owner = r.source === 'csf' ? 'the Card Shop Finder feed'
+    : r.created_by && r.created_by === window._currentAdminUid ? 'You' : 'Another organizer';
   return `
     <div class="dir-row" data-show-id="${_escHtml(r.id)}">
       <div class="dir-row-main">
         <div class="dir-row-name">${_escHtml(r.name || 'Untitled show')} ${badge}</div>
         <div class="dir-row-meta">${_escHtml(_dirDates(r))}${_dirLocation(r) ? ' · ' + _escHtml(_dirLocation(r)) : ''}</div>
         <div class="dir-row-meta">${_dirSellerCounts[r.id] || 0} sellers · created by ${owner}${r.slug ? ' · ' + _escHtml(r.slug) : ''}</div>
-        ${bucket !== 'merged' && 'geo_source' in r ? `<div class="dir-row-meta">📍 ${_escHtml(_dirGeoText(r))}</div>` : ''}
+        ${typeof sfRowFeedHTML === 'function' ? sfRowFeedHTML(r) : ''}
+        ${bucket !== 'merged' && 'geo_source' in r ? `<div class="dir-row-meta">📍 ${_escHtml(r.geo_source === 'csf' ? 'Located from The Card Shop Finder\'s map coordinates.' : _dirGeoText(r))}</div>` : ''}
         ${miss.length && bucket !== 'merged' ? `<div class="dir-warn">Needs: ${miss.join(', ')}</div>` : ''}
         ${dups.length ? `<div class="dir-warn">Possible duplicate of ${dups.map(d => _escHtml(d.name)).join(', ')} (same city, same dates)</div>` : ''}
         ${target ? `<div class="dir-row-meta">Merged into ${_escHtml(target.name)}</div>` : ''}
@@ -22104,7 +22188,8 @@ const FEATURE_GUIDE = [
   { group: 'Price and manage', items: [
     { icon: '💲', name: 'Check comps', desc: 'Look up recent market prices for the cards you select (or all unsold cards) and update your prices.', action: () => _helpPoint('compCheckBtn') },
     { icon: '🏷️', name: 'Validate sport', desc: 'Fills in the sport for cards that show no sport badge.', action: () => _helpPoint('sportValidateBtn') },
-    { icon: '🛒', name: 'Marketplace listings', desc: 'Choose which cards buyers can find on the CardShow marketplace, whether you take offers (and your lowest and auto-accept prices), and ship or pickup. A card sold at your table comes off by itself.', action: () => openMarketplacePanel(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
+    { icon: '🛒', name: 'Marketplace listings', desc: 'Choose which cards buyers can find on the CardShow marketplace, whether you take offers, and ship or pickup. A card sold at your table comes off by itself.', action: () => openMarketplacePanel(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
+    { icon: '🤝', name: 'Offer rules', desc: 'Answer offers without being there: decline offers below a % of your price (or of the online comp), counter in between, accept at a % and up. Optionally nothing automatic while you\'re at a show. Every automatic answer is shown in Offers.', action: () => openOfferRules(), show: () => typeof mkEnabled === 'function' && mkEnabled() },
     { icon: '🏷', name: 'Stock codes', desc: 'Short codes like S-12 (slabs), R-40 (raw), B-3 (sealed), L-1 (lots). New cards get one automatically; "Assign codes" numbers the rest. Search "slab 12" to find a card fast.', action: () => _helpPoint('assignCodesBtn') },
     { icon: '🔒', name: 'Cost & profit', desc: 'Add what you paid under "Cost (private)" when adding or editing a card. Sales then show your profit. Only you can see it.', action: () => openAddCard() },
     { icon: '⬇', name: 'Export inventory', desc: 'Download your unsold cards as CSV or Excel to list them on other platforms.', action: () => _helpPoint('exportInventoryBtn') },
@@ -22547,22 +22632,23 @@ async function loadShowsFromDB() {
   try {
     // Fetch shows — filtered to the current admin's own shows via created_by.
     // Falls back to unfiltered if created_by column doesn't exist yet (pre-migration).
-    let showQuery = db.from('shows').select('*').order('created_at', { ascending: true });
-    if (window._currentAdminUid) showQuery = showQuery.eq('created_by', window._currentAdminUid);
-    const { data: showRows, error: showErr } = await showQuery;
+    // Paged: with The Card Shop Finder's shows (20261210120000) there are more than the 1000 rows Supabase returns at once.
+    const { data: showRows, error: showErr } = await dbSelectAllPages(() => {
+      let q = db.from('shows').select('*').order('created_at', { ascending: true }).order('id', { ascending: true });
+      if (window._currentAdminUid) q = q.eq('created_by', window._currentAdminUid);
+      return q;
+    });
     if (showErr) { console.warn('loadShowsFromDB: shows fetch failed:', showErr.message); _showsLoadFailed = true; return false; }
     if (!showRows || !showRows.length) return false;
 
     // Fetch show_sellers — two separate queries avoids FK join resolution issues
     // self_joined comes from the seller self-join migration; retry without it
     // on a project that hasn't run that yet.
-    let { data: ssRows, error: ssErr } = await db
-      .from('show_sellers')
-      .select('show_id, seller_id, table_number, self_joined');
+    const ssPages = cols => dbSelectAllPages(() => db.from('show_sellers').select(cols)
+      .order('show_id', { ascending: true }).order('seller_id', { ascending: true }));
+    let { data: ssRows, error: ssErr } = await ssPages('show_id, seller_id, table_number, self_joined');
     if (ssErr && /self_joined/.test(ssErr.message || '')) {
-      ({ data: ssRows, error: ssErr } = await db
-        .from('show_sellers')
-        .select('show_id, seller_id, table_number'));
+      ({ data: ssRows, error: ssErr } = await ssPages('show_id, seller_id, table_number'));
     }
     if (ssErr) console.warn('loadShowsFromDB: show_sellers fetch failed:', ssErr.message);
 
@@ -22592,6 +22678,16 @@ async function loadShowsFromDB() {
       }
     });
 
+    // The Card Shop Finder facts for shows linked to its feed: the credit link, local times, admission.
+    const feedById = {};
+    const feedIds = [...new Set(showRows.map(r => r.external_event_id).filter(Boolean))];
+    if (feedIds.length) {
+      const { data: evRows, error: evErr } = await dbSelectIn(ids =>
+        db.from('external_events').select('id, source_url, time_start, time_end, admission_price').in('id', ids), feedIds);
+      if (evErr) console.warn('loadShowsFromDB: external_events fetch failed:', evErr.message);
+      (evRows || []).forEach(e => { feedById[e.id] = e; });
+    }
+
     // Hydrate shows{} — merge DB shows with any existing in-memory sample shows
     // (keep demo shows so the buyer onboarding still works)
     showRows.forEach(row => {
@@ -22619,6 +22715,12 @@ async function loadShowsFromDB() {
         timezone:    row.timezone    || null,
         website:     row.website     || null,
         mergedInto:  row.merged_into || null,
+        // The Card Shop Finder feed (20261210120000): source 'csf' = made from the feed, kept in sync, only the
+        // platform owner edits it. feed = the linked event's facts (credit url, times, admission), or null.
+        source:      row.source || 'cardshow',
+        externalEventId: row.external_event_id || null,
+        feedRemovedAt: row.feed_removed_at || null,
+        feed:        row.external_event_id ? (feedById[row.external_event_id] || null) : null,
       };
     });
 
@@ -23111,6 +23213,7 @@ function dbRowToCard(row) {
     AcceptsOffers:      row.accepts_offers !== false,
     MinOfferCents:      row.min_offer_cents      != null ? row.min_offer_cents : null,
     AutoAcceptCents:    row.auto_accept_cents    != null ? row.auto_accept_cents : null,
+    UseOfferRules:      row.use_offer_rules !== false,   // js/offer-rules.js: the dealer's offer rules apply to this card
     SaleModes:          Array.isArray(row.sale_modes) ? row.sale_modes : null,
     PickupShowId:       row.pickup_show_id || null,
     ShippingCents:      row.shipping_options && row.shipping_options.flat_cents != null ? row.shipping_options.flat_cents : null,

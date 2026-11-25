@@ -26,6 +26,9 @@ node show-home.e2e.mjs "iPhone 13"          # Show Home: show list, report secti
 node show-log-import.e2e.mjs "iPhone 13"    # Show log import: parsing, review, payload, re-import, Needs details
 node trade-log.e2e.mjs "iPhone 13"          # Trade screen: balance, offline save, sync, undo, buy, Show Home edit/undo
 node quick-bar.e2e.mjs "iPhone 13"          # Quick bar: syntax, preview, sale/lot/trade/buy, undo, offline
+node csf-feed.e2e.mjs "iPhone 13"           # Card Shop Finder: Show feed (owner), Directory filter + credit, seller join list + pickup credit
+node csf-sync.test.mjs                       # Card Shop Finder sync with the CSF API stubbed: paging, errors, emails, key never logged (no browser)
+./csf-events.test.sh                         # Card Shop Finder sync in Postgres: shows, matching, removals, emails, security (run as a Postgres superuser)
 node card-image.test.mjs                     # netlify/functions/card-image.js with CardSight stubbed (no browser)
 ```
 Set `CHROMIUM_PATH` to use a specific Chromium (the cloud container has `/opt/pw-browsers/chromium`).
@@ -67,6 +70,7 @@ node pricing-admin.e2e.mjs "iPhone 13"      # Pricing tab (platform owner), func
 ./marketplace-photos.test.sh                # Listing image rule: slab photo for graded, photo or picked catalog image for raw, sealed exempt (fresh db)
 node catalog-image-search.test.mjs          # catalog-image-search.js with CardSight stubbed (exact vs other matches, autos, inserts, number variants)
 ./trade-logging.test.sh                     # record_trade / update / delete: ids, idempotency, refusals, undo order (fresh db)
+./marketplace-offer-rules.test.sh           # Dealer offer rules: saving, decline / counter / accept, card overrides and opt-out, at a show, comp basis, bundles (fresh db, 35 checks)
 TITO_FIXTURE_DIR=/path/to/csvs ./trades.test.sh # Trades + Show Home: Tito's Nov 7 Show Report via dealer_show_report(), then show-home.test.sql (fresh db, runs the migrations itself)
 ```
 

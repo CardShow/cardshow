@@ -34,6 +34,11 @@ supabase/migrations/20261101120000_gtcr_buyer_badge.sql → inventory.trust_clea
 supabase/migrations/20260925120000_gtcr_trust_check.sql → inventory.trust_flag + cert_trust_checks / gtcr_consent_events / gtcr_registrations (RLS: read-own, no client writes)
 netlify/functions/expire-trade-posts.js  → Scheduled (hourly, see netlify.toml): calls expire_stale_trade_posts() RPC to hide stale trade_posts from the live board
 netlify/functions/refresh-show-statuses.js → Scheduled (hourly): calls refresh_show_statuses() so shows.status follows the dates — see "Automatic Show Status"
+netlify/lib/csf-events.js                → The Card Shop Finder events feed: fetch (X-API-Key header only), completeness checks, csf_sync_apply(), removal emails — see "Card Shop Finder events"
+netlify/functions/sync-csf-events.js     → Scheduled (every 6 hours): one Card Shop Finder sync
+netlify/functions/csf-feed-admin.js      → Platform owner POST {action:'run'}: "Run sync now" (scheduled functions can't be called by URL in production)
+js/show-feed-admin.js                    → Show Directory → "Show feed": run log, Run sync now, match review, removed shows; the CSF credit on Directory rows
+supabase/migrations/20261210120000_csf_events.sql → external_events / external_sync_runs / external_event_matches / external_show_removals / external_show_notices, shows.source / external_event_id / feed_removed_at, csf_sync_apply(), credit fields on list_upcoming_shows / get_show_page / _listing_next_show
 supabase/migrations/20261029120000_show_auto_status.sql → refresh_show_statuses() (service_role only); fixes every show once when run
 
 netlify/lib/social-pipeline.js           → Shared code for Social Sale Ingestion (extraction prompt, price rules, PSA cache, show matching, dedup) — see that section
@@ -110,6 +115,8 @@ js/marketplace-offers.js          → Dealer side of offers: strip above the inv
 netlify/lib/offer-notices.js      → Offer emails through Loops, reusing the two hold emails
 netlify/functions/offer-notify-now.js → POST {offer_id} with a session (buyer or dealer of that offer): sends its due emails now
 supabase/migrations/20261209120000_marketplace_bundle_offers.sql → offers on 2–20 cards from one dealer for one price (offers.listing_ids, make_bundle_offer); accepted → one hold over every card — see "Bundle offers"
+supabase/migrations/20261211120000_marketplace_offer_rules.sql → dealer offer rules: dealer_offer_rules, inventory.use_offer_rules, offers.auto_log, set_offer_rules(), _offer_auto() inside make_bundle_offer / _offer_answer — see "Dealer offer rules"
+js/offer-rules.js                 → Offer rules dialog, Edit Card "Use my offer rules" line, the Offers panel's automatic-decision lines — loaded after js/marketplace-offers.js
 supabase/migrations/20261130120000_marketplace_pricing_search.sql → Marketplace Phase 1: card_values / pricing_cards / pricing_api_usage, search_listings(), get_listing(), list_upcoming_shows(), saved_searches, agent_actions, rate limits — see "Phase 1: pricing, search, MCP"
 netlify/lib/card-values.js        → Card pricing service: Card Hedge match + all-grade values, daily budget (stop at 90%, alert at 80%)
 netlify/functions/refresh-card-values.js → Scheduled (every 5 min): match new listings, refresh due card values (on-demand first); admin POST runs it once
@@ -425,6 +432,14 @@ shows no offers, and the 5-minute job logs that `expire_offers` is missing and c
 Then `20261209120000_marketplace_bundle_offers.sql` (bundle offers, see "Bundle offers"). Until it runs, the bundle page says it couldn't send the
 offer; one-card offers keep working. **Don't re-run 20261208 after it** (that puts back the one-card functions, and their inserts fail on
 `listing_ids`); if you do, run 20261209 again.
+Then `20261211120000_marketplace_offer_rules.sql` (dealer offer rules, see "Dealer offer rules"). It replaces `make_bundle_offer` and
+`_offer_answer` again, so **if you ever re-run 20261209, run 20261211 after it**. Until it runs, the rules dialog says it's being set up
+and offers behave as before.
+
+Required for The Card Shop Finder events sync (see "Card Shop Finder events"), after the bundle offers migration (and the
+Show Directory, geocoding, shows/show_inventory security and show pages migrations it builds on):
+`supabase/migrations/20261210120000_csf_events.sql`. Until it runs the sync fails with a console error (nothing else changes),
+the Show feed section stays hidden, and the buyer site shows no credit because no show is linked to the feed.
 
 Required for Cost Tracking & Stock Codes (see that section below):
 `supabase/migrations/20261114120000_cost_tracking.sql`. Until it runs, cards and sales save exactly as
@@ -974,6 +989,8 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `LOOPS_API_KEY` | Loops API key (pricing alert + saved-search emails) |
 | `LOOPS_PRICING_ALERT_ID` / `PRICING_ALERT_EMAIL` | Loops transactional email id and recipient for the 80%-of-daily-limit pricing alert |
 | `LOOPS_HOLD_DEALER_ID` / `LOOPS_HOLD_BUYER_ID` | Loops transactional email ids for hold emails ("Hold - Dealer" / "Hold - Buyer" in Loops, created 2026-11-23; copy the ids from Loops). Without them hold emails wait (nothing lost while the hold is still relevant). **Never write an env var's value into a repo file**: Netlify's secrets scan fails the build when it finds one (2026-11-23, these two ids in this file) |
+| `CSF_API_KEY` | The Card Shop Finder Partner Events API key. Read only in `netlify/lib/csf-events.js`, sent only in the `X-API-Key` header (never `?key=`), never logged or stored |
+| `CSF_SYNC_ENABLED` | Set to `false` to switch the 6-hourly Card Shop Finder sync off (default: on) |
 | `LOOPS_SAVED_SEARCH_ID` | Loops transactional email id for saved-search alerts (data variables: searchName, count, firstTitle, firstPrice, firstUrl, listText, searchUrl) |
 
 ### Credential Injection (no build step workaround)
@@ -7032,6 +7049,47 @@ offers like any card; this adds one offer covering **2–20 cards from one deale
 - Tests: 12 tile checks in `buyer/test/site.e2e.mjs` (iPhone 13 + Desktop Chrome).
 - **Not built:** a bundle across dealers (deliberately); Show Mode "sold to the holder" for bundles.
 
+### Dealer offer rules (Phase 2, step 4, session 2026-11-24)
+From the plan's "Dealer offer rules (the base of the dealer agent)". A dealer sets rules once for all their listings; the server
+applies them inside the offer functions; every automatic answer is logged and shown to the dealer.
+- **Migration `20261211120000_marketplace_offer_rules.sql`** (after bundle offers; re-runnable):
+  - `dealer_offer_rules` (one row per dealer, read-own RLS, no client writes): `decline_below_pct` + `decline_basis` (`asking` /
+    `comp`), `counter_pct`, `accept_at_pct` (each 1–99, null = off), `no_auto_at_show`. Saved only by `set_offer_rules(decline, basis,
+    counter, accept, at_show)`: sellers only; counter below accept; with an asking-price decline, decline ≤ counter < accept
+    (`bad_pct` / `bad_order` / `bad_basis` / `not_a_seller`).
+  - `inventory.use_offer_rules` (default true; the seller writes it from Edit Card). `offers.auto_log` (jsonb list of automatic
+    decisions; in `dealer_offers()` only, never `my_offers()`).
+  - Per card (`_offer_terms(ids)`, added up for bundles): lowest offer = the card's `min_offer_cents`, else the decline rule (on the
+    asking price, or on the comp when `_comp_visible()`; no comp → no decline line for that card); auto-accept = the card's
+    `auto_accept_cents`, else the accept rule; counter = asking × counter %, rounded to whole dollars, only when every card uses the
+    rules, and never above the auto-accept line (capped to it). An opted-out card still uses its own lowest offer / auto-accept.
+  - `_offer_auto(offer, stage)` runs from `make_bundle_offer` (stage `new`: accept at full price or the auto-accept line → hold;
+    under the lowest-offer line → declined (`below_minimum`, no email to the dealer); else counter → status `countered`, `last_by
+    'dealer'`, history entry `auto: true`, buyer emailed (event `countered`), returns `{status:'countered', amount_cents}`) and from
+    `_offer_answer` after a buyer's counter (accept only). Dealers without rules get exactly the old behavior (offers / bundle
+    suites unchanged with the migration loaded).
+  - **At a show** (`no_auto_at_show` and the dealer joined a show running today in its time zone, else Pacific): nothing is accepted
+    (full price included) or countered automatically; logged `left_for_you` with what would have happened. Declines still happen.
+  - Log entries: `{action: accept|decline|counter|left_for_you, rule: full_price|rule_accept|card_auto|rule_decline|card_min|
+    rule_counter|at_show, cents, pct_of_asking, threshold_cents, rule_pct, basis, counter_cents, would, at}`.
+- **Dealer app** (`js/offer-rules.js`, or*; behind the marketplace switch; `orLoad()` from `moStart()`):
+  - **Offer rules** dialog (`openOfferRules()`): three % boxes (empty = off), asking/comp for the decline, the at-show box, a live
+    example on a $100 card, same checks as the server. Opened from the Marketplace panel (which now shows the rules summary instead
+    of per-card % fields: listing from the panel no longer writes `min_offer_cents` / `auto_accept_cents`), the Offers panel, Edit
+    Card and the Feature guide ("Offer rules").
+  - Edit Card → Marketplace: **Use my offer rules on this card** + a line saying what happens on this card ("Under $96 declined ·
+    $96 to $107.99 countered at $108 · … · $110 and up accepted"), updated as the price / card prices change. The card's own fields
+    are labeled "This card's lowest offer / auto-accept". `use_offer_rules` is only sent when changed.
+  - Offers panel: 🤖 lines from `auto_log` ("Countered automatically at $90: your rule counters at 90% of asking", "Declined
+    automatically: under 80% of the online comp ($96)", "Left for you because you're at a show…").
+- **Buyer site:** an offer answered with `countered` shows the dealer's counter at once with Accept / Counter / Decline (`/c/…`);
+  the bundle page says the dealer countered. The buyer isn't told it was automatic.
+- **Tests:** `marketplace-offer-rules.test.sh` (35 SQL checks; the offers and bundle SQL suites now load this migration too, 43 / 25),
+  `marketplace-dealer.e2e.mjs` (rules dialog, Edit Card line + opt-out, panel summary), `marketplace-offers.e2e.mjs` (automatic
+  lines), `buyer/test/site.e2e.mjs` (automatic counter), all on iPhone 13 + Pixel 7 / Desktop Chrome.
+- **Not built:** the plan's wholesale minimum (Phase 3, no wholesale yet); rules on lots beyond bundles; a per-card counter price;
+  showing the dealer a count of automatic answers in the strip.
+
 ### Pricing admin (session 2026-11-21)
 Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pricing-admin.js`, pa*), platform owner only
 (shown by `checkPlatformAdmin()`, hidden on sign-out). Badge = listings that couldn't be matched.
@@ -7117,6 +7175,70 @@ Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pric
   save, geocode call).
 - **Not built:** no geocoding for organizer-created shows outside the Directory beyond the hourly job (which covers them
   once they have a city and state); no way for the platform owner to drag a pin (manual coordinates only via SQL).
+
+## Card Shop Finder events (session 2026-11-24)
+
+CardShow's upcoming shows are filled from The Card Shop Finder (CSF) Partner Events API (docs: a PDF Stephen shared;
+`GET https://thecardshopfinder.com/api/partner/events.php`, key in `X-API-Key`, 1,000 requests/day, `limit=1000` gets the
+whole feed in one request). Built from "Claude Code build spec: The Card Shop Finder events sync (v1)". Decisions
+(Stephen, 2026-11-24, "go with your recommendations"):
+1. CSF shows are **listed straight away** with "Let sellers add themselves" on (no Show Directory approval).
+2. **Pickup still needs joining**: a dealer joins a CSF show in one tap ("Join a show"), then can pick it for pickup.
+3. When CSF drops an event linked to an **organizer's own show**, that show stays up and is only **flagged** in the Show feed.
+4. **Only the platform owner and the sync** change CSF shows (`shows_feed_guard`); no organizer is their organizer.
+5. Built from the API docs; 6. the live first run happens on a deploy (no key in the build container).
+
+**Sync** (`netlify/lib/csf-events.js` → `csf_sync_apply(events, show_types, run_id)`, every 6 hours, plus "Run sync now"):
+- Fetch: `limit=1000&offset=N` until `next_offset` is null; checks `ok`, the `filters` object (no filters applied, offset
+  as asked), and that the event count equals `total`. `total` changing between pages → start over once; twice → failed run,
+  nothing changed. 401 → "CSF key rejected", no retry. 429 → waits once if `Retry-After` ≤ 15s, else fails (next run tries).
+  400/500/bad body/network → failed run, nothing changed. Only the listing fields are passed on (`pickEvent()`).
+  A non-JSON error page (CSF's own errors are JSON) is reported as **blocked**: the firewall in front of CSF (Cloudflare) refused
+  our server; the run log keeps the status, `cf-ray` and page title to send to CSF. From a test container CSF's API answered a
+  bad key with its normal JSON 401, so a 403 seen from Netlify means CSF's Cloudflare is blocking Netlify's servers (CSF must
+  allow `/api/partner/events.php` requests carrying a key). "Run sync now" also tells our own 403 (not the platform owner) apart.
+- `external_events`: one row per CSF event, `source_url` exactly as sent, status active / ended / removed.
+- **Safety guard**: 0 events, or fewer than half the events active before → run marked suspicious, nothing marked removed.
+- Not in the feed: last day today or earlier (event's local date, `_us_state_tz(state)`) → `ended`; else `removed`.
+- Shows for `card_show`, `sports`, `convention` (`SHOW_TYPES`; `pokemon` events are stored, no show):
+  - already linked: a CSF show's name / dates / venue / address / coordinates are updated; an organizer's show isn't touched;
+  - an organizer's show with overlapping dates, same state and `similarity(_csf_norm_name(...)) ≥ 0.6` plus same city or
+    within 1 mile → linked automatically (its details stay the organizer's); similarity 0.3–0.6 → `external_event_matches`
+    pending, no show until the platform owner links or rejects it (rejected → next sync makes its own show);
+  - else a new show `show_csf<id>`: `source 'csf'`, listed, slug, `date` text like the app's, time zone from the state,
+    access code, CSF's lat/lng when given (`geo_source 'csf'`; otherwise the hourly geocoder locates it).
+- **Removed** (still upcoming): a CSF show is hidden (`listed = false`, `feed_removed_at`), pickup is cleared on every card
+  that picked it (shipping untouched), and one email per dealer with an active/held listing picking it up and per buyer
+  with an open hold or offer on those cards is queued (`external_show_notices`, once per show ever). Holds and offers are
+  not cancelled; they're listed in the Show feed for follow-up. An organizer's linked show → `external_show_removals` kind
+  `flagged`, nothing hidden or emailed. **Back in the feed** → show listed again, `restored_at` set, no new emails.
+- Emails reuse the "Hold - Dealer" / "Hold - Buyer" Loops templates (`compose()` in csf-events.js), sent after each sync and
+  by the 5-minute `expire-listing-reservations` job; kept for 3 days if Loops isn't set up.
+- Every run is an `external_sync_runs` row (counts, by type, no coordinates, suspicious note, error). The key is never stored
+  or logged (tested).
+
+**Credit (CSF terms)**: wherever a feed show appears, "via The Card Shop Finder" links to `source_url` exactly as stored, new
+tab, `rel="noopener"`; only listing facts; times as sent ("Hours TBD" when either is missing); admission 0 → "Free entry",
+a number → "$10 entry", null → hidden; `featured` never shown. `_show_feed(show_id)` adds `source`, `source_url`,
+`attribution`, `time_start`, `time_end`, `admission_price` to `list_upcoming_shows`, `get_show_page` (plus `removed`) and
+every listing's `show` (`_listing_next_show`, which skips hidden CSF shows). Shown on: buyer `/shows`, `/s/<key>` (removed →
+"No longer listed" + noindex), listing pages, grid tiles (`CsfCredit.astro`, beside the tile link); app.html Join a show list,
+My Shows, the pickup pickers (`mkPickupCredit()`), Show Directory rows; show.html; MCP (instructions tell agents to credit it).
+Organizer show modal: "Also list your show free on The Card Shop Finder".
+
+**Show Directory → Show feed** (`js/show-feed-admin.js`, `csf_feed_admin()`): last sync, counts, "CSF key rejected" warning,
+Run sync now, Details (last 10 runs, "Same show?" queue with Link / Different shows, removed shows with listings, holds and
+offers to follow up, emails sent, Mark handled). A "Card Shop Finder" filter keeps feed shows out of the other filters.
+
+**Also changed:** `loadShowsFromDB()` pages `shows` and `show_sellers` (more than 1,000 rows now) and loads each linked
+event's facts into `show.feed`; `_show_inventory_is_organizer()` returns false for CSF shows (except the platform owner).
+
+**Tests:** `csf-events.test.sh` (53 SQL checks), `csf-sync.test.mjs` (30, CSF stubbed), `csf-feed.e2e.mjs` (iPhone 13 + Pixel 7),
+buyer `site.e2e.mjs` CSF checks (iPhone 13 + Desktop Chrome).
+
+**Not built / open:** an organizer show created *after* its CSF show exists isn't matched (the Directory's duplicate warning
+shows it; merge by hand); deleting a CSF show in the Directory brings it back on the next sync (unlist it instead); an event
+whose type changes to `pokemon` keeps its show; ended CSF shows stay in `shows` (sellers load them all; filter if it grows).
 
 ## Inventory security (session 2026-11-20)
 

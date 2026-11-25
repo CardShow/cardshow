@@ -6,7 +6,8 @@ import Base from '../../layouts/Base.astro';
 import BundleBar from '../../components/BundleBar.astro';
 import { rpc } from '../../lib/api.js';
 import { env } from '../../lib/env.js';
-import { money, gradeLabel, pctLabel, imageFor, dateRange, place, timeAgo } from '../../lib/format.js';
+import { money, gradeLabel, pctLabel, imageFor, dateRange, place, timeAgo, showHours, admissionText } from '../../lib/format.js';
+import CsfCredit from '../../components/CsfCredit.astro';
 
 const raw = String(Astro.params.slug || '');
 const id = raw.slice(0, 36);
@@ -96,7 +97,7 @@ const jsonLd = found ? {
         {status !== 'sold' && (ships || pickup) && (
           <ul class="delivery" aria-label="Delivery">
             {ships && <li>📦 {shipText}</li>}
-            {pickup && <li>🤝 {show?.pickup ? `Pick up at ${show.name}` : show ? `Pick up at a show (next: ${show.name})` : 'Pick up in person'}</li>}
+            {pickup && <li>🤝 {show?.pickup ? `Pick up at ${show.name}` : show ? `Pick up at a show (next: ${show.name})` : 'Pick up in person'}{show?.attribution && <> (<CsfCredit show={show} />)</>}</li>}
           </ul>
         )}
 
@@ -194,6 +195,7 @@ const jsonLd = found ? {
                 {show.pickup && <span class="muted small">Pickup show</span>}
                 <b>{show.name}</b>
                 <span>{[show.start_date ? dateRange(show.start_date, show.end_date) : '', show.venue, place(show)].filter(Boolean).join(' · ')}</span>
+                {show.attribution && <span class="muted small">{[showHours(show), admissionText(show.admission_price)].filter(Boolean).join(' · ')} · <CsfCredit show={show} /></span>}
                 {show.table_number && <span class="table">Table {show.table_number}</span>}
                 <a href={showUrl}>More cards at this show →</a>
               </div>
@@ -478,6 +480,12 @@ const jsonLd = found ? {
               notifyOffer(data.offer_id);
             } else if (data.status === 'declined') {
               showOffer({ status: 'declined', amount_cents: cents, decided_by: 'auto' });
+            } else if (data.status === 'countered') {
+              // The dealer's offer rules countered straight away (20261211120000).
+              showOffer({ id: data.offer_id, status: 'countered', amount_cents: data.amount_cents, expires_at: data.expires_at, can_counter: data.can_counter !== false,
+                          card_count: 1, history: [{ by: 'buyer', cents }, { by: 'dealer', cents: data.amount_cents }] });
+              osay(`The dealer countered at ${dollars(data.amount_cents)}. Accept, counter or decline below.`);
+              notifyOffer(data.offer_id);
             } else {
               showOffer({ id: data.offer_id, status: 'pending', amount_cents: cents, expires_at: data.expires_at, history: [{ by: 'buyer', cents }] });
               osay('Offer sent. The dealer has been told.');

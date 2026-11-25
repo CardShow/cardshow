@@ -70,3 +70,27 @@ export function timeAgo(iso, now = Date.now()) {
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
+// Shows from The Card Shop Finder (CSF): their terms say every listing of one credits "via The Card Shop Finder",
+// linked to the event's url exactly as CSF sent it (show.source_url), and shows only listing facts.
+export const CSF_CREDIT = 'via The Card Shop Finder';
+export function fromFeed(show) { return !!(show && show.attribution && show.source_url); }
+function time12(t) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || ''));
+  if (!m) return '';
+  const h = +m[1], ap = h >= 12 ? 'PM' : 'AM', h12 = h % 12 || 12;
+  return `${h12}${m[2] === '00' ? '' : ':' + m[2]} ${ap}`;
+}
+// "9 AM–5 PM" (local, as CSF sends it), "Hours TBD" when either is missing. '' for shows not from the feed.
+export function showHours(show) {
+  if (!fromFeed(show)) return '';
+  const a = time12(show.time_start), b = time12(show.time_end);
+  return a && b ? `${a}–${b}` : 'Hours TBD';
+}
+// 0 → "Free entry", 10 → "$10 entry", 7.5 → "$7.50 entry", null → ''.
+export function admissionText(price) {
+  if (price === null || price === undefined || price === '') return '';
+  const n = Number(price);
+  if (!Number.isFinite(n) || n < 0) return '';
+  return n === 0 ? 'Free entry' : `${money(Math.round(n * 100))} entry`;
+}

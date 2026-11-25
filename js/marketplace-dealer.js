@@ -30,7 +30,7 @@ const MK_REASONS = {
   not_synced: 'Not saved yet',
   not_found: 'Not found',
 };
-const MK_MISSING_RE = /listing_status|min_offer_cents|auto_accept_cents|accepts_offers|sale_modes|publish_listings|delist_listings|PGRST202|PGRST204|schema cache/i;
+const MK_MISSING_RE = /listing_status|use_offer_rules|min_offer_cents|auto_accept_cents|accepts_offers|sale_modes|publish_listings|delist_listings|PGRST202|PGRST204|schema cache/i;
 
 let _mkBusy = false;
 
@@ -82,7 +82,7 @@ function mkUpdateEntry(tab) {
 // ── Defaults for cards listed from the panel (per seller, on this device) ──
 function _mkDefaultsKey() { return 'mkDefaults:' + (currentSeller || ''); }
 function mkDefaults() {
-  const d = { acceptsOffers: true, minPct: '', autoPct: '', ship: true, pickup: false, shipPrice: '', pickupShow: '' };
+  const d = { acceptsOffers: true, ship: true, pickup: false, shipPrice: '', pickupShow: '' };
   try { Object.assign(d, JSON.parse(localStorage.getItem(_mkDefaultsKey()) || '{}')); } catch (_) {}
   return d;
 }
@@ -104,8 +104,17 @@ function mkPickupShows() {
     if (!sh || !sh.id) return false;
     const sellers = sh.sellers instanceof Set ? sh.sellers : new Set(sh.sellers || []);
     if (!sellers.has(currentSeller)) return false;
+    if (sh.feedRemovedAt) return false;   // a Card Shop Finder show that left the feed (maybe cancelled)
     return typeof _showStatusFromDates !== 'function' || _showStatusFromDates(sh) !== 'past';
   }).sort((a, b) => String(a.startDate || '9999').localeCompare(String(b.startDate || '9999')));
+}
+// Under a pickup-show picker: the credit for a Card Shop Finder show (their terms), for the show picked.
+function mkPickupCredit(sel, targetId) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const sh = sel && sel.value && typeof shows !== 'undefined' ? shows[sel.value] : null;
+  el.innerHTML = sh && typeof csfCreditHTML === 'function' && csfCreditHTML(sh)
+    ? `${_mkEsc(csfFactsText(sh))} · ${csfCreditHTML(sh)}` : '';
 }
 function mkPickupOptionsHTML(selected) {
   const list = mkPickupShows();
@@ -218,11 +227,9 @@ function _mkRenderPanel(result) {
         <div class="mk-section">
           <div class="section-label">Offers and delivery for cards you list now</div>
           <label class="mk-check"><input type="checkbox" id="mkAccept" ${d.acceptsOffers ? 'checked' : ''} onchange="_mkToggleOfferRows()"> Accept offers</label>
-          <div class="mk-grid" id="mkOfferRows" style="${d.acceptsOffers ? '' : 'display:none'}">
-            <label>Lowest offer to consider
-              <span class="mk-pct"><input type="number" id="mkMinPct" inputmode="decimal" min="1" max="100" step="1" placeholder="Any" value="${_mkEsc(d.minPct)}"><span>% of asking</span></span></label>
-            <label>Accept automatically at
-              <span class="mk-pct"><input type="number" id="mkAutoPct" inputmode="decimal" min="1" max="100" step="1" placeholder="Never" value="${_mkEsc(d.autoPct)}"><span>% of asking</span></span></label>
+          <div class="or-summary" id="mkOfferRows" style="${d.acceptsOffers ? '' : 'display:none'}">
+            ${typeof orSummaryText === 'function' ? _mkEsc(orSummaryText()) : ''}
+            <button type="button" class="mk-link" onclick="openOfferRules()">${typeof orHasRules === 'function' && orHasRules() ? 'Change offer rules' : 'Set offer rules'}</button>
           </div>
           <div class="mk-row">
             <label class="mk-check"><input type="checkbox" id="mkShip" ${d.ship ? 'checked' : ''} onchange="_mkToggleDeliveryRows()"> Ship to buyer</label>
@@ -233,7 +240,8 @@ function _mkRenderPanel(result) {
               <span class="mk-pct"><span>$</span><input type="number" id="mkShipPrice" inputmode="decimal" min="0" step="0.01" placeholder="Ask me" value="${_mkEsc(d.shipPrice)}"></span>
               <span class="mk-hint">0 = free shipping. Blank = buyers ask you.</span></label>
             <label id="mkPickupRow" style="${d.pickup ? '' : 'display:none'}">Pickup at
-              <select id="mkPickupShow" class="show-input" style="margin:0">${mkPickupOptionsHTML(d.pickupShow)}</select></label>
+              <select id="mkPickupShow" class="show-input" style="margin:0" onchange="mkPickupCredit(this, 'mkPickupCredit')">${mkPickupOptionsHTML(d.pickupShow)}</select>
+              <span class="mk-hint" id="mkPickupCredit"></span></label>
           </div>
           <div class="cost-field-err" id="mkErr"></div>
         </div>
@@ -246,6 +254,7 @@ function _mkRenderPanel(result) {
         <button type="button" class="btn btn-primary" id="mkListBtn" ${toList.length ? '' : 'disabled'} onclick="mkListFromPanel()">List ${toList.length} card${toList.length === 1 ? '' : 's'}</button>
       </div>
     </div>`;
+  mkPickupCredit(document.getElementById('mkPickupShow'), 'mkPickupCredit');
 }
 
 function _mkToggleDeliveryRows() {
@@ -258,15 +267,13 @@ function _mkToggleOfferRows() {
   document.getElementById('mkOfferRows').style.display = on ? '' : 'none';
 }
 
-// Offer settings for a card from percentages of its asking price.
+// Offer and delivery settings for a card listed from the panel. How offers are answered comes from the
+// dealer's offer rules (js/offer-rules.js); a card's own lowest-offer / auto-accept prices (Edit Card) are
+// left as they are.
 function mkSettingsFromPct(card, opts) {
-  const price = Math.round(Number(card.Price || 0) * 100);
-  const pct = p => (p === '' || p == null) ? null : Math.round(price * Number(p) / 100);
   const modes = [opts.ship && 'ship', opts.pickup && 'local_pickup'].filter(Boolean);
   return {
     accepts_offers: !!opts.acceptsOffers,
-    min_offer_cents: opts.acceptsOffers ? pct(opts.minPct) : null,
-    auto_accept_cents: opts.acceptsOffers ? pct(opts.autoPct) : null,
     sale_modes: modes,
     shipping_options: opts.ship && _mkShipCents(opts.shipPrice) != null ? { flat_cents: _mkShipCents(opts.shipPrice) } : null,
     pickup_show_id: opts.pickup && opts.pickupShow ? opts.pickupShow : null,
@@ -290,7 +297,6 @@ function _mkReadPanelOpts() {
   const v = id => document.getElementById(id)?.value.trim() ?? '';
   return {
     acceptsOffers: document.getElementById('mkAccept').checked,
-    minPct: v('mkMinPct'), autoPct: v('mkAutoPct'),
     ship: document.getElementById('mkShip').checked,
     pickup: document.getElementById('mkPickup').checked,
     shipPrice: v('mkShipPrice'),
@@ -308,12 +314,6 @@ async function mkListFromPanel() {
   if (_mkBusy || _mkNeedSignal()) return;
   const opts = _mkReadPanelOpts();
   const err = document.getElementById('mkErr');
-  for (const p of [opts.minPct, opts.autoPct]) {
-    if (p !== '' && !(Number(p) > 0 && Number(p) <= 100)) { err.textContent = 'Percentages must be between 1 and 100.'; return; }
-  }
-  if (opts.acceptsOffers && opts.minPct !== '' && opts.autoPct !== '' && Number(opts.autoPct) < Number(opts.minPct)) {
-    err.textContent = 'Auto-accept must be at or above the lowest offer you\'ll consider.'; return;
-  }
   if (!opts.ship && !opts.pickup) { err.textContent = 'Pick at least one way for buyers to get the card.'; return; }
   if (opts.ship && Number.isNaN(_mkShipCents(opts.shipPrice))) { err.textContent = 'Shipping must be a price from $0 to $1,000 (or blank).'; return; }
   err.textContent = '';
@@ -416,8 +416,9 @@ async function mkDelistCards(cards) {
 
 function _mkApplySettings(card, s) {
   card.AcceptsOffers = s.accepts_offers;
-  card.MinOfferCents = s.min_offer_cents;
-  card.AutoAcceptCents = s.auto_accept_cents;
+  if ('min_offer_cents' in s) card.MinOfferCents = s.min_offer_cents;
+  if ('auto_accept_cents' in s) card.AutoAcceptCents = s.auto_accept_cents;
+  if ('use_offer_rules' in s) card.UseOfferRules = s.use_offer_rules;
   card.SaleModes = s.sale_modes;
   if ('shipping_options' in s) card.ShippingCents = s.shipping_options ? s.shipping_options.flat_cents : null;
   if ('pickup_show_id' in s) card.PickupShowId = s.pickup_show_id;
@@ -461,9 +462,11 @@ function mkCemFill(card) {
   document.getElementById('cem_mk_pickup').checked = modes.includes('local_pickup');
   document.getElementById('cem_mk_ship_price').value = card.ShippingCents != null ? (card.ShippingCents / 100) : '';
   document.getElementById('cem_mk_pickup_show').innerHTML = mkPickupOptionsHTML(card.PickupShowId || '');
+  mkPickupCredit(document.getElementById('cem_mk_pickup_show'), 'cem_mk_pickup_credit');
   mkCemToggleDelivery();
   document.getElementById('cem_mk_offer_rows').style.display = accepts ? '' : 'none';
   document.getElementById('cem_mk_err').textContent = '';
+  if (typeof orCemFill === 'function') orCemFill(card);
   box.querySelectorAll('input, select').forEach(i => { i.disabled = s === 'reserved' || s === 'sold'; });
   box.open = s === 'active';
 }
@@ -537,6 +540,10 @@ function mkCemRead(card) {
   const ship = s.sale_modes.includes('ship') ? _mkShipCents(document.getElementById('cem_mk_ship_price').value) : null;
   s.shipping_options = ship == null ? null : { flat_cents: ship };
   s.pickup_show_id = s.sale_modes.includes('local_pickup') ? (document.getElementById('cem_mk_pickup_show').value || null) : null;
+  // Only sent when changed, so saving still works before the offer-rules migration has run.
+  const rulesBox = document.getElementById('cem_mk_rules');
+  if (rulesBox && document.getElementById('cem_mk_rules_box')?.style.display !== 'none'
+      && rulesBox.checked !== (card.UseOfferRules !== false)) s.use_offer_rules = rulesBox.checked;
   const priceInput = document.getElementById('cem_price');
   const priceCents = Math.round(Number((priceInput && priceInput.value) || card.Price || 0) * 100);
   const err = (Number.isNaN(s.min_offer_cents) || Number.isNaN(s.auto_accept_cents)) ? 'Enter prices as numbers.' : mkValidate(s, priceCents);
@@ -547,7 +554,8 @@ function mkCemRead(card) {
     && (card.AutoAcceptCents ?? null) === s.auto_accept_cents
     && JSON.stringify(Array.isArray(card.SaleModes) && card.SaleModes.length ? card.SaleModes : ['ship']) === JSON.stringify(s.sale_modes)
     && (card.ShippingCents ?? null) === (s.shipping_options ? s.shipping_options.flat_cents : null)
-    && (card.PickupShowId || null) === s.pickup_show_id;
+    && (card.PickupShowId || null) === s.pickup_show_id
+    && !('use_offer_rules' in s);
   return same ? null : s;
 }
 

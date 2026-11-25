@@ -39,6 +39,10 @@
 [functions."geocode-shows"]
   schedule = "@hourly"
 
+# The Card Shop Finder events feed → shows (CLAUDE.md "Card Shop Finder events"). Production deploy only.
+[functions."sync-csf-events"]
+  schedule = "0 */6 * * *"
+
 # Show status follows the dates: Upcoming → Active (Live) → Past.
 [functions."refresh-show-statuses"]
   schedule = "@hourly"

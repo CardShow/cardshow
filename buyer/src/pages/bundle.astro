@@ -146,6 +146,7 @@ Astro.response.headers.set('Cache-Control', 'private, no-store');
         $('bBody').hidden = true; $('bDone').hidden = false; $('bIntro').hidden = true;
         say(data.status === 'accepted' ? `Accepted! All ${b.items.length} cards are on hold for you at ${money(data.agreed_cents)}. The dealer has been told and will contact you.`
           : data.status === 'declined' ? 'The dealer doesn’t take offers that low on these cards. Try a higher amount.'
+          : data.status === 'countered' ? `The dealer countered at ${money(data.amount_cents)} for all ${b.items.length} cards. Answer it on any of the cards’ pages or under Your offers in your account.`
           : 'Offer sent. The dealer has been told and has 24 hours to answer.');
         if (data.status === 'declined') { $('bBody').hidden = false; $('bDone').hidden = true; $('bIntro').hidden = false; }
         else {

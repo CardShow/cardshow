@@ -2,6 +2,7 @@
 // One listing in a grid (search results, storefronts).
 import { money, gradeLabel, pctLabel, imageFor, dateRange, place } from '../lib/format.js';
 import { env } from '../lib/env.js';
+import CsfCredit from './CsfCredit.astro';
 interface Props { l: any }
 const { l } = Astro.props;
 const img = imageFor(l, { supabaseUrl: env.supabaseUrl(), siteUrl: env.siteUrl(), thumb: 480, cdn: env.imageCdn() });
@@ -31,6 +32,7 @@ const bundleable = l.listing_status === 'active' && l.accepts_offers !== false &
     {show && <div class="tile-where">{show.name}{show.start_date ? ` · ${dateRange(show.start_date, show.end_date)}` : ''}{l.miles != null ? ` · ${l.miles} mi` : place(show) ? ` · ${place(show)}` : ''}</div>}
   </div>
 </a>
+{show && <CsfCredit show={show} class="tile-credit" />}
 {bundleable && (
   <button type="button" class="tile-bundle" aria-pressed="false" data-id={l.id} data-title={l.title} data-price={l.price_cents}
           data-url={l.url} data-dealer={l.dealer.handle} data-dealer-name={l.dealer.display_name || l.dealer.handle}

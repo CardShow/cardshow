@@ -10,9 +10,18 @@ const day = 86400000;
 const iso = t => new Date(t).toISOString();
 const d = n => iso(now + n * day).slice(0, 10);
 
+// A show from The Card Shop Finder: credit + url exactly as CSF sent it, local times, admission.
+export const CSF_URL = 'https://thecardshopfinder.com/event/bay-area-card-show/?utm_source=cardshow&utm_medium=partner_feed&utm_campaign=events';
+export function csfShow() {
+  return { id: 'show_csf77', name: 'Bay Area Card Show', start_date: d(9), end_date: d(9), venue: 'Fairgrounds', city: 'San Jose', state: 'CA',
+    url: '/s/bay-area-card-show-2026', source: 'csf', source_url: CSF_URL, attribution: 'via The Card Shop Finder',
+    time_start: '09:00', admission_price: 0 };
+}
+
 export function listings() {
   const show = { id: 'show_monster', name: 'Monster Show', start_date: d(2), end_date: d(4), venue: 'Cal Expo', city: 'Sacramento', state: 'CA', table_number: '12',
     url: '/s/monster-show-2026', pickup: true };
+  const csf = csfShow();
   const dealerA = { handle: 'dealer_a', display_name: 'Dealer A', url: '/d/dealer_a' };
   const dealerB = { handle: 'dealer_b', display_name: 'Dealer B', url: '/d/dealer_b' };
   return [
@@ -27,7 +36,7 @@ export function listings() {
       title: '2024 Prizm Jayden Daniels Silver', player: 'Jayden Daniels', year: 2024, set: 'Prizm', number: '331', parallel: 'Silver',
       grade_key: 'Raw', category: 'Sports', subcategory: 'Football', listing_status: 'active', price_cents: 4500, comp_unavailable: true,
       deal: false, sale_modes: ['ship'], gtcr_clear: false, accepts_offers: false,
-      image: { stock_image_url: '/.netlify/functions/card-image?id=abc', catalog_image: true }, dealer: dealerB, listed_at: iso(now - 3 * day) },
+      image: { stock_image_url: '/.netlify/functions/card-image?id=abc', catalog_image: true }, dealer: dealerB, show: csf, listed_at: iso(now - 3 * day) },
     { id: '33333333-3333-4333-8333-333333333333', url: '/c/33333333-3333-4333-8333-333333333333-wemby-prizm-bgs-9-5',
       title: 'Wemby Prizm BGS 9.5', player: 'Victor Wembanyama', grader: 'BGS', grade: 9.5, grade_key: 'BGS 9.5', cert_number: '999',
       listing_status: 'reserved', price_cents: 90000, comp: { value_cents: 80000, sales_30d: 1, few_sales: true, refreshed_at: iso(now) },
@@ -91,6 +100,11 @@ export async function start({ port = 0 } = {}) {
       if (name === 'get_show_page') {
         const k = String(j.p_key || '');
         if (k === 'show_monster') return send(200, { redirect: '/s/monster-show-2026' });
+        if (k === 'bay-area-card-show-2026' || k === 'gone-show-2026') {
+          const c = csfShow();
+          return send(200, { ...c, key: k, url: '/s/' + k, listed: k !== 'gone-show-2026', removed: k === 'gone-show-2026', ended: false,
+            listed_cards: 1, show_page: '/show.html?id=show_csf77', dealers: [] });
+        }
         if (k !== 'monster-show-2026') return send(200, { error: 'not_found' });
         return send(200, { id: 'show_monster', key: k, url: '/s/' + k, name: 'Monster Show', start_date: d(2), end_date: d(4),
           venue: 'Cal Expo', city: 'Sacramento', state: 'CA', street_address: '1600 Exposition Blvd', website: 'https://monster.example',
@@ -103,7 +117,8 @@ export async function start({ port = 0 } = {}) {
         state.showArgs = p;
         if (p.state && p.state !== 'CA') return send(200, []);
         return send(200, [{ id: 'show_monster', name: 'Monster Show', url: '/s/monster-show-2026', start_date: d(2), end_date: d(4),
-          venue: 'Cal Expo', city: 'Sacramento', state: 'CA', listed_cards: 1, ...(p.near ? { miles: 4.1 } : {}) }]);
+          venue: 'Cal Expo', city: 'Sacramento', state: 'CA', listed_cards: 1, source: 'cardshow', ...(p.near ? { miles: 4.1 } : {}) },
+          { ...csfShow(), listed_cards: 1 }]);
       }
       // holds (signed-in only; the token stands in for auth.uid())
       if (['place_hold', 'cancel_hold', 'my_holds'].includes(name)) {
@@ -193,6 +208,11 @@ export async function start({ port = 0 } = {}) {
           expires_at: iso(Date.now() + day), created_at: iso(Date.now()), updated_at: iso(Date.now()), buyer_name: j.p_name };
         state.offers.push(n);
         if (state.autoAcceptCents && j.p_amount_cents >= state.autoAcceptCents) return send(200, accept(n, l));
+        if (state.autoCounterCents && j.p_amount_cents < state.autoCounterCents) {   // the dealer's offer rules counter at once
+          Object.assign(n, { status: 'countered', amount_cents: state.autoCounterCents, last_by: 'dealer', moves: 2,
+            history: [...n.history, { by: 'dealer', cents: state.autoCounterCents, auto: true }] });
+          return send(200, { ok: true, status: 'countered', auto: true, offer_id: n.id, amount_cents: n.amount_cents, expires_at: n.expires_at, can_counter: true });
+        }
         return send(200, { ok: true, status: 'pending', offer_id: n.id, expires_at: n.expires_at });
       }
       if (name === 'request_card_value_refresh') { state.refresh.push(j.p_listing_id); return send(200, { ok: true }); }

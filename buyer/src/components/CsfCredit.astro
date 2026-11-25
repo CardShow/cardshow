@@ -1,0 +1,8 @@
+---
+// "via The Card Shop Finder", linked to the event's page exactly as CSF sent it (their terms). Renders nothing
+// for shows that didn't come from the feed.
+import { fromFeed, CSF_CREDIT } from '../lib/format.js';
+interface Props { show: any; class?: string }
+const { show, class: cls = '' } = Astro.props;
+---
+{fromFeed(show) && <a class={`csf-credit ${cls}`} href={show.source_url} target="_blank" rel="noopener">{CSF_CREDIT}</a>}

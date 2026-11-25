@@ -8,7 +8,8 @@ import BundleBar from '../../components/BundleBar.astro';
 import { rpc } from '../../lib/api.js';
 import { env } from '../../lib/env.js';
 import { fromQuery, PAGE_SIZE, SORTS, CATEGORIES } from '../../lib/search.js';
-import { dateRange, place } from '../../lib/format.js';
+import { dateRange, place, showHours, admissionText } from '../../lib/format.js';
+import CsfCredit from '../../components/CsfCredit.astro';
 
 const key = String(Astro.params.key || '').slice(0, 120);
 const { p, form, page } = fromQuery(Astro.url.searchParams);
@@ -64,7 +65,7 @@ const jsonLd = found && show.start_date ? {
 ---
 <Base title={found ? `${show.name}${when ? ` · ${when}` : ''}` : failed ? 'Show unavailable' : 'Show not found'}
       description={description} canonical={found ? show.url : undefined}
-      noindex={!found || !show.listed || show.ended || filtered || page > 1} q={form.q || ''}>
+      noindex={!found || !show.listed || show.removed || show.ended || filtered || page > 1} q={form.q || ''}>
   {jsonLd && <script is:inline type="application/ld+json" slot="head" set:html={JSON.stringify(jsonLd).replace(/</g, '\\u003c')} />}
   {!found && (
     <div class="gone">
@@ -77,8 +78,14 @@ const jsonLd = found && show.start_date ? {
       <header class="show-head">
         <div>
           {show.ended && <span class="chip chip-sold">This show has ended</span>}
+          {show.removed && !show.ended && <span class="chip chip-sold">No longer listed</span>}
           <h1>{show.name}</h1>
           <p class="when">{[when, where].filter(Boolean).join(' · ')}</p>
+          {show.attribution && (
+            <p class="when">{[showHours(show), admissionText(show.admission_price)].filter(Boolean).join(' · ')}
+              {' · '}<CsfCredit show={show} /></p>
+          )}
+          {show.removed && !show.ended && <p class="notice">This show is no longer listed, so it may be cancelled. Check with the organizer before you go.</p>}
           <p class="links">
             <a href={`${site}${show.show_page}`}>Floor map &amp; table directory</a>
             {show.website && <a href={show.website} rel="nofollow noopener" target="_blank">Show website ↗</a>}
