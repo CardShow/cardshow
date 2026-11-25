@@ -67,8 +67,10 @@ Show Mode covers the tab bar, so the Market badge isn't visible during a show. W
 2. Set baseline: Sales & reports card (as specced), Inventory bulk bar → More, or Settings?
 3. Bulk "Add to show" and `activeShowId`: recommended yes. The bulk action reuses `sellerPublishToShow()`,
    which already acts on checked rows and already sets `activeShowId`.
-4. Flag rollout: beta sellers first via `?seller_nav=1`, then everyone after the next show? **Still needs an
-   answer from Stephen.**
+4. ~~Flag rollout?~~ **Closed 2026-11-25:** beta sellers first, each opening the app once with `?seller_nav=1`
+   (remembered on that device as localStorage `sellerNavTest`; `?seller_nav=0` turns it off). After the next show,
+   set `SELLER_NAV_V2_ENABLED = true` in `js/seller-shell.js` for everyone. The flag-off UI stays until v2 has been
+   on for everyone for 2 weeks.
 5. May Phase 6 map `inventory.sold_channel` and `inventory.source` in `dbRowToCard()` (client only, no SQL) so
    marketplace sales and off-show manual sales can be told apart in "Where sales came from"?
 6. Show Mode marketplace alerts: leave as is, or (a separate change to Show Mode) add a persistent notice there?

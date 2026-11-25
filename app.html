@@ -67,6 +67,7 @@
     --muted: #6b7280;
     --success: #22c55e;
     --danger: #ef4444;
+    --muted-text: #9aa3c2;   /* labels / secondary text that must pass 4.5:1 (seller dashboard v2) */
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5407,6 +5408,159 @@
     #siReviewBody .si-actions { flex-direction:column; align-items:stretch; }
     #siReviewBody .si-actions .btn, #siReviewBody .si-actions select { width:100%; }
   }
+
+  /* ══════ Seller Dashboard v2 shell (js/seller-shell.js, flag seller_nav_v2) ══════
+     Everything is scoped to body.seller-v2, so with the flag off nothing here applies. */
+  #sellerNav, #sellerTopBar, #sellerTabBarV2, #ss2MoreSheet { display: none; }
+  body.seller-v2 #view-seller .seller-layout { display: flex; flex-wrap: wrap; align-items: flex-start; }
+  body.seller-v2 #mainSidebar,
+  body.seller-v2 #sellerTabBar,
+  body.seller-v2 #fabAddCard,
+  body.seller-v2 #sidebarToggle,
+  body.seller-v2 #navHelpWrap,
+  body.seller-v2 #navShowModeBtn,
+  body.seller-v2 #navProfileBtn { display: none !important; }
+  body.seller-v2 #view-seller .main-content { flex: 999 1 560px; min-width: 0; }
+  body.seller-v2.ss2-route-sales #adminInventoryPanel .toolbar,
+  body.seller-v2.ss2-route-sales #gsChecklist { display: none !important; }
+
+  body.seller-v2 #sellerNav {
+    display: flex; flex-direction: column; gap: 0.75rem;
+    flex: 0 0 248px; width: 248px; position: sticky; top: 52px; align-self: flex-start;
+    height: calc(100vh - 52px); overflow-y: auto;
+    padding: 1rem 0.75rem; background: var(--surface); border-right: 1px solid var(--border);
+  }
+  .ss2-ico { flex: 0 0 auto; }
+  .ss2-add-btn {
+    display: flex; align-items: center; justify-content: center; gap: 0.45rem;
+    min-height: 44px; border: 0; border-radius: 10px; background: var(--accent); color: #0a0a0a;
+    font: 700 0.95rem 'DM Sans', sans-serif; cursor: pointer;
+  }
+  .ss2-add-btn:focus-visible, .ss2-nav-item:focus-visible, .ss2-tab:focus-visible, .ss2-sheet-row:focus-visible,
+  .ss2-sm-btn:focus-visible, .ss2-avatar-btn:focus-visible, .ss2-seg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ss2-nav { display: flex; flex-direction: column; gap: 2px; }
+  .ss2-nav-item {
+    display: flex; align-items: center; gap: 0.65rem; width: 100%; min-height: 44px; padding: 0 0.7rem;
+    border: 0; border-radius: 8px; background: none; color: var(--muted-text); text-decoration: none; text-align: left;
+    font: 500 0.92rem 'DM Sans', sans-serif; cursor: pointer;
+  }
+  .ss2-nav-item:hover { background: var(--card); color: var(--text); }
+  .ss2-nav-item.active { background: var(--card); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+  .ss2-nav-label { flex: 1; min-width: 0; }
+  .ss2-count { font: 0.72rem 'DM Mono', monospace; color: var(--muted-text); }
+  .ss2-chip { font: 600 0.66rem 'DM Mono', monospace; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 6px; }
+  .ss2-badge {
+    min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #0a0a0a;
+    font: 700 0.7rem 'DM Mono', monospace; display: inline-flex; align-items: center; justify-content: center;
+  }
+  #ss2NavMarket { display: none; }
+  body.ss2-mk #ss2NavMarket { display: block; }
+  .ss2-nav-sub { display: none; flex-direction: column; padding-left: 2.35rem; }
+  body.ss2-route-market .ss2-nav-sub { display: flex; }
+  .ss2-nav-subitem { min-height: 36px; display: flex; align-items: center; color: var(--muted-text); text-decoration: none; font-size: 0.85rem; }
+  .ss2-nav-subitem:hover, .ss2-nav-subitem.active { color: var(--text); }
+  .ss2-nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 2px; border-top: 1px solid var(--border); padding-top: 0.6rem; }
+  .ss2-account { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.7rem 0; color: var(--muted-text); font-size: 0.82rem; }
+  .ss2-account-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .ss2-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--card); display: flex; align-items: center; justify-content: center; }
+  .ss2-signout { width: 44px; height: 44px; border: 0; background: none; color: var(--muted-text); cursor: pointer; border-radius: 8px; }
+  .ss2-signout:hover { color: var(--text); background: var(--card); }
+
+  body.seller-v2 #sellerTopBar { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
+  .ss2-search {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.5rem; min-height: 44px; padding: 0 0.8rem;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px; color: var(--muted-text);
+  }
+  .ss2-search:focus-within { border-color: var(--accent); }
+  .ss2-search input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--text); font: 0.92rem 'DM Sans', sans-serif; }
+  .ss2-sm-btn {
+    display: inline-flex; align-items: center; gap: 0.45rem; min-height: 44px; padding: 0 0.9rem; white-space: nowrap;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text);
+    font: 600 0.88rem 'DM Sans', sans-serif; cursor: pointer;
+  }
+  .ss2-sm-btn:hover { border-color: var(--accent); }
+  .ss2-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px rgba(34,197,94,0.25); }
+  .ss2-avatar-btn { width: 44px; height: 44px; flex: 0 0 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+
+  .ss2-head { margin-bottom: 1rem; }
+  .ss2-head-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .ss2-title { font: 2rem/1 'Bebas Neue', sans-serif; letter-spacing: 0.03em; color: var(--text); }
+  .ss2-lede { color: var(--muted-text); font-size: 0.9rem; margin-top: 0.3rem; }
+  .ss2-back { display: none; width: 44px; height: 44px; align-items: center; justify-content: center; color: var(--muted-text); border-radius: 8px; }
+  .ss2-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+  .ss2-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  .ss2-cta { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+  .ss2-rows { padding: 0.3rem; display: flex; flex-direction: column; }
+  .ss2-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 52px; padding: 0 0.8rem;
+    border: 0; border-radius: 8px; background: none; color: var(--text); font: 600 0.95rem 'DM Sans', sans-serif; text-align: left; cursor: pointer;
+  }
+  .ss2-row:hover { background: var(--card); }
+  .ss2-row-meta { color: var(--muted-text); font-weight: 400; font-size: 0.82rem; text-align: right; }
+  .ss2-seg { margin-left: auto; display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+  .ss2-seg-btn { min-height: 38px; padding: 0 0.9rem; display: inline-flex; align-items: center; border-radius: 8px; color: var(--muted-text); text-decoration: none; font-size: 0.85rem; font-weight: 600; }
+  .ss2-seg-btn.active { background: var(--card); color: var(--text); }
+  body.seller-v2 #ss2Shows #sellerShowsPanel,
+  body.seller-v2 #ss2Qr .seller-qr-panel { margin: 0; }
+  body.seller-v2 #ss2Qr .seller-qr-panel { display: block; }
+
+  /* More sheet (phone More tab, or the avatar button once Market takes slot 5) */
+  body.seller-v2 #ss2MoreSheet.open {
+    display: flex; position: fixed; inset: 0; z-index: 400; background: rgba(0,0,0,0.6);
+    align-items: flex-end; justify-content: center;
+  }
+  .ss2-sheet {
+    width: 100%; max-width: 480px; max-height: 88vh; overflow-y: auto; background: var(--surface);
+    border-radius: 16px 16px 0 0; padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column;
+  }
+  .ss2-sheet-grab { width: 40px; height: 4px; border-radius: 2px; background: var(--border); margin: 0.3rem auto 0.6rem; }
+  .ss2-sheet-row {
+    display: flex; align-items: center; gap: 0.8rem; min-height: 52px; padding: 0 0.6rem; width: 100%;
+    border: 0; border-radius: 10px; background: none; color: var(--text); text-decoration: none; text-align: left;
+    font: 500 1rem 'DM Sans', sans-serif; cursor: pointer;
+  }
+  .ss2-sheet-row:hover { background: var(--card); }
+  .ss2-sheet-row small { display: block; color: var(--muted-text); font-size: 0.8rem; font-weight: 400; }
+  .ss2-sheet-profile { min-height: 64px; border-bottom: 1px solid var(--border); border-radius: 10px 10px 0 0; margin-bottom: 0.25rem; }
+  .ss2-sheet-label { color: var(--muted-text); font: 0.7rem 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; padding: 0.8rem 0.6rem 0.3rem; }
+  .ss2-sheet-close { min-height: 48px; margin-top: 0.5rem; }
+
+  /* Phone: bottom tab bar instead of the left nav. z-index 120: above content,
+     below Show Mode (150) and every modal (200+). */
+  @media (max-width: 767px) {
+    body.seller-v2 #sellerNav { display: none; }
+    body.seller-v2 #view-seller .main-content { flex-basis: 100%; }
+    body.seller-v2 #view-seller { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+    body.seller-v2 #sellerTabBarV2 {
+      display: grid; grid-template-columns: repeat(5, 1fr); align-items: stretch;
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 120;
+      min-height: 64px; padding-bottom: env(safe-area-inset-bottom, 0px);
+      background: rgba(17,19,24,0.97); border-top: 1px solid var(--border);
+    }
+    .ss2-tab {
+      position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      min-height: 56px; border: 0; background: none; color: var(--muted-text); text-decoration: none;
+      font: 600 0.68rem 'DM Sans', sans-serif; cursor: pointer;
+    }
+    .ss2-tab.active { color: var(--accent); }
+    .ss2-tab-plus { align-self: center; justify-self: center; width: 52px; height: 52px; min-height: 52px; border-radius: 50%; background: var(--accent); color: #0a0a0a; }
+    .ss2-tab-plus .ss2-ico { width: 24px; height: 24px; }
+    .ss2-tab .ss2-badge { position: absolute; top: 4px; left: calc(50% + 6px); }
+    #ss2TabMarket { display: none; }
+    body.ss2-mk #ss2TabMarket { display: flex; }
+    body.ss2-mk #ss2TabMore { display: none; }
+    body.ss2-mk.ss2-route-home #ss2AvatarBtn { display: inline-flex !important; }
+    body.seller-v2 #sellerTopBar { gap: 0.4rem; }
+    .ss2-sm-btn span:last-child { display: none; }
+    .ss2-sm-btn { padding: 0 0.75rem; }
+    .ss2-title { font-size: 1.7rem; }
+    body.seller-v2.ss2-route-sales .ss2-back { display: inline-flex; }
+    .ss2-seg { margin-left: 0; width: 100%; }
+    .ss2-seg-btn { flex: 1; justify-content: center; min-height: 44px; }
+    body.seller-v2 .toast { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+    body.seller-v2 #costAddBar { bottom: calc(8.5rem + env(safe-area-inset-bottom, 0px)); }
+  }
 </style>
 </head>
 <body>
@@ -8228,6 +8382,7 @@
 <script src="/js/offer-rules.js?v=20261211a"></script>
 <script src="/js/marketplace-orders.js?v=20261212c"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
+<script src="/js/seller-shell.js?v=20261125a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -8658,6 +8813,7 @@ async function submitAuth() {
 }
 
 function enterAsBuyer() {
+  if (typeof ss2Teardown === 'function') ss2Teardown();   // seller dashboard v2 shell
   currentRole   = 'buyer';
   currentSeller = null;
   const overlay = document.getElementById('authOverlay');
@@ -14414,6 +14570,7 @@ function loginAsSeller(handle, opts) {
   renderSellerShowsList();
   buildSellerQrPanel();
   updateProfileUI(handle);
+  if (typeof ss2Init === 'function') ss2Init();   // seller dashboard v2 shell (flag; js/seller-shell.js)
 
   // Fetch from Supabase — loads only this seller's real cards
   fetchSellerInventoryFromDB(handle).then(async loaded => {
@@ -14516,6 +14673,7 @@ async function _isSocialReviewer(uid) {
 
 // opts.reviewer: read-only Social Sales access only (no shows, no edits).
 function loginAsAdmin(opts = {}) {
+  if (typeof ss2Teardown === 'function') ss2Teardown();   // seller dashboard v2 shell
   const reviewer = !!opts.reviewer;
   closeShowMode();
   const smNavBtn = document.getElementById('navShowModeBtn');
@@ -14651,6 +14809,7 @@ async function _restoreSellerSession() {
 }
 
 async function signOut() {
+  if (typeof ss2Teardown === 'function') ss2Teardown();   // seller dashboard v2 shell
   _dropShareHandle = null; _dropHandleTouched = false;   // next seller loads their own share-handle choice
   if (_obStateTimer) _obSaveStateNow(); // flush a pending checklist/tips save while currentSeller is still set
   _obStateLoaded = false; _obStateSync = false;
