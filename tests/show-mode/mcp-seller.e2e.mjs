@@ -143,6 +143,8 @@ const fakeOAuth = `(() => {
       { user_id: 'u1', client_id: 'cl-old', client_name: 'Old bot', scopes: ['inventory:read'], created_at: ago(200), last_used_at: null, revoked_at: ago(100) },
     ];
     S.agent_actions = [
+      { owner_id: 'u1', actor_type: 'dealer_agent', client_name: 'Claude', tool: 'set_price', status: 'applied', created_at: ago(1) },
+      { owner_id: 'u1', actor_type: 'dealer_agent', client_name: 'Claude', tool: 'record_sale', status: 'previewed', created_at: ago(1.5) },
       { owner_id: 'u1', actor_type: 'dealer_agent', client_name: 'Claude', tool: 'get_price_suggestion', status: 'read', created_at: ago(2) },
       { owner_id: 'u1', actor_type: 'dealer_agent', client_name: 'Claude', tool: 'list_my_inventory', status: 'failed', created_at: ago(3) },
     ];
@@ -166,7 +168,8 @@ const fakeOAuth = `(() => {
   check('shows the connector URL', (await page.textContent('#assistantsHint')).includes('https://getcardshow.com/mcp/seller'));
   await page.click('#assistantActivityWrap summary');
   const acts = await page.$$eval('#assistantActivity .ca-act', els => els.map(e => e.textContent));
-  check('assistant activity listed, failures marked', acts.length === 2 && acts[0].includes('Got price suggestions') && acts[1].includes("didn't work"));
+  check('assistant activity listed: changes, previews, reads, failures', acts.length === 4 && acts[0].includes('Changed a price')
+    && acts[1].includes('Asked to record a sale') && acts[2].includes('Got price suggestions') && acts[3].includes("didn't work"), JSON.stringify(acts));
   await page.click('.ca-disconnect'); await page.waitForTimeout(600);
   const log = await page.evaluate(() => window.__mockLog.filter(l => l.op === 'assistant_revoke_client' || l.op === 'revokeGrant').map(l => l.op));
   check('Disconnect: CardShow approval revoked, then Supabase consent', JSON.stringify(log) === '["assistant_revoke_client","revokeGrant"]');

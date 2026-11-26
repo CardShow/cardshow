@@ -132,6 +132,7 @@ netlify/functions/oauth-protected-resource.js / oauth-authorization-server.js �
 netlify/lib/oauth-guard.js        → refuseOAuthClient(): every other function that takes a dealer's sign-in refuses assistant (OAuth) tokens
 oauth-consent.html                → /oauth/consent: consent page Supabase's OAuth server sends dealers to; stores what they approved (assistant_grant_consent)
 js/connected-assistants.js        → Profile → Connected assistants (Disconnect) + Assistant activity; switch ASSISTANTS_UI_LAUNCHED (off; test with ?assistants=1) — loaded after js/pricing-admin.js
+supabase/migrations/20261214120000_mcp_seller_phase2.sql → Seller MCP Phase 2: mcp_confirmations (hashed preview tokens), mcp_write_results (idempotent retries), mcp_update_card / mcp_set_price / mcp_publish_to_show / mcp_unpublish_from_show / mcp_record_sale, 'agent' source on sales + ledger
 supabase/migrations/20261213120000_mcp_seller_phase1.sql → mcp_client_grants, assistant_grant_consent/assistant_revoke_client, _mcp_require(), the mcp_* read functions, PostgREST pre-request hook mcp_pre_request(), storage policy, agent_actions log columns
 netlify/functions/geocode-shows.js → Scheduled (hourly) + admin POST {show_id}: sets shows.latitude/longitude from US Census data — see "Show geocoding"
 netlify/lib/geocode.js / us-places.js / us-places.json → Census Geocoder call (street addresses) + Census Gazetteer city points (32k places, built by scripts/build_us_places.py)
@@ -452,6 +453,9 @@ Required for the seller MCP server (see "Seller MCP server"), after the pricing 
 and the RLS lockdown ones: `supabase/migrations/20261213120000_mcp_seller_phase1.sql`. It also points PostgREST's pre-request
 hook at `public.mcp_pre_request()` (if another pre-request function is already set it only raises a NOTICE: then call
 `mcp_pre_request()` from that function by hand). Until it runs, the consent page says connecting is being set up.
+
+Then `supabase/migrations/20261214120000_mcp_seller_phase2.sql` (seller MCP write tools, see "Phase 2" under "Seller MCP server"),
+after the cost tracking and offers migrations. Until it runs, the write tools answer "CardShow is unavailable right now".
 
 Required for The Card Shop Finder events sync (see "Card Shop Finder events"), after the bundle offers migration (and the
 Show Directory, geocoding, shows/show_inventory security and show pages migrations it builds on):
@@ -1010,6 +1014,7 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `CSF_SYNC_ENABLED` | Set to `false` to switch the 6-hourly Card Shop Finder sync off (default: on) |
 | `MCP_SELLER_ENABLED` | Must be exactly `true` for the seller MCP server at `/mcp/seller` to answer. Off by default |
 | `MCP_SELLER_READS_PER_MINUTE` / `MCP_SELLER_READS_PER_DAY` | Seller tool reads allowed per dealer (defaults 120 / 5000) |
+| `MCP_SELLER_WRITES_PER_MINUTE` / `MCP_SELLER_WRITES_PER_DAY` | Seller write-tool calls (previews and confirms) allowed per dealer (defaults 60 / 1000) |
 | `LOOPS_SAVED_SEARCH_ID` | Loops transactional email id for saved-search alerts (data variables: searchName, count, firstTitle, firstPrice, firstUrl, listText, searchUrl) |
 
 ### Credential Injection (no build step workaround)
@@ -7243,7 +7248,7 @@ Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pric
 - **Not built:** no geocoding for organizer-created shows outside the Directory beyond the hourly job (which covers them
   once they have a city and state); no way for the platform owner to drag a pin (manual coordinates only via SQL).
 
-## Seller MCP server (Phase 1 built, session 2026-11-26)
+## Seller MCP server (Phases 1–2 built, session 2026-11-26)
 
 A signed-in dealer manages their own inventory from any MCP assistant (Claude, Meta Muse, Instinct…). Spec: "Extend the
 CardShow MCP server" (given in chat, 2026-11-26), three phases, each stopped for review. **Phase 1 (read-only seller
@@ -7308,6 +7313,63 @@ OAuth server in Supabase (Authorization path `/oauth/consent`, dynamic registrat
 **Tests:** `mcp-seller.test.sh` (40 SQL checks), `mcp-seller.test.mjs` (17 server checks + 17-step walkthrough against
 the real database through a PostgREST-like adapter; `KEEP_DB=1 ./mcp-seller.test.sh` first), `mcp-seller.e2e.mjs`
 (consent page + Profile, iPhone 13 + Pixel 7; serves pages from disk, no web server).
+
+**Live (2026-11-26):** PR #107 merged; the migration ran in production (pre-request hook confirmed), Supabase's OAuth server is
+on, and Claude connected through `https://getcardshow.com/mcp/seller`. The consent page must be on the Site URL's origin:
+Supabase refuses its consent calls from any other origin ("400 validation_failed · unauthorized request origin", seen on a deploy
+preview even with the preview in Redirect URLs), so OAuth can only be tested end to end on production.
+
+### Phase 2 — single writes with preview + confirm (session 2026-11-26)
+Decisions (Stephen, 2026-11-26): trades stay out of `record_sale` for now (they're logged in the app; **assistants will need
+trade logging later**, a common seller activity); write limits 60/minute, 1,000/day per dealer.
+
+**Migration `20261214120000_mcp_seller_phase2.sql`** (after Phase 1, cost tracking and offers; re-runnable):
+- Every write tool is one database function called twice: without `p_confirm_token` it changes nothing and returns
+  `{stage:'preview', preview, confirm_token, expires_at}`; with the same `p_args` and the token it applies.
+  - `mcp_confirmations`: the token is stored only as a sha256 hash, tied to the dealer, the assistant (OAuth `client_id`),
+    the tool and the exact args, 10 minutes, single use. `_mcp_confirm_take()` refuses `invalid_token`, `token_used`,
+    `token_expired`, `arguments_changed` and `data_changed` (`_mcp_card_state()`: md5 of the card's fields, shows it's
+    published to and open offers, so an edit, sale or hold in the app between preview and apply is caught). Any refusal but
+    an unknown token uses the token up. A reused token is refused as `token_used` before any other check.
+  - Table is service-only; the helpers (`_mcp_confirm_issue/take`, `_mcp_token_used`, `_mcp_replay`, `_mcp_store_result`) are
+    definer functions whose names don't start with `mcp_`, so the pre-request hook blocks assistants from calling them directly.
+  - `mcp_write_results` (own-read): with a `client_request_id`, a repeat returns the first result (`replayed: true`) and writes nothing.
+- Tools (functions run as the dealer, writes through RLS; `_mcp_update_card_cols()` / `_mcp_insert_existing()` write only real
+  columns, typed by the table):
+  - `mcp_update_card`: title, player, year, set, card_number, parallel, grader, grade, cert_number, condition, location; "" clears.
+    No `notes` (inventory has no notes column). Refused for held cards. Cert/grader change → `gtcr_recheck`.
+  - `mcp_set_price`: whole cents ≥ 1; preview shows old/new and new % of the Card Hedge comp. Refused for sold / held cards.
+  - `mcp_publish_to_show` / `mcp_unpublish_from_show` (`mcp_show_membership`): only shows the dealer joined, not ended; refused for
+    sold, held, GTCR-flagged and Needs details cards. Publishing a graded card → `gtcr_recheck`.
+  - `mcp_record_sale`: `client_request_id` required (also the sale's `client_sale_id`). Card by `inventory_id` or `description`
+    (through `mcp_my_inventory`, so stock codes work); more than one match → `{error:'ambiguous', candidates}`, no preview.
+    Payment cash / venmo / paypal / zelle / card / square / other (stored as the app's labels); no trade. Refused while held or
+    with an open offer. Show: as given (dealer in it), else the one show the card is at on the sale date, else off-show.
+    Applies through `record_sale()` (source `'agent'`: inventory Sold, `sales` row, show membership), then writes the ledger
+    row itself (`source 'agent'`, snapshot like `_insertShowTransaction()`), the buyer note to `sale_notes`, and the private
+    cost copy (`transaction_costs`) with profit in the result. Preview shows `last_copy: true` (one card = one item).
+- `sales.source` and the ledger's source check gain `'agent'`; nothing in the app filters the ledger by source, so the sale shows
+  in Report, Show Home and organizer analytics like any other (ledger `source = 'agent'` marks it).
+- `agent_actions`: the unique request index is now only on `status = 'applied'` rows.
+
+**Server (`mcp-seller.js`):** `WRITE_TOOLS` (annotations: not read-only, not destructive, `record_sale` idempotent; every
+description says to show the preview and wait for a clear yes); `handleWrite()` sends `p_args` = arguments minus
+`confirm_token` / `client_request_id` (nulls dropped), maps refusals to messages for the assistant, returns ambiguous matches as
+`needs_choice`, logs `previewed` / `applied` (with `client_request_id`, not on replays) / `rejected` / `failed` (token never
+logged: `sanitize()` drops `*token*` keys). Write rate limit `MCP_SELLER_WRITES_PER_MINUTE` / `_PER_DAY`. After an applied
+`gtcr_recheck`, `gtcrCheck()` calls `gtcr-trust-check.js` action **`agent_check`** (header `x-cardshow-agent` =
+sha256('mcp-seller-gtcr:' + service key); body `{inventory_id, owner_id}`; the card must be that dealer's): logs
+`cert_trust_checks` with trigger `'agent'`, flags and unpublishes on a stolen/lost report; the result says what happened.
+
+**App:** Assistant activity shows previews ("Asked to change a price"), changes ("Changed a price"), refusals and replays.
+
+**Tests:** `mcp-seller-phase2.test.sh` (40 SQL checks on top of the Phase 1 data: every refusal, RLS, replay ×3, ledger +
+cost copy, off-show, hook), `mcp-seller-phase2.test.mjs` (20: server write flow against the real DB, GTCR `agent_check`),
+Phase 1 suites unchanged, `mcp-seller.e2e.mjs` (activity lines).
+
+**Not done in Phase 2:** GTCR *registration* removal after an assistant sale or cert change happens at the dealer's next app
+login (the reconcile needs the dealer's app session); no "from an assistant" badge in the classic Report (the ledger carries
+`source 'agent'`); trades; the MCP Inspector / Claude walkthrough of the writes (to do after the migration runs).
 
 **Open / verify on a preview:**
 - That Supabase's OAuth tokens carry `client_id` (the auth-js types say so) and that `getAuthorizationDetails` /

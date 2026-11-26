@@ -20,6 +20,16 @@ const CA_TOOL_TEXT = {
   list_my_shows: 'Looked at your shows',
   sales_summary: 'Looked at your sales',
   stale_inventory: 'Looked for cards that aren\'t selling',
+  update_card: 'Updated a card',
+  set_price: 'Changed a price',
+  publish_to_show: 'Put a card on a show',
+  unpublish_from_show: 'Took a card off a show',
+  record_sale: 'Recorded a sale',
+};
+// Phase 2 writes: the preview step is logged too ("Asked to change a price").
+const CA_PREVIEW_TEXT = {
+  update_card: 'Asked to update a card', set_price: 'Asked to change a price', publish_to_show: 'Asked to put a card on a show',
+  unpublish_from_show: 'Asked to take a card off a show', record_sale: 'Asked to record a sale',
 };
 
 function caEnabled() {
@@ -113,14 +123,16 @@ async function caLoadActivity() {
   try {
     const { data: { user } } = await db.auth.getUser();
     const { data, error } = await db.from('agent_actions')
-      .select('created_at, client_name, tool, status, reason')
+      .select('created_at, client_name, tool, status, reason, result')
       .eq('owner_id', user?.id).eq('actor_type', 'dealer_agent')
       .order('created_at', { ascending: false }).limit(100);
     if (error) throw error;
     if (!data?.length) { box.innerHTML = '<div class="ca-empty">Nothing yet.</div>'; return; }
     box.innerHTML = data.map(a => {
-      const what = CA_TOOL_TEXT[a.tool] || a.tool || 'Action';
-      const st = a.status === 'failed' ? ' <span class="ca-fail">· didn\'t work</span>' : a.status === 'rejected' ? ' <span class="ca-fail">· refused</span>' : '';
+      const what = (a.status === 'previewed' && CA_PREVIEW_TEXT[a.tool]) || CA_TOOL_TEXT[a.tool] || a.tool || 'Action';
+      const st = a.status === 'failed' ? ' <span class="ca-fail">· didn\'t work</span>'
+        : a.status === 'rejected' ? ' <span class="ca-fail">· refused</span>'
+        : a.status === 'applied' && a.result?.replayed ? ' · already done' : '';
       return `<div class="ca-act"><span class="ca-act-when">${_caEsc(_caWhen(a.created_at))}</span>` +
         `<span>${_caEsc(a.client_name || 'Assistant')}: ${_caEsc(what)}${st}</span></div>`;
     }).join('');
