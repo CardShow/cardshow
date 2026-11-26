@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Connect an assistant · CardShow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet">
+<link rel="apple-touch-icon" href="/assets/app-icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!--
+  Consent page for Supabase Auth's OAuth 2.1 server (dashboard: Authentication → OAuth Server → Authorization
+  path = /oauth/consent). An assistant (Claude, Muse, Instinct…) sends the dealer here with ?authorization_id=.
+  The dealer signs in with their CardShow login, picks what the assistant may do, and is sent back.
+  What they approve is stored in mcp_client_grants (assistant_grant_consent); the seller MCP server checks it on
+  every call. Supabase's own scopes are left as the client asked.
+-->
+<style>
+  :root {
+    --black: #0a0a0a; --surface: #111318; --card: #181c24; --border: #252a35;
+    --accent: #f5c842; --text: #e8eaf0; --muted: #9aa1b0; --danger: #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--black); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh;
+         display: flex; justify-content: center; padding: 32px 16px; }
+  main { width: 100%; max-width: 460px; }
+  .brand { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: .04em; color: var(--accent); margin-bottom: 18px; }
+  .box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+  h1 { font-family: 'Bebas Neue', sans-serif; font-size: 1.7rem; letter-spacing: .03em; font-weight: 400; margin-bottom: 8px; line-height: 1.1; }
+  p { color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
+  p strong { color: var(--text); }
+  label.field { display: block; font-family: 'DM Mono', monospace; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 12px 0 6px; }
+  input[type=email], input[type=password] { width: 100%; background: var(--surface); border: 1px solid var(--border); color: var(--text);
+         border-radius: 8px; padding: 12px; font: inherit; font-size: 16px; }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .scopes { list-style: none; margin: 14px 0; display: grid; gap: 10px; }
+  .scope { display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border);
+           border-radius: 10px; padding: 12px; cursor: pointer; }
+  .scope input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+  .scope b { display: block; font-weight: 700; }
+  .scope span { color: var(--muted); font-size: .9rem; }
+  .scope.locked { cursor: default; }
+  .note { font-size: .85rem; }
+  .actions { display: flex; gap: 10px; margin-top: 18px; }
+  button { font: inherit; font-weight: 700; border-radius: 10px; padding: 13px 16px; cursor: pointer; border: 1px solid var(--border);
+           min-height: 48px; flex: 1; }
+  .primary { background: var(--accent); color: #111; border-color: var(--accent); }
+  .ghost { background: transparent; color: var(--text); }
+  button:disabled { opacity: .55; cursor: wait; }
+  .err { color: var(--danger); margin-top: 12px; min-height: 1.2em; }
+  .who { display: flex; justify-content: space-between; gap: 10px; align-items: center; font-size: .9rem; color: var(--muted);
+         border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
+  .link { background: none; border: none; color: var(--accent); padding: 0; min-height: 0; flex: none; font-weight: 500; text-decoration: underline; }
+  .client { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">CardShow</div>
+  <div class="box" aria-live="polite">
+    <section id="stLoading"><p>Loading…</p></section>
+
+    <section id="stError" hidden>
+      <h1>Can't connect</h1>
+      <p id="errText">Something went wrong.</p>
+      <p class="note" id="errDetail" hidden></p>
+    </section>
+
+    <section id="stSignIn" hidden>
+      <h1>Sign in to connect</h1>
+      <p><strong class="clientName client">An assistant</strong> wants to connect to your CardShow dealer account. Sign in with your CardShow login first.</p>
+      <form id="signInForm">
+        <label class="field" for="email">Email</label>
+        <input id="email" type="email" autocomplete="email" required>
+        <label class="field" for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <div class="actions"><button class="primary" id="signInBtn" type="submit">Sign in</button></div>
+        <p class="note" style="margin-top:12px">Forgot your password? Reset it in the <a class="client" href="/app.html" target="_blank" rel="noopener">CardShow app</a>, then come back here.</p>
+        <div class="err" id="signInErr" role="alert"></div>
+      </form>
+    </section>
+
+    <section id="stNotSeller" hidden>
+      <h1>Dealer accounts only</h1>
+      <p>Only CardShow dealer accounts can connect an assistant. <span id="nsWho"></span></p>
+      <div class="actions"><button class="ghost" id="nsDeny" type="button">Cancel</button><button class="ghost" id="nsSignOut" type="button">Use another account</button></div>
+    </section>
+
+    <section id="stConsent" hidden>
+      <h1>Connect <span class="clientName client">this assistant</span>?</h1>
+      <p><strong class="clientName">This assistant</strong> will be able to use your CardShow dealer account. Choose what it may do:</p>
+      <ul class="scopes" id="scopeList"></ul>
+      <p class="note">Before it changes anything it shows you what will change and asks you first. It can never delete cards, sales or shows. You can disconnect it any time in the CardShow app under Profile → Connected assistants.</p>
+      <div class="actions">
+        <button class="ghost" id="denyBtn" type="button">Deny</button>
+        <button class="primary" id="allowBtn" type="button">Allow</button>
+      </div>
+      <div class="err" id="consentErr" role="alert"></div>
+      <div class="who"><span id="whoText"></span><button class="link" id="switchBtn" type="button">Not you?</button></div>
+    </section>
+
+    <section id="stDone" hidden>
+      <h1>Connected</h1>
+      <p id="doneText">Taking you back to your assistant…</p>
+    </section>
+  </div>
+</main>
+<script>
+(function () {
+  const SCOPES = [
+    { id: 'inventory:read',  name: 'See your inventory and sales', text: 'Cards, prices, Card Hedge comps and price suggestions, your shows and sales summaries.', required: true },
+    { id: 'inventory:write', name: 'Update cards and prices', text: 'Fix card details, change prices and publish cards to shows, after you confirm each change.' },
+    { id: 'sales:write',     name: 'Record sales', text: 'Log a sale for you, after you confirm it.' },
+  ];
+  const db = supabase.createClient('SUPABASE_URL_PLACEHOLDER', 'SUPABASE_ANON_KEY_PLACEHOLDER', { auth: { flowType: 'implicit' } });
+  const authId = new URLSearchParams(location.search).get('authorization_id') || '';
+  let details = null;      // getAuthorizationDetails() result when consent is needed
+
+  const $ = id => document.getElementById(id);
+  function show(id) {
+    for (const s of ['stLoading', 'stError', 'stSignIn', 'stNotSeller', 'stConsent', 'stDone']) $(s).hidden = s !== id;
+  }
+  // detail: Supabase's own error, shown small so a failed connection can be diagnosed.
+  function fail(text, detail) {
+    $('errText').textContent = text;
+    const d = detail ? [detail.status, detail.code, detail.message].filter(Boolean).join(' · ') : '';
+    $('errDetail').textContent = d ? `Details: ${d}` : '';
+    $('errDetail').hidden = !d;
+    if (detail) console.warn('[consent]', detail);
+    show('stError');
+  }
+  function setClientName(name) {
+    for (const el of document.querySelectorAll('.clientName')) el.textContent = name || 'This assistant';
+  }
+  function go(url) { show('stDone'); location.assign(url); }
+
+  async function start() {
+    if (!authId) return fail('This link is missing its connection request. Start connecting again from your assistant.');
+    if (!db.auth.oauth || typeof db.auth.oauth.getAuthorizationDetails !== 'function') {
+      return fail('This page needs a newer browser library. Reload the page and try again.');
+    }
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) { show('stSignIn'); $('email').focus(); return; }
+    await loadRequest(session);
+  }
+
+  async function loadRequest(session) {
+    show('stLoading');
+    const { data, error } = await db.auth.oauth.getAuthorizationDetails(authId);
+    if (error || !data) {
+      const st = error && error.status;
+      const text = st === 404 || st === 410 || /expired|not found|used/i.test((error && error.message) || '')
+        ? 'This connection request has expired or was already used. Start connecting again from your assistant.'
+        : "CardShow couldn't read this connection request. Start connecting again from your assistant.";
+      return fail(text, error || { message: 'no data' });
+    }
+
+    const { data: seller } = await db.from('sellers').select('handle, display_name').eq('id', session.user.id).maybeSingle();
+    if (!seller) {
+      $('nsWho').textContent = `You're signed in as ${session.user.email}.`;
+      show('stNotSeller');
+      return;
+    }
+    $('whoText').textContent = `Signed in as @${seller.handle}`;
+
+    if (data.redirect_url) {
+      // Supabase already has consent for this assistant. Follow it unless CardShow's own approval is missing
+      // (for example the dealer disconnected it): then forget Supabase's consent so the dealer is asked again.
+      const ok = await cardshowApprovalMatches(session);
+      if (ok) return go(data.redirect_url);
+      return fail('This assistant was disconnected. Start connecting again from your assistant and approve it again.');
+    }
+    details = data;
+    setClientName(data.client && data.client.name);
+    renderScopes();
+    show('stConsent');
+    $('allowBtn').focus();
+  }
+
+  // Every assistant Supabase remembers must still be approved in CardShow; revoke the ones that aren't.
+  async function cardshowApprovalMatches(session) {
+    try {
+      const [{ data: sg }, { data: ours }] = await Promise.all([
+        db.auth.oauth.listGrants(),
+        db.from('mcp_client_grants').select('client_id, revoked_at').eq('user_id', session.user.id),
+      ]);
+      const active = new Set((ours || []).filter(g => !g.revoked_at).map(g => g.client_id));
+      const stale = (sg || []).filter(g => g.client && !active.has(g.client.id));
+      for (const g of stale) await db.auth.oauth.revokeGrant({ clientId: g.client.id });
+      return stale.length === 0;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  function renderScopes() {
+    $('scopeList').innerHTML = '';
+    for (const s of SCOPES) {
+      const li = document.createElement('li');
+      li.innerHTML = `<label class="scope${s.required ? ' locked' : ''}"><input type="checkbox" value="${s.id}"${s.required ? ' checked disabled' : ''}>` +
+        `<div><b></b><span></span></div></label>`;
+      li.querySelector('b').textContent = s.name + (s.required ? ' (needed)' : '');
+      li.querySelector('span').textContent = s.text;
+      $('scopeList').appendChild(li);
+    }
+  }
+
+  async function allow() {
+    $('consentErr').textContent = '';
+    $('allowBtn').disabled = $('denyBtn').disabled = true;
+    const scopes = SCOPES.filter(s => s.required || $('scopeList').querySelector(`input[value="${s.id}"]`).checked).map(s => s.id);
+    const client = details.client || {};
+    const { data: g, error: gErr } = await db.rpc('assistant_grant_consent', { p_client_id: client.id, p_client_name: client.name || null, p_scopes: scopes });
+    if (gErr || !g || g.error) {
+      $('consentErr').textContent = gErr && /function .* does not exist|PGRST202/i.test(gErr.message + gErr.code)
+        ? 'Connecting assistants is still being set up. Try again later.'
+        : "Couldn't save your choice. Try again.";
+      $('allowBtn').disabled = $('denyBtn').disabled = false;
+      return;
+    }
+    const { data, error } = await db.auth.oauth.approveAuthorization(authId, { skipBrowserRedirect: true });
+    if (error || !data || !data.redirect_url) {
+      $('consentErr').textContent = 'This connection request has expired. Start connecting again from your assistant.';
+      $('allowBtn').disabled = $('denyBtn').disabled = false;
+      return;
+    }
+    go(data.redirect_url);
+  }
+
+  async function deny() {
+    $('allowBtn').disabled = $('denyBtn').disabled = true;
+    const { data } = await db.auth.oauth.denyAuthorization(authId, { skipBrowserRedirect: true });
+    if (data && data.redirect_url) { $('doneText').textContent = 'Not connected. Taking you back…'; return go(data.redirect_url); }
+    fail('Not connected. You can close this page.');
+  }
+
+  async function signOutAndRestart() {
+    await db.auth.signOut();
+    show('stSignIn');
+    $('email').focus();
+  }
+
+  $('signInForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('signInErr').textContent = '';
+    $('signInBtn').disabled = true;
+    const { data, error } = await db.auth.signInWithPassword({ email: $('email').value.trim(), password: $('password').value });
+    $('signInBtn').disabled = false;
+    if (error || !data.session) { $('signInErr').textContent = 'That email and password didn\'t match a CardShow account.'; return; }
+    $('password').value = '';
+    await loadRequest(data.session);
+  });
+  $('allowBtn').addEventListener('click', allow);
+  $('denyBtn').addEventListener('click', deny);
+  $('nsDeny').addEventListener('click', deny);
+  $('switchBtn').addEventListener('click', signOutAndRestart);
+  $('nsSignOut').addEventListener('click', signOutAndRestart);
+
+  start().catch(() => fail('Something went wrong. Reload the page and try again.'));
+})();
+</script>
+</body>
+</html>

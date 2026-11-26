@@ -171,3 +171,6 @@ async function discard(db, postId) {
   await db.from('social_posts').delete().eq('id', postId);
   return P.json(200, { success: true });
 }
+
+// Assistant (OAuth) tokens are for the seller MCP server only.
+exports.handler = require('../lib/oauth-guard').refuseOAuthClient(exports.handler);
