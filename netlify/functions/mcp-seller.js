@@ -1,4 +1,5 @@
-// CardShow seller MCP server (Phase 1: read tools; Phase 2: single writes with preview + confirm). Served at /mcp/seller (see _redirects).
+// CardShow seller MCP server (Phase 1: read tools; Phase 2: single writes with preview + confirm; Phase 3: bulk repricing,
+// cards from photos, offers). Served at /mcp/seller (see _redirects).
 // The public, sign-in-free buyer tools stay on /mcp (mcp.js), unchanged.
 //
 // Sign-in: OAuth 2.1 through Supabase Auth's OAuth server. A request without a valid assistant token gets
@@ -40,7 +41,10 @@ const INSTRUCTIONS = 'CardShow for dealers: the signed-in dealer\'s own inventor
   'confirm_token to get a preview, show the dealer exactly what will change, and only after they clearly say yes call the same tool ' +
   'with the same arguments plus confirm_token. Never confirm on the dealer\'s behalf. Previews expire after 10 minutes. ' +
   'record_sale needs client_request_id: a new UUID per intended sale, reused unchanged if you retry, so a sale is never recorded twice. ' +
-  'There are no delete tools, and trades are logged in the CardShow app.';
+  'set_prices, add_cards_from_photos and respond_to_offer use the same preview + confirm steps; set_prices and add_cards_from_photos ' +
+  'also need a client_request_id. add_cards_from_photos is a background job: send the photos, then call again with the job_id ' +
+  'until the drafts are ready (about 20 seconds apart), show the dealer every draft (especially the ones that need a check) and ' +
+  'only then confirm. There are no delete tools, and trades are logged in the CardShow app.';
 
 const ID = { type: 'string', description: 'Card id (uuid) from list_my_inventory' };
 const TOOLS = [
@@ -112,6 +116,16 @@ const TOOLS = [
       limit: { type: 'integer', minimum: 1, maximum: 100 },
     } },
   },
+  {
+    name: 'list_offers', title: 'Offers on my cards', rpc: 'mcp_my_offers', scope: 'inventory:read',
+    description: 'Buyers\' offers on the dealer\'s cards. Default: offers waiting for the dealer\'s answer (status pending). ' +
+      'Each has the offer and asking price (cents), % of asking, the moves so far, the cards, the buyer\'s name and note, and when it runs out. ' +
+      'Answer with respond_to_offer.',
+    inputSchema: { type: 'object', properties: {
+      status: { type: 'string', enum: ['to_answer', 'open', 'all'], description: 'to_answer (default), open (also waiting on the buyer), all (incl. ended in the last 3 days)' },
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
+    } },
+  },
 ].map(t => ({ ...t, annotations: { readOnlyHint: true, openWorldHint: false } }));
 
 const CONFIRM = { type: 'string', description: 'Leave out to get a preview. After the dealer says yes, send the confirm_token from that preview with the same arguments.' };
@@ -165,7 +179,59 @@ const WRITE_TOOLS = [
       client_request_id: { type: 'string', description: 'Required UUID, one per intended sale, reused on retries and on the confirm call' },
       confirm_token: CONFIRM }, required: ['sale_price_cents', 'payment_method', 'client_request_id'] },
   },
-].map(t => ({ ...t, write: true, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: t.name === 'record_sale', openWorldHint: false } }));
+  {
+    name: 'set_prices', title: 'Reprice many cards', rpc: 'mcp_set_prices', scope: 'inventory:write',
+    description: 'Reprice up to 200 of the dealer\'s cards by one rule: pct_of_comp (percent of the Card Hedge comp, e.g. 90), ' +
+      'change_percent (e.g. -10 to lower 10%), change_cents (e.g. -500 to lower $5) or set_cents. Rounded to the nearest dollar by ' +
+      'default (round_to cent, dollar or five_dollars), then held between floor_cents and ceiling_cents if given. Cards with no comp ' +
+      '(for pct_of_comp), no price, sold or held are skipped and listed. The preview lists every change and the totals before and after; ' +
+      'the apply changes all of them or none. client_request_id is required.' + WRITE_NOTE,
+    inputSchema: { type: 'object', properties: {
+      inventory_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 200 },
+      rule: { type: 'object', properties: {
+        type: { type: 'string', enum: ['pct_of_comp', 'change_percent', 'change_cents', 'set_cents'] },
+        percent: { type: 'number', description: 'For pct_of_comp (1–500) and change_percent (above -100)' },
+        cents: { type: 'integer', description: 'For change_cents and set_cents' } }, required: ['type'] },
+      round_to: { type: 'string', enum: ['cent', 'dollar', 'five_dollars'], description: 'Default dollar' },
+      floor_cents: { type: 'integer', minimum: 1 }, ceiling_cents: { type: 'integer', minimum: 1 },
+      client_request_id: { type: 'string', description: 'Required UUID for this repricing, reused on retries and on the confirm call' },
+      confirm_token: CONFIRM }, required: ['inventory_ids', 'rule', 'client_request_id'] },
+  },
+  {
+    name: 'add_cards_from_photos', title: 'Add cards from photos', rpc: 'mcp_add_cards_from_photos', scope: 'inventory:write',
+    description: 'Add cards to the dealer\'s inventory from photos (one card per photo, up to 20). Step 1: send images (https URLs or ' +
+      'base64) and get a job_id; the photos are read in the background. Step 2: call with job_id (no images) about every 20 seconds ' +
+      'until it returns a preview of the draft cards with confidence. Cards marked low_confidence list check_fields the scan wasn\'t sure ' +
+      'about: read those to the dealer and correct them with cards[] ({index, player, year, set, card_number, parallel, grader, grade, ' +
+      'cert_number, title, price_cents, include}). A slab already in inventory is skipped unless include is true. Nothing is created ' +
+      'until step 3: the same job_id, cards and show_id plus confirm_token. Cards are added as available with the photo as the card\'s ' +
+      'photo, and published to the show the dealer is at today (or show_id; "none" for no show). client_request_id is required from step 2.' + WRITE_NOTE,
+    inputSchema: { type: 'object', properties: {
+      images: { type: 'array', maxItems: 20, description: 'Step 1 only', items: { type: 'object', properties: {
+        url: { type: 'string', description: 'https URL of a photo' },
+        base64: { type: 'string', description: 'JPEG, PNG or WebP, under 3.5 MB each' },
+        media_type: { type: 'string', enum: ['image/jpeg', 'image/png', 'image/webp'] } } } },
+      job_id: { type: 'string', description: 'From step 1' },
+      cards: { type: 'array', items: { type: 'object', properties: {
+        index: { type: 'integer' }, include: { type: 'boolean' }, price_cents: { type: 'integer', minimum: 0 },
+        title: { type: 'string' }, player: { type: 'string' }, year: { type: 'string' }, set: { type: 'string' },
+        card_number: { type: 'string' }, parallel: { type: 'string' }, grader: { type: 'string' }, grade: { type: 'string' },
+        cert_number: { type: 'string' } }, required: ['index'] } },
+      show_id: { type: 'string', description: 'Optional; "none" to publish to no show' },
+      client_request_id: { type: 'string', description: 'Required UUID from step 2 on, reused on retries and on the confirm call' },
+      confirm_token: CONFIRM } },
+  },
+  {
+    name: 'respond_to_offer', title: 'Answer an offer', rpc: 'mcp_respond_offer', scope: 'offers:write',
+    description: 'Accept, decline or counter a buyer\'s offer (offer_id from list_offers). Accepting puts the card(s) on hold for the buyer ' +
+      'at that price; they pay the dealer directly. The buyer gets the same email as when the dealer answers in the app.' + WRITE_NOTE,
+    inputSchema: { type: 'object', properties: {
+      offer_id: { type: 'string' }, action: { type: 'string', enum: ['accept', 'decline', 'counter'] },
+      counter_cents: { type: 'integer', minimum: 1, description: 'For counter: more than the offer, less than the asking price' },
+      confirm_token: CONFIRM, client_request_id: REQUEST }, required: ['offer_id', 'action'] },
+  },
+].map(t => ({ ...t, write: true, annotations: { readOnlyHint: false, destructiveHint: false,
+  idempotentHint: ['record_sale', 'set_prices', 'add_cards_from_photos'].includes(t.name), openWorldHint: false } }));
 
 const ALL_TOOLS = [...TOOLS, ...WRITE_TOOLS];
 const PUBLIC_TOOLS = ALL_TOOLS.map(({ rpc, scope, write, ...t }) => t);
@@ -272,7 +338,10 @@ function sanitize(v, depth = 0) {
   if (Array.isArray(v)) return v.slice(0, 100).map(x => sanitize(x, depth + 1));
   if (v && typeof v === 'object') {
     const o = {};
-    for (const [k, x] of Object.entries(v)) if (!/token|authorization|secret|password|api[_-]?key|cookie/i.test(k)) o[k] = sanitize(x, depth + 1);
+    for (const [k, x] of Object.entries(v)) {
+      if (/token|authorization|secret|password|api[_-]?key|cookie/i.test(k)) continue;
+      o[k] = /base64/i.test(k) ? `(image, ${String(x ?? '').length} chars)` : sanitize(x, depth + 1);
+    }
     return o;
   }
   return v;
@@ -297,6 +366,65 @@ const WRITE_ERRORS = {
   arguments_changed: 'The arguments differ from the preview. Preview the exact change again and ask the dealer to confirm.',
   data_changed: 'The card changed since the preview (it was edited, sold or put on hold in the meantime). Preview it again and show the dealer the new preview.',
 };
+const MAX_PHOTO_BYTES = 3.5 * 1024 * 1024;
+function imageType(buf) {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length > 8 && buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buf.length > 12 && buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WEBP') return 'image/webp';
+  return null;
+}
+
+// Step 1 of add_cards_from_photos: register the batch as the dealer, put uploaded photos in the dealer's own folder,
+// start the background reader. Nothing is added to inventory here.
+async function startPhotoJob(id, tool, args, ctx) {
+  const imgs = Array.isArray(args.images) ? args.images : [];
+  if (!imgs.length || imgs.length > 20) return textResult(id, 'Send 1 to 20 photos (images: [{url} or {base64, media_type}]).', true);
+  if (args.job_id || args.confirm_token) return textResult(id, 'Send either images (to start) or job_id (to check and confirm), not both.', true);
+  const sources = []; const uploads = {};
+  for (let i = 0; i < imgs.length; i++) {
+    const im = imgs[i] || {};
+    if (im.base64) {
+      let buf;
+      try { buf = Buffer.from(String(im.base64).replace(/^data:[^,]*,/, ''), 'base64'); } catch { buf = null; }
+      const type = buf && imageType(buf);
+      if (!type) return textResult(id, `Photo ${i + 1} isn't a JPEG, PNG or WebP image.`, true);
+      if (buf.length > MAX_PHOTO_BYTES) return textResult(id, `Photo ${i + 1} is over 3.5 MB. Send a smaller copy.`, true);
+      uploads[i + 1] = { buf, type };
+      sources.push({ source: 'upload', media_type: type });
+    } else if (im.url) {
+      sources.push({ source: 'url', url: String(im.url) });
+    } else return textResult(id, `Photo ${i + 1}: send url or base64.`, true);
+  }
+  if (!(await ctx.allowWrite())) return textResult(id, 'Too many changes in a short time. Wait a minute and try again.', true);
+  let job;
+  try {
+    const res = await ctx.data.rpc('mcp_photo_job_start', { p_args: { images: sources } });
+    if (res.error) throw res.error;
+    job = res.data || {};
+  } catch (err) {
+    const e = explain(err);
+    ctx.log({ tool: tool.name, args, ok: false, status: 'failed', action: 'write', error: e.text });
+    if (e.reauth) ctx.reauth = e;
+    return textResult(id, e.text, true);
+  }
+  if (job.error) {
+    ctx.log({ tool: tool.name, args, ok: false, status: 'rejected', action: 'write', error: job.error });
+    return textResult(id, { status: 'refused', reason: job.error, message: job.message }, true);
+  }
+  const failed = [];
+  for (const im of job.images || []) {
+    const up = uploads[im.n];
+    if (!up) continue;
+    const ok = await ctx.uploadPhoto(im.key, up.buf, up.type);
+    if (!ok) failed.push(im.n);
+  }
+  await ctx.kickPhotoJob(job.job_id);
+  const result = { status: 'working', job_id: job.job_id, photos: (job.images || []).length,
+    ...(failed.length ? { upload_failed: failed } : {}),
+    next: 'The photos are being read. Call add_cards_from_photos again with this job_id and a new client_request_id in about 20 seconds to see the draft cards.' };
+  ctx.log({ tool: tool.name, args, ok: true, status: 'previewed', action: 'write', preview: { job_id: job.job_id, photos: result.photos } });
+  return textResult(id, result, false);
+}
 const textResult = (id, obj, isError) => rpcResult(id, { content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj) }],
   ...(typeof obj === 'string' ? {} : { structuredContent: obj }), isError: !!isError });
 function shapeNested(o) {
@@ -307,6 +435,7 @@ function shapeNested(o) {
 }
 
 async function handleWrite(id, tool, args, ctx) {
+  if (tool.name === 'add_cards_from_photos' && Array.isArray(args.images) && args.images.length) return startPhotoJob(id, tool, args, ctx);
   const token = args.confirm_token == null || args.confirm_token === '' ? null : String(args.confirm_token);
   const reqId = args.client_request_id == null || args.client_request_id === '' ? null : String(args.client_request_id);
   if (reqId && !UUID_RE.test(reqId)) return textResult(id, 'client_request_id must be a UUID.', true);
@@ -328,7 +457,9 @@ async function handleWrite(id, tool, args, ctx) {
     if (e.reauth) ctx.reauth = e;
     return textResult(id, e.text, true);
   }
-  const targets = [pArgs.inventory_id, data.preview?.card?.id, data.result?.card?.id].filter(Boolean);
+  const targets = [pArgs.inventory_id, data.preview?.card?.id, data.result?.card?.id,
+    ...(Array.isArray(pArgs.inventory_ids) ? pArgs.inventory_ids : []),
+    ...(Array.isArray(data.result?.cards) ? data.result.cards.map(c => c.id) : [])].filter(Boolean).slice(0, 200);
 
   if (data.error) {
     if (data.error === 'ambiguous') {
@@ -338,6 +469,12 @@ async function handleWrite(id, tool, args, ctx) {
     const text = WRITE_ERRORS[data.error] || data.message || 'CardShow couldn\'t make that change.';
     ctx.log({ tool: tool.name, args, ids: targets, ok: false, status: 'rejected', action: 'write', error: data.error });
     return textResult(id, { status: 'refused', reason: data.error, message: text }, true);
+  }
+
+  if (data.stage === 'working') {
+    if (data.stale) await ctx.kickPhotoJob(data.job_id);
+    ctx.log({ tool: tool.name, args, ok: true, status: 'read', action: 'write', count: data.read });
+    return textResult(id, { status: 'working', job_id: data.job_id, photos: data.photos, read: data.read, next: data.next }, false);
   }
 
   if (data.stage === 'preview') {
@@ -352,6 +489,16 @@ async function handleWrite(id, tool, args, ctx) {
     applied.gtcr = await ctx.gtcrCheck(targets[0]);
     if (applied.gtcr?.flagged) applied.gtcr.message = 'GTCR has a stolen or lost report for this cert. The card was hidden from buyers; the dealer should review it in the CardShow app.';
   }
+  if (!data.replayed && Array.isArray(applied.gtcr_recheck_ids) && applied.gtcr_recheck_ids.length) {
+    const ids = applied.gtcr_recheck_ids.slice(0, 20);
+    const checks = [];
+    for (let i = 0; i < ids.length; i += 5) checks.push(...await Promise.all(ids.slice(i, i + 5).map(x => ctx.gtcrCheck(x))));
+    const flagged = ids.filter((x, i) => checks[i]?.flagged);
+    applied.gtcr = { checked: checks.filter(c => c?.checked).length, flagged,
+      ...(flagged.length ? { message: 'GTCR has a stolen or lost report for some of these certs. Those cards were hidden from buyers; the dealer should review them in the CardShow app.' } : {}) };
+    delete applied.gtcr_recheck_ids;
+  }
+  if (!data.replayed && tool.name === 'respond_to_offer' && applied.offer_id) await ctx.notifyOffer(applied.offer_id);
   const result = { status: data.replayed ? 'already_done' : 'done', replayed: !!data.replayed, ...applied };
   ctx.log({ tool: tool.name, args, ids: targets, ok: true, status: 'applied', action: 'write', result,
     request: data.replayed ? null : reqId });
@@ -487,6 +634,33 @@ async function handle(event, deps = {}) {
         return { checked: false, note: 'GTCR check couldn\'t run; it will run again in the daily recheck.' };
       }
     },
+    // Photos sent as base64 go into the dealer's own folder of the private card-captures bucket (key from mcp_photo_job_start).
+    uploadPhoto: deps.uploadPhoto || (async (key, buf, type) => {
+      if (!svc || !String(key).startsWith(`${session.user_id}/`)) return false;
+      const { error } = await svc.storage.from('card-captures').upload(key, buf, { contentType: type, upsert: true });
+      if (error) console.warn('[mcp-seller] photo upload failed:', error.message);
+      return !error;
+    }),
+    kickPhotoJob: deps.kickPhotoJob || (async (jobId) => {
+      const key = process.env.SUPABASE_SERVICE_KEY || '';
+      if (!key || !jobId) return false;
+      const base = (process.env.DEPLOY_PRIME_URL || process.env.URL || SITE()).replace(/\/$/, '');
+      try {
+        const r = await fetch(`${base}/.netlify/functions/mcp-photo-job-background`, {
+          method: 'POST', signal: AbortSignal.timeout(4000),
+          headers: { 'Content-Type': 'application/json',
+            'x-cardshow-photo-job': require('crypto').createHash('sha256').update('mcp-photo-job:' + key).digest('hex') },
+          body: JSON.stringify({ job_id: jobId }),
+        });
+        return r.status === 202 || r.ok;
+      } catch (e) { console.warn('[mcp-seller] photo job kick failed:', e.message); return false; }
+    }),
+    // The buyer's email after an answer, as offer-notify-now does for the app (the 5-minute job sends it otherwise).
+    notifyOffer: deps.notifyOffer || (async (offerId) => {
+      if (!svc) return;
+      try { await require('../lib/offer-notices').runOfferNotices(svc, { offerId, budgetMs: 4000 }); }
+      catch (e) { console.warn('[mcp-seller] offer email failed; the 5-minute job will send it:', e.message); }
+    }),
     log: (e) => logs.push({
       owner_id: session.user_id, actor_type: 'dealer_agent', client: session.client_name || null,
       client_id: session.client_id, client_name: session.client_name || null,
@@ -515,4 +689,4 @@ async function handle(event, deps = {}) {
 }
 
 exports.handler = (event) => handle(event);
-exports._test = { handle, TOOLS, WRITE_TOOLS, PUBLIC_TOOLS, explain, sanitize, jwtPayload, shapeCard };
+exports._test = { handle, TOOLS, WRITE_TOOLS, PUBLIC_TOOLS, explain, sanitize, jwtPayload, shapeCard, imageType };

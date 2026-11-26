@@ -114,7 +114,7 @@ const listed = (await S.handle({ httpMethod: 'POST', headers: { authorization: `
   body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) }, { dataFor, svc: svcStub() }));
 const tools = JSON.parse(listed.body).result.tools;
 ok('16 write tools listed as non-read-only, record_sale idempotent, every one explains the two steps',
-   tools.filter(t => !t.annotations.readOnlyHint).map(t => t.name).sort().join(',') === 'publish_to_show,record_sale,set_price,unpublish_from_show,update_card'
+   tools.filter(t => !t.annotations.readOnlyHint).map(t => t.name).sort().join(',') === 'add_cards_from_photos,publish_to_show,record_sale,respond_to_offer,set_price,set_prices,unpublish_from_show,update_card'
    && tools.find(t => t.name === 'record_sale').annotations.idempotentHint === true
    && tools.filter(t => !t.annotations.readOnlyHint).every(t => /clear yes/.test(t.description)));
 

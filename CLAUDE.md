@@ -132,6 +132,8 @@ netlify/functions/oauth-protected-resource.js / oauth-authorization-server.js �
 netlify/lib/oauth-guard.js        → refuseOAuthClient(): every other function that takes a dealer's sign-in refuses assistant (OAuth) tokens
 oauth-consent.html                → /oauth/consent: consent page Supabase's OAuth server sends dealers to; stores what they approved (assistant_grant_consent)
 js/connected-assistants.js        → Profile → Connected assistants (Disconnect) + Assistant activity; switch ASSISTANTS_UI_LAUNCHED (off; test with ?assistants=1) — loaded after js/pricing-admin.js
+supabase/migrations/20261215120000_mcp_seller_phase3.sql → Seller MCP Phase 3: mcp_photo_jobs, mcp_photo_job_start / mcp_add_cards_from_photos, mcp_set_prices (≤200 cards, all or nothing), mcp_my_offers / mcp_respond_offer
+netlify/functions/mcp-photo-job-background.js → Reads an add_cards_from_photos batch with scan-card (service key; only answers mcp-seller.js's x-cardshow-photo-job header); https-only, public-host photo fetch
 supabase/migrations/20261214120000_mcp_seller_phase2.sql → Seller MCP Phase 2: mcp_confirmations (hashed preview tokens), mcp_write_results (idempotent retries), mcp_update_card / mcp_set_price / mcp_publish_to_show / mcp_unpublish_from_show / mcp_record_sale, 'agent' source on sales + ledger
 supabase/migrations/20261213120000_mcp_seller_phase1.sql → mcp_client_grants, assistant_grant_consent/assistant_revoke_client, _mcp_require(), the mcp_* read functions, PostgREST pre-request hook mcp_pre_request(), storage policy, agent_actions log columns
 netlify/functions/geocode-shows.js → Scheduled (hourly) + admin POST {show_id}: sets shows.latitude/longitude from US Census data — see "Show geocoding"
@@ -456,6 +458,8 @@ hook at `public.mcp_pre_request()` (if another pre-request function is already s
 
 Then `supabase/migrations/20261214120000_mcp_seller_phase2.sql` (seller MCP write tools, see "Phase 2" under "Seller MCP server"),
 after the cost tracking and offers migrations. Until it runs, the write tools answer "CardShow is unavailable right now".
+Then `supabase/migrations/20261215120000_mcp_seller_phase3.sql` (bulk repricing, cards from photos, offers; see "Phase 3" under
+"Seller MCP server"). Its check query returns 5. Until it runs, those four tools answer "CardShow is unavailable right now".
 
 Required for The Card Shop Finder events sync (see "Card Shop Finder events"), after the bundle offers migration (and the
 Show Directory, geocoding, shows/show_inventory security and show pages migrations it builds on):
@@ -7251,9 +7255,9 @@ Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pric
 ## Seller MCP server (Phases 1–2 built, session 2026-11-26)
 
 A signed-in dealer manages their own inventory from any MCP assistant (Claude, Meta Muse, Instinct…). Spec: "Extend the
-CardShow MCP server" (given in chat, 2026-11-26), three phases, each stopped for review. **Phase 1 (read-only seller
-tools) is built.** Phases 2 (single writes with preview + confirm, idempotent `record_sale`) and 3 (bulk repricing,
-cards from photos as a background job the assistant checks back on, offers) are not.
+CardShow MCP server" (given in chat, 2026-11-26), three phases, each stopped for review. **All three are built:** Phase 1
+(read-only seller tools), Phase 2 (single writes with preview + confirm, idempotent `record_sale`; merged in PR #108) and
+Phase 3 (bulk repricing, cards from photos as a background job, offers; see below).
 
 Decisions (Stephen, 2026-11-26): Supabase Auth's OAuth 2.1 server for sign-in; seller tools on their own URL
 `/mcp/seller` (public `/mcp` unchanged); photo adds as a background job; price suggestions only say "No comp yet" (no
@@ -7370,6 +7374,56 @@ Phase 1 suites unchanged, `mcp-seller.e2e.mjs` (activity lines).
 **Not done in Phase 2:** GTCR *registration* removal after an assistant sale or cert change happens at the dealer's next app
 login (the reconcile needs the dealer's app session); no "from an assistant" badge in the classic Report (the ledger carries
 `source 'agent'`); trades; the MCP Inspector / Claude walkthrough of the writes (to do after the migration runs).
+
+### Phase 3 — bulk repricing, cards from photos, offers (session 2026-11-26)
+**Migration `20261215120000_mcp_seller_phase3.sql`** (after Phase 2; re-runnable). Same preview + confirm tokens as Phase 2.
+- **`set_prices`** (`mcp_set_prices`, inventory:write, `client_request_id` required): up to 200 card ids and one rule:
+  - `pct_of_comp` (percent of the visible Card Hedge comp), `change_percent`, `change_cents` or `set_cents`;
+  - `round_to` cent / dollar (default) / five_dollars, then `floor_cents` / `ceiling_cents`.
+  - Skipped and listed: not found or another dealer's card, sold, held, no comp (for pct_of_comp), no price (for change_*), unchanged.
+  - Preview lists every change, totals before/after, at_floor / at_ceiling. The state hash covers every changed card.
+    The apply is one UPDATE; a row-count mismatch raises, so it's all or nothing.
+- **`add_cards_from_photos`** (inventory:write), a background job (Stephen's choice):
+  1. `images` (≤20; https URLs or base64 JPEG/PNG/WebP ≤3.5 MB) → `mcp_photo_job_start` as the dealer (`mcp_photo_jobs`, max 5 batches
+     reading at once, 300 photos a day). Base64 photos are stored by the server at `card-captures/<uid>/<capture>/original.jpg`
+     (service key, only in the dealer's folder). `mcp-photo-job-background` is then started.
+  2. **Reader** (`mcp-photo-job-background.js`):
+     - Claims the job (one at a time; a claim is retaken after 5 min).
+     - URL photos: https only; host must resolve to public addresses; redirects checked hop by hop; 3.5 MB cap while reading.
+       The photo is then copied to the dealer's folder.
+     - Runs `scan-card.js`'s handler in-process, 3 photos at a time.
+     - Writes a `card_captures` row (seller = dealer, `entry_point 'case_scan'`, identification) and a draft per photo on the job.
+  3. With `job_id` + `client_request_id`: `{stage:'working'}` until done. The server restarts the reader if the job hasn't moved
+     in 75 s. Once done, a preview of drafts (`_mcp_photo_draft`):
+     - title built like `buildCardTitle`; Auto → Features;
+     - `check_fields` lists fields the scan rated under 0.7, plus a missing player, so `low_confidence` cards get flagged;
+     - a slab whose cert is already in unsold inventory is skipped unless `include: true`; unreadable photos are listed;
+     - the show is today's joined show (if exactly one), `show_id`, or `"none"`.
+     `cards[]` overrides fields and sets `price_cents` per index (dealer-typed fields aren't flagged).
+  4. **Confirm:** inserts `inventory` rows as the dealer:
+     - Available; `primary_capture_id` / `image_source 'seller'`; `source 'agent'` only if the column's check allows it.
+     - Attaches the captures and publishes to the show; `assign_stock_codes()` when present; marks the job applied.
+     - GTCR check per new slab via `agent_check` (5 at a time, max 20).
+     A batch can be added once (`already_added`).
+- **`list_offers`** (`mcp_my_offers`, inventory:read): `dealer_offers()` filtered to to_answer (default) / open / all.
+  Buyer contact is left out.
+- **`respond_to_offer`** (`mcp_respond_offer`, offers:write): accept / decline / counter.
+  - Checked first against the offer (dealer's turn, counter range, moves left); preview says what happens.
+  - Applies through `respond_offer()`. The result's `offer_status` is separate from the tool's `status`.
+  - The server then sends the offer's due emails at once with `runOfferNotices` (as `offer-notify-now` does). The 5-minute job is
+    the fallback.
+- **Consent page:** "Answer offers" (offers:write) checkbox; "Update cards and prices" mentions photo adds.
+  Assistant activity shows the new tools. The log replaces `base64` values with "(image, N chars)".
+- **Tests:**
+  - `mcp-seller-phase3.test.sh` (33 SQL checks, own DB with the offers chain).
+  - `mcp-seller-phase3.test.mjs` (22: server flow against that DB, the reader with fakes, SSRF / size / redirect refusals).
+    Run as `KEEP_DB=1 ./mcp-seller-phase3.test.sh && node mcp-seller-phase3.test.mjs`.
+  - Phase 1 / 2 suites and the e2e updated for the new tools and scope.
+- **Not done:**
+  - Photos must be one card each (no case photos).
+  - A DNS answer could change between the reader's check and its fetch (DNS rebinding); accepted for now.
+  - No `scan-card` CardSight cross-check, unlike Show Mode.
+  - The MCP Inspector / Claude walkthrough waits on the migration.
 
 **Open / verify on a preview:**
 - That Supabase's OAuth tokens carry `client_id` (the auth-js types say so) and that `getAuthorizationDetails` /
