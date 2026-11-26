@@ -517,3 +517,6 @@ async function watchlist(db, input) {
   const { data } = await db.from('social_watchlist').select('*').order('platform').order('account');
   return P.json(200, { success: true, watchlist: data || [] });
 }
+
+// Assistant (OAuth) tokens are for the seller MCP server only.
+exports.handler = require('../lib/oauth-guard').refuseOAuthClient(exports.handler);

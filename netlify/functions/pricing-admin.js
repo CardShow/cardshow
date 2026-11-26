@@ -119,3 +119,6 @@ async function handle(event, deps = {}) {
 
 exports.handler = (event) => handle(event);
 exports._test = { handle, cleanValues };
+
+// Assistant (OAuth) tokens are for the seller MCP server only.
+exports.handler = require('../lib/oauth-guard').refuseOAuthClient(exports.handler);

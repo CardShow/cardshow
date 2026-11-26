@@ -127,6 +127,12 @@ netlify/functions/refresh-card-values.js → Scheduled (every 5 min): match new 
 netlify/functions/recalc-pricing-priorities.js → Scheduled (daily 09:17 UTC): high / normal / dormant refresh priority per card
 netlify/functions/saved-search-alerts.js → Scheduled (hourly): Loops email when a saved search has new listings
 netlify/functions/mcp.js          → Read-only MCP server at /mcp (search_cards, get_listing, list_upcoming_shows, get_show_inventory); off unless MARKETPLACE_MCP_ENABLED=true
+netlify/functions/mcp-seller.js   → Seller MCP server at /mcp/seller (dealer tools, OAuth sign-in through Supabase Auth's OAuth server); off unless MCP_SELLER_ENABLED=true — see "Seller MCP server"
+netlify/functions/oauth-protected-resource.js / oauth-authorization-server.js → /.well-known/* discovery for /mcp/seller (points MCP clients at Supabase Auth)
+netlify/lib/oauth-guard.js        → refuseOAuthClient(): every other function that takes a dealer's sign-in refuses assistant (OAuth) tokens
+oauth-consent.html                → /oauth/consent: consent page Supabase's OAuth server sends dealers to; stores what they approved (assistant_grant_consent)
+js/connected-assistants.js        → Profile → Connected assistants (Disconnect) + Assistant activity; switch ASSISTANTS_UI_LAUNCHED (off; test with ?assistants=1) — loaded after js/pricing-admin.js
+supabase/migrations/20261213120000_mcp_seller_phase1.sql → mcp_client_grants, assistant_grant_consent/assistant_revoke_client, _mcp_require(), the mcp_* read functions, PostgREST pre-request hook mcp_pre_request(), storage policy, agent_actions log columns
 netlify/functions/geocode-shows.js → Scheduled (hourly) + admin POST {show_id}: sets shows.latitude/longitude from US Census data — see "Show geocoding"
 netlify/lib/geocode.js / us-places.js / us-places.json → Census Geocoder call (street addresses) + Census Gazetteer city points (32k places, built by scripts/build_us_places.py)
 supabase/migrations/20261201120000_show_geocoding.sql → shows.street_address/postal_code/geo_*; coordinates locked to the service role / platform owner, cleared on address change
@@ -441,6 +447,11 @@ Then `20261211120000_marketplace_offer_rules.sql` (dealer offer rules, see "Deal
 and offers behave as before.
 Then `20261212120000_marketplace_orders.sql` (Buy Now and orders, see "Buy Now and orders"). Until it runs, Buy now says it couldn't place
 the order, the dealer app shows no orders, and the 5-minute job logs that `expire_orders` is missing and carries on.
+
+Required for the seller MCP server (see "Seller MCP server"), after the pricing migrations (`20261130120000`, `20261205120000`)
+and the RLS lockdown ones: `supabase/migrations/20261213120000_mcp_seller_phase1.sql`. It also points PostgREST's pre-request
+hook at `public.mcp_pre_request()` (if another pre-request function is already set it only raises a NOTICE: then call
+`mcp_pre_request()` from that function by hand). Until it runs, the consent page says connecting is being set up.
 
 Required for The Card Shop Finder events sync (see "Card Shop Finder events"), after the bundle offers migration (and the
 Show Directory, geocoding, shows/show_inventory security and show pages migrations it builds on):
@@ -997,6 +1008,8 @@ Called from `fillFormFromVision` (vision) and several other card-creation paths 
 | `LOOPS_HOLD_DEALER_ID` / `LOOPS_HOLD_BUYER_ID` | Loops transactional email ids for hold emails ("Hold - Dealer" / "Hold - Buyer" in Loops, created 2026-11-23; copy the ids from Loops). Without them hold emails wait (nothing lost while the hold is still relevant). **Never write an env var's value into a repo file**: Netlify's secrets scan fails the build when it finds one (2026-11-23, these two ids in this file) |
 | `CSF_API_KEY` | The Card Shop Finder Partner Events API key. Read only in `netlify/lib/csf-events.js`, sent only in the `X-API-Key` header (never `?key=`), never logged or stored |
 | `CSF_SYNC_ENABLED` | Set to `false` to switch the 6-hourly Card Shop Finder sync off (default: on) |
+| `MCP_SELLER_ENABLED` | Must be exactly `true` for the seller MCP server at `/mcp/seller` to answer. Off by default |
+| `MCP_SELLER_READS_PER_MINUTE` / `MCP_SELLER_READS_PER_DAY` | Seller tool reads allowed per dealer (defaults 120 / 5000) |
 | `LOOPS_SAVED_SEARCH_ID` | Loops transactional email id for saved-search alerts (data variables: searchName, count, firstTitle, firstPrice, firstUrl, listText, searchUrl) |
 
 ### Credential Injection (no build step workaround)
@@ -7229,6 +7242,80 @@ Admin tab **"💲 Pricing"** (`#adminTabPricing`, `#pricingAdminPanel`, `js/pric
   save, geocode call).
 - **Not built:** no geocoding for organizer-created shows outside the Directory beyond the hourly job (which covers them
   once they have a city and state); no way for the platform owner to drag a pin (manual coordinates only via SQL).
+
+## Seller MCP server (Phase 1 built, session 2026-11-26)
+
+A signed-in dealer manages their own inventory from any MCP assistant (Claude, Meta Muse, Instinct…). Spec: "Extend the
+CardShow MCP server" (given in chat, 2026-11-26), three phases, each stopped for review. **Phase 1 (read-only seller
+tools) is built.** Phases 2 (single writes with preview + confirm, idempotent `record_sale`) and 3 (bulk repricing,
+cards from photos as a background job the assistant checks back on, offers) are not.
+
+Decisions (Stephen, 2026-11-26): Supabase Auth's OAuth 2.1 server for sign-in; seller tools on their own URL
+`/mcp/seller` (public `/mcp` unchanged); photo adds as a background job; price suggestions only say "No comp yet" (no
+fresh Card Hedge lookups for drafts).
+
+**Sign-in (OAuth):**
+- Supabase Auth's OAuth server (dashboard → Authentication → OAuth Server: enable, dynamic client registration on,
+  Authorization path `/oauth/consent`). It issues normal Supabase JWTs with a `client_id` claim, so every query runs
+  as the dealer under RLS. The MCP server never uses the service key for dealer data.
+- `/mcp/seller` without a token → 401 + `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/mcp/seller"`.
+  That metadata (`oauth-protected-resource.js`, host-relative so previews work) names `${SUPABASE_URL}/auth/v1` as the
+  authorization server. `/.well-known/oauth-authorization-server` relays Supabase's metadata for older clients.
+  **No `scopes_supported` / `scope=`**: CardShow's scopes aren't Supabase scopes, and advertising them could make clients
+  ask Supabase for scopes it rejects.
+- **Scopes live in CardShow**, not Supabase: `oauth-consent.html` lets the dealer pick `inventory:read` (required),
+  `inventory:write`, `sales:write` (both off by default; `offers:write` added in Phase 3), stores them with
+  `assistant_grant_consent()` **before** `approveAuthorization()`. Every `mcp_*` function calls `_mcp_require(scope)`:
+  OAuth token, seller account, an unrevoked grant for that client, the scope.
+- App session tokens (no `client_id`) are refused at `/mcp/seller`.
+- **Assistant tokens can't go around the tools:** `mcp_pre_request()` (PostgREST `db_pre_request`) refuses any request
+  with a `client_id` claim except `/rpc/mcp_*`; a restrictive policy blocks them from Storage; `refuseOAuthClient()`
+  wraps every Netlify function that accepts a dealer's sign-in (GTCR, notify-now, admin ones). The consent/revoke
+  functions are named `assistant_*` so the hook blocks them for assistant tokens too (they also check).
+- **Disconnect** (Profile → Connected assistants): `assistant_revoke_client()` (cuts access at once), then
+  `auth.oauth.revokeGrant()` (ends Supabase's consent and refresh tokens). If Supabase still has consent but CardShow's
+  grant was revoked, the consent page revokes Supabase's and asks the dealer to start again (no silent re-approval).
+
+**Phase 1 tools** (read-only, all `inventory:read`; money in integer cents plus a dollar string):
+`whoami` (`mcp_session`), `list_my_inventory` (text incl. stock codes, player, set, years, grader, grades, raw, status
+unsold/available/held/sold/all, show, price range, `missing_fields`, sort, paging ≤100), `get_my_card` (+ GTCR status
+from `cert_trust_checks`, sale details; price history isn't stored), `get_price_suggestion` (≤50 cards; comp, low/high,
+sales_30d, refreshed_at, suggested price at `target_pct_of_comp` rounded to whole dollars, confidence by sales count;
+"No comp yet" otherwise), `list_my_shows`, `sales_summary` (ledger minus undone sales, plus private-show sales from
+`dealer_transactions`; trades/buys excluded; sell-through for a show), `stale_inventory` (unsold cards published to ≥N
+ended shows — there's no publish history, so cards removed from a show don't count).
+- Rows are read with `to_jsonb(row)` so dashboard-made columns a project lacks read as null.
+- `inventory` and the ledger are publicly readable, so isolation is the functions' `seller_id = auth.uid()` (from the
+  verified JWT), not RLS alone. Tested with two dealers in every tool.
+- **Comps are Card Hedge only**: shown when `pricing_card_id` is set and the match is manual, or automatic and within
+  1/5–5× the price (same band as the buyer site); range/sales from `card_values` (source `cardhedge`) through the
+  owner-only `_mcp_card_values()`. Never `price_cache` / PriceCharting / CardSight.
+
+**Logging + limits:** every tool call → `agent_actions` (`actor_type 'dealer_agent'`, `status 'read'`/`'failed'`,
+`client_id`, `client_name`, sanitized `arguments` — keys like token/authorization/secret dropped, long strings cut —
+target ids, result count) and the grant's `last_used_at`, with the service key. Reads rate-limited per dealer
+(`MCP_SELLER_READS_PER_MINUTE` / `_PER_DAY`). New log columns for Phase 2: `preview`, `result`, `client_request_id`
+(unique per owner), `applied_at`, statuses previewed/applied/rejected.
+
+**App:** Profile → Connected assistants (name, scopes, connected, last used, Disconnect; the connector URL) and
+Assistant activity (last 100). Behind `ASSISTANTS_UI_LAUNCHED` (off; `?assistants=1`).
+
+**To switch on:** run the migration; check `select rolconfig from pg_roles where rolname='authenticator'`; enable the
+OAuth server in Supabase (Authorization path `/oauth/consent`, dynamic registration on); `MCP_SELLER_ENABLED=true`
+(deploy previews first); set `ASSISTANTS_UI_LAUNCHED = true`. Then connect from Claude (custom connector
+`https://<site>/mcp/seller`) and MCP Inspector.
+
+**Tests:** `mcp-seller.test.sh` (40 SQL checks), `mcp-seller.test.mjs` (17 server checks + 17-step walkthrough against
+the real database through a PostgREST-like adapter; `KEEP_DB=1 ./mcp-seller.test.sh` first), `mcp-seller.e2e.mjs`
+(consent page + Profile, iPhone 13 + Pixel 7; serves pages from disk, no web server).
+
+**Open / verify on a preview:**
+- That Supabase's OAuth tokens carry `client_id` (the auth-js types say so) and that `getAuthorizationDetails` /
+  `approveAuthorization` behave as typed. Not testable without the live project.
+- **An assistant token can still call Supabase Auth's own API** (e.g. change the dealer's email or password). Nothing on
+  CardShow's side can block that; ask Supabase whether OAuth-client tokens are limited there before launch.
+- PostgREST's `request.path` is what the hook checks; confirm on the preview that a table request with an assistant
+  token gets the refusal.
 
 ## Card Shop Finder events (session 2026-11-24)
 

@@ -3709,6 +3709,22 @@
     overflow-y: auto; flex: 1;
   }
 
+  /* Connected assistants (js/connected-assistants.js) */
+  .ca-list { display: grid; gap: 0.5rem; margin-bottom: 0.4rem; }
+  .ca-row { display: flex; gap: 0.6rem; align-items: center; justify-content: space-between;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.7rem; }
+  .ca-main { min-width: 0; }
+  .ca-name { font-weight: 700; font-size: 0.85rem; }
+  .ca-meta { color: var(--muted); font-size: 0.72rem; line-height: 1.4; overflow-wrap: anywhere; }
+  .ca-disconnect { flex: none; font-size: 0.75rem; padding: 0.45rem 0.7rem; min-height: 36px; }
+  .ca-empty { color: var(--muted); font-size: 0.78rem; }
+  #assistantsHint code { font-family: 'DM Mono', monospace; color: var(--accent); overflow-wrap: anywhere; }
+  .ca-activity { margin-top: 0.5rem; }
+  .ca-activity summary { cursor: pointer; font-size: 0.78rem; color: var(--accent); }
+  .ca-act-list { max-height: 220px; overflow-y: auto; margin-top: 0.4rem; display: grid; gap: 0.25rem; }
+  .ca-act { display: flex; gap: 0.6rem; font-size: 0.74rem; }
+  .ca-act-when { color: var(--muted); flex: none; min-width: 4.5rem; }
+  .ca-fail { color: var(--danger); }
   .profile-field-label {
     font-family: 'DM Mono', monospace; font-size: 0.62rem;
     letter-spacing: 0.1em; text-transform: uppercase;
@@ -6415,6 +6431,18 @@
           <div class="profile-field-hint" id="gtcrConsentStatus"></div>
         </div>
 
+        <!-- Connected assistants (seller MCP server). Filled by js/connected-assistants.js; hidden until
+             ASSISTANTS_UI_LAUNCHED (test with ?assistants=1). -->
+        <div id="assistantsSection" style="display:none">
+          <div class="profile-field-label">Connected assistants</div>
+          <div id="assistantsList" class="ca-list"></div>
+          <div class="profile-field-hint" id="assistantsHint"></div>
+          <details id="assistantActivityWrap" class="ca-activity">
+            <summary>Assistant activity</summary>
+            <div id="assistantActivity" class="ca-act-list"></div>
+          </details>
+        </div>
+
       </div>
 
       <div class="profile-actions">
@@ -8228,6 +8256,7 @@
 <script src="/js/offer-rules.js?v=20261211a"></script>
 <script src="/js/marketplace-orders.js?v=20261212c"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
+<script src="/js/connected-assistants.js?v=20261213a"></script>
 <script>
 // ── STATE ──
 let inventory = [];
@@ -21568,6 +21597,7 @@ function openProfile() {
 
   _gtcrRenderConsent();
   if (GTCR_CONSENT_UI_ENABLED) gtcrLoadConsentState().then(_gtcrRenderConsent);
+  if (typeof caOpenInProfile === 'function') caOpenInProfile();
 
   document.getElementById('profileOverlay').classList.add('open');
 }

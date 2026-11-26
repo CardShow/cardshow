@@ -1,7 +1,7 @@
 [build]
   # Substitute Supabase credentials from Netlify environment variables into HTML files.
   # Set SUPABASE_URL and SUPABASE_ANON_KEY in Netlify dashboard → Site settings → Environment variables.
-  command = "sed -i \"s|SUPABASE_URL_PLACEHOLDER|$SUPABASE_URL|g\" app.html show.html seller-browse.html trade-zone.html trade-board.html && sed -i \"s|SUPABASE_ANON_KEY_PLACEHOLDER|$SUPABASE_ANON_KEY|g\" app.html show.html seller-browse.html trade-zone.html trade-board.html"
+  command = "sed -i \"s|SUPABASE_URL_PLACEHOLDER|$SUPABASE_URL|g\" app.html show.html seller-browse.html trade-zone.html trade-board.html oauth-consent.html && sed -i \"s|SUPABASE_ANON_KEY_PLACEHOLDER|$SUPABASE_ANON_KEY|g\" app.html show.html seller-browse.html trade-zone.html trade-board.html oauth-consent.html"
   publish = "."
   functions = "netlify/functions"
 

@@ -39,3 +39,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+// Assistant (OAuth) tokens are for the seller MCP server only.
+exports.handler = require('../lib/oauth-guard').refuseOAuthClient(exports.handler);
