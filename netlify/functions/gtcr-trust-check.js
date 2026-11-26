@@ -342,6 +342,39 @@ function cronAuthorized(event) {
   return require('crypto').timingSafeEqual(Buffer.from(got), Buffer.from(expected));
 }
 
+// The seller MCP server (mcp-seller.js) asks for a check after an assistant changes a card's cert/grader or
+// publishes it to a show. Header x-cardshow-agent = sha256('mcp-seller-gtcr:' + SUPABASE_SERVICE_KEY);
+// body { inventory_id, owner_id }: the card must belong to owner_id (the signed-in dealer the server verified).
+function agentToken() {
+  const key = process.env.SUPABASE_SERVICE_KEY || '';
+  return key ? require('crypto').createHash('sha256').update('mcp-seller-gtcr:' + key).digest('hex') : '';
+}
+function agentAuthorized(event) {
+  const expected = agentToken();
+  const got = String(event.headers['x-cardshow-agent'] || event.headers['X-Cardshow-Agent'] || '');
+  if (!expected || got.length !== expected.length) return false;
+  return require('crypto').timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+}
+async function handleAgentCheck(db, event, input) {
+  if (!agentAuthorized(event)) return json(401, { success: false, error: 'unauthorized' });
+  if (!db) return json(503, { success: false, error: 'persistence_unavailable' });
+  const { data: row } = await db.from('inventory')
+    .select('id, seller_id, trust_flag, cert_number, grader').eq('id', input.inventory_id || '').maybeSingle();
+  if (!row || row.seller_id !== input.owner_id) return json(404, { success: false, error: 'not_found' });
+  const certNumber = String(row.cert_number || '').trim();
+  if (!certNumber || !row.grader || /^raw$/i.test(row.grader)) return json(200, { success: true, skipped: 'not_graded' });
+  const gradingCompany = toGtcrGrader(row.grader);
+  let result;
+  try {
+    result = await callTrustCheck(certNumber, gradingCompany);
+  } catch (err) {
+    return json(200, { success: false, error: 'lookup_failed', reason: err.reason || (err.name === 'AbortError' ? 'timeout' : 'network_error') });
+  }
+  const trustFlag = await applyCheckResult(db, row, certNumber, gradingCompany, result, 'agent');
+  return json(200, { success: true, matched: result.matched, card_status: result.card_status, trust_flag: trustFlag || null,
+    has_stolen_report: result.has_stolen_report, has_lost_report: result.has_lost_report, has_dispute_report: result.has_dispute_report });
+}
+
 async function handleDailyRecheck(db, event) {
   if (!cronAuthorized(event)) return json(401, { success: false, error: 'unauthorized' });
   if (!db) return json(503, { success: false, error: 'persistence_unavailable' });
@@ -404,6 +437,7 @@ exports.handler = async (event) => {
     if (input.action === 'resolve') return await handleResolve(db, event, input);
     if (input.action === 'verify_removal') return await handleVerifyRemoval(db, event, input);
     if (input.action === 'daily_recheck') return await handleDailyRecheck(db, event);
+    if (input.action === 'agent_check') return await handleAgentCheck(db, event, input);
     return await handleCheck(db, event, input);
   } catch (err) {
     console.error('[gtcr-trust-check] error:', err.message);
@@ -413,3 +447,4 @@ exports.handler = async (event) => {
 
 // Assistant (OAuth) tokens are for the seller MCP server only.
 exports.handler = require('../lib/oauth-guard').refuseOAuthClient(exports.handler);
+exports._test = { handleAgentCheck, agentToken };

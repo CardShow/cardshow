@@ -66,8 +66,10 @@ function svcStub(opts = {}) {
   const fake = { rpc: async (n) => n === 'mcp_session' ? { data: { user_id: A, client_id: 'claude-client', client_name: 'Claude', scopes: ['inventory:read'] } } : { data: { total: 0, results: [] } } };
   const tl = parse(await S.handle(ev(TOKEN_A, { jsonrpc: '2.0', id: 2, method: 'tools/list' }), { dataFor: () => fake, svc: svcStub() }));
   const names = tl.result.tools.map(t => t.name).sort().join(',');
-  ok('A08 seven read-only tools listed', names === 'get_my_card,get_price_suggestion,list_my_inventory,list_my_shows,sales_summary,stale_inventory,whoami'
-     && tl.result.tools.every(t => t.annotations.readOnlyHint && !t.rpc && !('scope' in t)));
+  const readTools = tl.result.tools.filter(t => t.annotations.readOnlyHint).map(t => t.name).sort().join(',');
+  ok('A08 seven read-only tools (plus the Phase 2 write tools), no internal fields',
+    readTools === 'get_my_card,get_price_suggestion,list_my_inventory,list_my_shows,sales_summary,stale_inventory,whoami'
+     && tl.result.tools.length === 12 && tl.result.tools.every(t => !t.rpc && !('scope' in t) && !('write' in t)));
 
   // scope missing (server-side check), bad input, rate limit, log has no token
   const noRead = { rpc: async (n) => n === 'mcp_session' ? { data: { user_id: A, client_id: 'x', scopes: [] } } : { data: {} } };
