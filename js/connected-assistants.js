@@ -25,11 +25,16 @@ const CA_TOOL_TEXT = {
   publish_to_show: 'Put a card on a show',
   unpublish_from_show: 'Took a card off a show',
   record_sale: 'Recorded a sale',
+  list_offers: 'Looked at your offers',
+  set_prices: 'Changed prices',
+  add_cards_from_photos: 'Added cards from photos',
+  respond_to_offer: 'Answered an offer',
 };
 // Phase 2 writes: the preview step is logged too ("Asked to change a price").
 const CA_PREVIEW_TEXT = {
   update_card: 'Asked to update a card', set_price: 'Asked to change a price', publish_to_show: 'Asked to put a card on a show',
   unpublish_from_show: 'Asked to take a card off a show', record_sale: 'Asked to record a sale',
+  set_prices: 'Asked to change prices', add_cards_from_photos: 'Sent photos to add cards', respond_to_offer: 'Asked to answer an offer',
 };
 
 function caEnabled() {
@@ -129,10 +134,12 @@ async function caLoadActivity() {
     if (error) throw error;
     if (!data?.length) { box.innerHTML = '<div class="ca-empty">Nothing yet.</div>'; return; }
     box.innerHTML = data.map(a => {
-      const what = (a.status === 'previewed' && CA_PREVIEW_TEXT[a.tool]) || CA_TOOL_TEXT[a.tool] || a.tool || 'Action';
+      const what = (a.status === 'previewed' && CA_PREVIEW_TEXT[a.tool])
+        || (a.status === 'read' && a.tool === 'add_cards_from_photos' && 'Checked on photos') || CA_TOOL_TEXT[a.tool] || a.tool || 'Action';
       const st = a.status === 'failed' ? ' <span class="ca-fail">· didn\'t work</span>'
         : a.status === 'rejected' ? ' <span class="ca-fail">· refused</span>'
-        : a.status === 'applied' && a.result?.replayed ? ' · already done' : '';
+        : a.status === 'applied' && a.result?.replayed ? ' · already done'
+        : a.status === 'read' && a.tool === 'add_cards_from_photos' ? ' · still reading the photos' : '';
       return `<div class="ca-act"><span class="ca-act-when">${_caEsc(_caWhen(a.created_at))}</span>` +
         `<span>${_caEsc(a.client_name || 'Assistant')}: ${_caEsc(what)}${st}</span></div>`;
     }).join('');

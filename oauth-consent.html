@@ -111,8 +111,9 @@
 (function () {
   const SCOPES = [
     { id: 'inventory:read',  name: 'See your inventory and sales', text: 'Cards, prices, Card Hedge comps and price suggestions, your shows and sales summaries.', required: true },
-    { id: 'inventory:write', name: 'Update cards and prices', text: 'Fix card details, change prices and publish cards to shows, after you confirm each change.' },
+    { id: 'inventory:write', name: 'Update cards and prices', text: 'Fix card details, change prices, add cards from photos and publish cards to shows, after you confirm each change.' },
     { id: 'sales:write',     name: 'Record sales', text: 'Log a sale for you, after you confirm it.' },
+    { id: 'offers:write',    name: 'Answer offers', text: 'Accept, decline or counter buyers\' offers, after you confirm each answer.' },
   ];
   const db = supabase.createClient('SUPABASE_URL_PLACEHOLDER', 'SUPABASE_ANON_KEY_PLACEHOLDER', { auth: { flowType: 'implicit' } });
   const authId = new URLSearchParams(location.search).get('authorization_id') || '';

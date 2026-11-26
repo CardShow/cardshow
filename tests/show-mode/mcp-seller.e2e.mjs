@@ -74,7 +74,7 @@ const fakeOAuth = `(() => {
     && (await page.textContent('#stConsent h1')).includes('Claude') && (await page.textContent('#whoText')).includes('@tester'));
   const boxes = await page.$$eval('#scopeList input', els => els.map(e => [e.value, e.checked, e.disabled]));
   check('read scope needed and locked; write scopes off by default',
-    JSON.stringify(boxes) === JSON.stringify([['inventory:read', true, true], ['inventory:write', false, false], ['sales:write', false, false]]));
+    JSON.stringify(boxes) === JSON.stringify([['inventory:read', true, true], ['inventory:write', false, false], ['sales:write', false, false], ['offers:write', false, false]]));
   const noScroll = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   check('no sideways scroll', noScroll);
   await page.check('#scopeList input[value="sales:write"]');
