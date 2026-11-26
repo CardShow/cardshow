@@ -65,6 +65,7 @@
     <section id="stError" hidden>
       <h1>Can't connect</h1>
       <p id="errText">Something went wrong.</p>
+      <p class="note" id="errDetail" hidden></p>
     </section>
 
     <section id="stSignIn" hidden>
@@ -121,7 +122,15 @@
   function show(id) {
     for (const s of ['stLoading', 'stError', 'stSignIn', 'stNotSeller', 'stConsent', 'stDone']) $(s).hidden = s !== id;
   }
-  function fail(text) { $('errText').textContent = text; show('stError'); }
+  // detail: Supabase's own error, shown small so a failed connection can be diagnosed.
+  function fail(text, detail) {
+    $('errText').textContent = text;
+    const d = detail ? [detail.status, detail.code, detail.message].filter(Boolean).join(' · ') : '';
+    $('errDetail').textContent = d ? `Details: ${d}` : '';
+    $('errDetail').hidden = !d;
+    if (detail) console.warn('[consent]', detail);
+    show('stError');
+  }
   function setClientName(name) {
     for (const el of document.querySelectorAll('.clientName')) el.textContent = name || 'This assistant';
   }
@@ -140,7 +149,13 @@
   async function loadRequest(session) {
     show('stLoading');
     const { data, error } = await db.auth.oauth.getAuthorizationDetails(authId);
-    if (error || !data) return fail('This connection request has expired or was already used. Start connecting again from your assistant.');
+    if (error || !data) {
+      const st = error && error.status;
+      const text = st === 404 || st === 410 || /expired|not found|used/i.test((error && error.message) || '')
+        ? 'This connection request has expired or was already used. Start connecting again from your assistant.'
+        : "CardShow couldn't read this connection request. Start connecting again from your assistant.";
+      return fail(text, error || { message: 'no data' });
+    }
 
     const { data: seller } = await db.from('sellers').select('handle, display_name').eq('id', session.user.id).maybeSingle();
     if (!seller) {
