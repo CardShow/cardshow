@@ -44,11 +44,13 @@ alter role service_role bypassrls;
 \i ../../supabase/migrations/20261214120000_mcp_seller_phase2.sql
 \i ../../supabase/migrations/20261215120000_mcp_seller_phase3.sql
 \i ../../supabase/migrations/20261215120000_mcp_seller_phase3.sql
+\i ../../supabase/migrations/20261216120000_mcp_seller_phase3b.sql
+\i ../../supabase/migrations/20261216120000_mcp_seller_phase3b.sql
 grant all on all tables in schema public to service_role;
 grant select on all tables in schema public to anon, authenticated;
 grant insert, update, delete on inventory to authenticated;
 grant all on public.stock_code_counters to authenticated;
-revoke all on public.card_values, public.agent_actions, public.mcp_photo_jobs from anon, authenticated;
+revoke all on public.card_values, public.agent_actions, public.mcp_photo_jobs, public.mcp_photo_links from anon, authenticated;
 grant select on public.agent_actions, public.mcp_client_grants, public.mcp_photo_jobs to authenticated;
 
 create or replace function pg_temp.ok(p_name text, p_cond boolean) returns text language sql as $$

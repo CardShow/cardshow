@@ -29,12 +29,15 @@ const CA_TOOL_TEXT = {
   set_prices: 'Changed prices',
   add_cards_from_photos: 'Added cards from photos',
   respond_to_offer: 'Answered an offer',
+  add_cards: 'Added cards',
+  photo_upload_link: 'Made a photo link',
 };
 // Phase 2 writes: the preview step is logged too ("Asked to change a price").
 const CA_PREVIEW_TEXT = {
   update_card: 'Asked to update a card', set_price: 'Asked to change a price', publish_to_show: 'Asked to put a card on a show',
   unpublish_from_show: 'Asked to take a card off a show', record_sale: 'Asked to record a sale',
   set_prices: 'Asked to change prices', add_cards_from_photos: 'Sent photos to add cards', respond_to_offer: 'Asked to answer an offer',
+  add_cards: 'Asked to add cards', photo_upload_link: 'Made a photo link',
 };
 
 function caEnabled() {

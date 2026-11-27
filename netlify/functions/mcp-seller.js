@@ -44,7 +44,11 @@ const INSTRUCTIONS = 'CardShow for dealers: the signed-in dealer\'s own inventor
   'set_prices, add_cards_from_photos and respond_to_offer use the same preview + confirm steps; set_prices and add_cards_from_photos ' +
   'also need a client_request_id. add_cards_from_photos is a background job: send the photos, then call again with the job_id ' +
   'until the drafts are ready (about 20 seconds apart), show the dealer every draft (especially the ones that need a check) and ' +
-  'only then confirm. There are no delete tools, and trades are logged in the CardShow app.';
+  'only then confirm. When the dealer shares a card photo in this chat, you can\'t pass the file to a tool: read the card ' +
+  'yourself and use add_cards with what you read, listing in unsure_fields anything you can\'t read clearly (e.g. a card number ' +
+  'printed on the back); after adding, give the dealer the photo link from the result so they can attach the photo. To have ' +
+  'CardShow\'s own scan read their photos instead, call photo_upload_link and send them the link. ' +
+  'There are no delete tools, and trades are logged in the CardShow app.';
 
 const ID = { type: 'string', description: 'Card id (uuid) from list_my_inventory' };
 const TOOLS = [
@@ -222,6 +226,38 @@ const WRITE_TOOLS = [
       confirm_token: CONFIRM } },
   },
   {
+    name: 'add_cards', title: 'Add cards from details', rpc: 'mcp_add_cards', scope: 'inventory:write',
+    description: 'Add up to 20 cards to the dealer\'s inventory from details you have, typically what you read from a card photo the ' +
+      'dealer shared in this chat (you can\'t pass the image itself to CardShow). Put every field you can\'t read with certainty in ' +
+      'unsure_fields: the preview flags those cards so you ask the dealer before confirming. A slab whose cert is already in inventory ' +
+      'is skipped unless include is true. Cards are added as available and published to the show the dealer is at today (or show_id; ' +
+      '"none" for no show). The result has a photo_link: give it to the dealer so they can attach each card\'s photo from their phone ' +
+      '(needed to list graded cards online). client_request_id is required.' + WRITE_NOTE,
+    inputSchema: { type: 'object', properties: {
+      cards: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'object', properties: {
+        player: { type: 'string' }, year: { type: 'string', description: '4 digits; for a season like 2024-25 use 2024' },
+        set: { type: 'string' }, card_number: { type: 'string' }, parallel: { type: 'string' },
+        grader: { type: 'string', description: 'PSA, BGS, CGC, SGC… leave out for raw cards' }, grade: { type: 'string' },
+        cert_number: { type: 'string' }, title: { type: 'string', description: 'Optional; built from the fields if left out' },
+        condition: { type: 'string', description: 'Raw cards: Gem Mint, Near Mint, Good, Fair, Poor' },
+        serial_number: { type: 'string', description: 'The copy number on a numbered card, e.g. 043 of 043/99' },
+        print_run_size: { type: 'string', description: 'e.g. 99 of 043/99' },
+        features: { type: 'array', items: { type: 'string', enum: ['RC', 'Auto', 'Relic/Memorabilia', 'Patch', 'Refractor', '1st Edition', 'Short Print'] } },
+        price_cents: { type: 'integer', minimum: 0, description: 'Asking price; leave out for no price yet' },
+        unsure_fields: { type: 'array', items: { type: 'string' }, description: 'Fields you guessed or couldn\'t read clearly, e.g. ["year","card_number"]' },
+        include: { type: 'boolean', description: 'true to add a slab whose cert is already in inventory' } } } },
+      show_id: { type: 'string', description: 'Optional; "none" to publish to no show' },
+      client_request_id: { type: 'string', description: 'Required UUID for these cards, reused on retries and on the confirm call' },
+      confirm_token: CONFIRM }, required: ['cards', 'client_request_id'] },
+  },
+  {
+    name: 'photo_upload_link', title: 'Photo link for the scan', rpc: 'mcp_photo_upload_link', scope: 'inventory:write',
+    description: 'Get a link (valid 30 minutes) where the dealer uploads card photos from their phone, one card per photo, then taps ' +
+      '"Send to Claude". CardShow\'s card scan reads them; call add_cards_from_photos with the returned job_id (and a client_request_id) ' +
+      'to see the drafts. Use this when the dealer wants CardShow\'s scan rather than your own reading. Adds nothing by itself.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'respond_to_offer', title: 'Answer an offer', rpc: 'mcp_respond_offer', scope: 'offers:write',
     description: 'Accept, decline or counter a buyer\'s offer (offer_id from list_offers). Accepting puts the card(s) on hold for the buyer ' +
       'at that price; they pay the dealer directly. The buyer gets the same email as when the dealer answers in the app.' + WRITE_NOTE,
@@ -231,7 +267,7 @@ const WRITE_TOOLS = [
       confirm_token: CONFIRM, client_request_id: REQUEST }, required: ['offer_id', 'action'] },
   },
 ].map(t => ({ ...t, write: true, annotations: { readOnlyHint: false, destructiveHint: false,
-  idempotentHint: ['record_sale', 'set_prices', 'add_cards_from_photos'].includes(t.name), openWorldHint: false } }));
+  idempotentHint: ['record_sale', 'set_prices', 'add_cards_from_photos', 'add_cards'].includes(t.name), openWorldHint: false } }));
 
 const ALL_TOOLS = [...TOOLS, ...WRITE_TOOLS];
 const PUBLIC_TOOLS = ALL_TOOLS.map(({ rpc, scope, write, ...t }) => t);
@@ -434,7 +470,34 @@ function shapeNested(o) {
   return out;
 }
 
+const photoUrl = code => `${SITE()}/photo/${code}`;
+
+// photo_upload_link: a photo batch waiting for the dealer's uploads, and its link. Nothing is added to inventory.
+async function startUploadLink(id, tool, args, ctx) {
+  if (!(await ctx.allowWrite())) return textResult(id, 'Too many changes in a short time. Wait a minute and try again.', true);
+  let d;
+  try {
+    const res = await ctx.data.rpc('mcp_photo_upload_link', { p_args: {} });
+    if (res.error) throw res.error;
+    d = res.data || {};
+  } catch (err) {
+    const e = explain(err);
+    ctx.log({ tool: tool.name, args, ok: false, status: 'failed', action: 'write', error: e.text });
+    if (e.reauth) ctx.reauth = e;
+    return textResult(id, e.text, true);
+  }
+  if (d.error) {
+    ctx.log({ tool: tool.name, args, ok: false, status: 'rejected', action: 'write', error: d.error });
+    return textResult(id, { status: 'refused', reason: d.error, message: d.message }, true);
+  }
+  const result = { status: 'link_ready', url: photoUrl(d.code), job_id: d.job_id, expires_at: d.expires_at,
+    next: 'Send the dealer this link. When they say they tapped "Send to Claude", call add_cards_from_photos with this job_id and a new client_request_id.' };
+  ctx.log({ tool: tool.name, args, ok: true, status: 'previewed', action: 'write', preview: { job_id: d.job_id } });
+  return textResult(id, result, false);
+}
+
 async function handleWrite(id, tool, args, ctx) {
+  if (tool.name === 'photo_upload_link') return startUploadLink(id, tool, args, ctx);
   if (tool.name === 'add_cards_from_photos' && Array.isArray(args.images) && args.images.length) return startPhotoJob(id, tool, args, ctx);
   const token = args.confirm_token == null || args.confirm_token === '' ? null : String(args.confirm_token);
   const reqId = args.client_request_id == null || args.client_request_id === '' ? null : String(args.client_request_id);
@@ -474,7 +537,8 @@ async function handleWrite(id, tool, args, ctx) {
   if (data.stage === 'working') {
     if (data.stale) await ctx.kickPhotoJob(data.job_id);
     ctx.log({ tool: tool.name, args, ok: true, status: 'read', action: 'write', count: data.read });
-    return textResult(id, { status: 'working', job_id: data.job_id, photos: data.photos, read: data.read, next: data.next }, false);
+    return textResult(id, { status: data.waiting_for_upload ? 'waiting_for_photos' : 'working', job_id: data.job_id,
+      photos: data.photos, read: data.read, next: data.next }, false);
   }
 
   if (data.stage === 'preview') {
@@ -499,8 +563,15 @@ async function handleWrite(id, tool, args, ctx) {
     delete applied.gtcr_recheck_ids;
   }
   if (!data.replayed && tool.name === 'respond_to_offer' && applied.offer_id) await ctx.notifyOffer(applied.offer_id);
+  if (applied.photo_link_code) {
+    applied.photo_link = { url: photoUrl(applied.photo_link_code), expires_at: applied.photo_link_expires_at,
+      note: 'Give the dealer this link to add each card\'s photo from their phone (valid 30 minutes).' };
+    delete applied.photo_link_code; delete applied.photo_link_expires_at;
+  }
   const result = { status: data.replayed ? 'already_done' : 'done', replayed: !!data.replayed, ...applied };
-  ctx.log({ tool: tool.name, args, ids: targets, ok: true, status: 'applied', action: 'write', result,
+  // The photo link's code works like a password for 30 minutes: not kept in the log.
+  const logged = result.photo_link ? { ...result, photo_link: { expires_at: result.photo_link.expires_at } } : result;
+  ctx.log({ tool: tool.name, args, ids: targets, ok: true, status: 'applied', action: 'write', result: logged,
     request: data.replayed ? null : reqId });
   return textResult(id, result, false);
 }
