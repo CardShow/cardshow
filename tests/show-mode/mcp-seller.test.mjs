@@ -69,7 +69,7 @@ function svcStub(opts = {}) {
   const readTools = tl.result.tools.filter(t => t.annotations.readOnlyHint).map(t => t.name).sort().join(',');
   ok('A08 eight read-only tools (plus the Phase 2 and 3 write tools), no internal fields',
     readTools === 'get_my_card,get_price_suggestion,list_my_inventory,list_my_shows,list_offers,sales_summary,stale_inventory,whoami'
-     && tl.result.tools.length === 16 && tl.result.tools.every(t => !t.rpc && !('scope' in t) && !('write' in t)));
+     && tl.result.tools.length === 18 && tl.result.tools.every(t => !t.rpc && !('scope' in t) && !('write' in t)));
 
   // scope missing (server-side check), bad input, rate limit, log has no token
   const noRead = { rpc: async (n) => n === 'mcp_session' ? { data: { user_id: A, client_id: 'x', scopes: [] } } : { data: {} } };

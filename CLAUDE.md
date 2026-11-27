@@ -132,6 +132,8 @@ netlify/functions/oauth-protected-resource.js / oauth-authorization-server.js �
 netlify/lib/oauth-guard.js        → refuseOAuthClient(): every other function that takes a dealer's sign-in refuses assistant (OAuth) tokens
 oauth-consent.html                → /oauth/consent: consent page Supabase's OAuth server sends dealers to; stores what they approved (assistant_grant_consent)
 js/connected-assistants.js        → Profile → Connected assistants (Disconnect) + Assistant activity; switch ASSISTANTS_UI_LAUNCHED (off; test with ?assistants=1) — loaded after js/pricing-admin.js
+supabase/migrations/20261216120000_mcp_seller_phase3b.sql → Seller MCP Phase 3b: mcp_add_cards (details an assistant read from a chat photo), mcp_photo_links + mcp_photo_upload_link, photo batches 'collecting'
+netlify/functions/photo-link.js / photo-link.html → getcardshow.com/photo/<code>: 30-minute link (code is the key) to attach photos to cards added by add_cards, or upload photos for the scan
 supabase/migrations/20261215120000_mcp_seller_phase3.sql → Seller MCP Phase 3: mcp_photo_jobs, mcp_photo_job_start / mcp_add_cards_from_photos, mcp_set_prices (≤200 cards, all or nothing), mcp_my_offers / mcp_respond_offer
 netlify/functions/mcp-photo-job-background.js → Reads an add_cards_from_photos batch with scan-card (service key; only answers mcp-seller.js's x-cardshow-photo-job header); https-only, public-host photo fetch
 supabase/migrations/20261214120000_mcp_seller_phase2.sql → Seller MCP Phase 2: mcp_confirmations (hashed preview tokens), mcp_write_results (idempotent retries), mcp_update_card / mcp_set_price / mcp_publish_to_show / mcp_unpublish_from_show / mcp_record_sale, 'agent' source on sales + ledger
@@ -460,6 +462,7 @@ Then `supabase/migrations/20261214120000_mcp_seller_phase2.sql` (seller MCP writ
 after the cost tracking and offers migrations. Until it runs, the write tools answer "CardShow is unavailable right now".
 Then `supabase/migrations/20261215120000_mcp_seller_phase3.sql` (bulk repricing, cards from photos, offers; see "Phase 3" under
 "Seller MCP server"). Its check query returns 5. Until it runs, those four tools answer "CardShow is unavailable right now".
+Then `supabase/migrations/20261216120000_mcp_seller_phase3b.sql` (Phase 3b: add_cards and photo links). Check query returns 3.
 
 Required for The Card Shop Finder events sync (see "Card Shop Finder events"), after the bundle offers migration (and the
 Show Directory, geocoding, shows/show_inventory security and show pages migrations it builds on):
@@ -7424,6 +7427,55 @@ login (the reconcile needs the dealer's app session); no "from an assistant" bad
   - A DNS answer could change between the reader's check and its fetch (DNS rebinding); accepted for now.
   - No `scan-card` CardSight cross-check, unlike Show Mode.
   - The MCP Inspector / Claude walkthrough waits on the migration.
+
+### Phase 3b — cards from a photo shared in the chat (session 2026-11-26)
+Why: Claude sees a photo dropped into the chat but can't hand the file to a tool. Tool arguments are text Claude writes, and a
+phone photo is millions of base64 characters. So `add_cards_from_photos` only worked with https links.
+
+**Migration `20261216120000_mcp_seller_phase3b.sql`** (after Phase 3; re-runnable):
+- **`add_cards`** (`mcp_add_cards`, inventory:write, `client_request_id` required): up to 20 cards with the details the
+  assistant read itself.
+  - Fields: player, year, set, card_number, parallel, grader / grade / cert_number, condition, serial_number,
+    print_run_size, features (app vocabulary), price_cents.
+  - `unsure_fields` lists what it guessed; those cards are flagged in the preview.
+  - A missing player is flagged; "Raw" counts as no grader.
+  - A cert already in unsold inventory is skipped unless `include`.
+  - Show: today's joined show, `show_id`, or "none".
+  - Confirm inserts Available cards, stock codes, publishes, runs GTCR checks per slab, and returns a photo link (kind `attach`).
+  - The server turns the link code into `photo_link.url` and keeps the code out of `agent_actions`.
+    `mcp_write_results` keeps it so a retry returns the same link.
+- **`photo_upload_link`** (`mcp_photo_upload_link`): a photo batch with status `collecting` plus a link (kind `scan`).
+  - `add_cards_from_photos` (replaced here with a `collecting` branch) answers `waiting_for_photos` until the dealer taps
+    "Send to Claude".
+  - Then it's the normal Phase 3 reader and preview.
+- **`mcp_photo_links`** (service only): `code_hash`, owner, kind, inventory_ids / job_id, uploads, `expires_at` (30 min).
+  - Codes are 10 characters from an unambiguous alphabet, made by `_mcp_photo_link_create()`.
+  - Max 50 upload links per dealer a day.
+
+**Link page:** `photo-link.html` at `/photo/<code>` (`_redirects`), no sign-in.
+- Attach: each new card with Add photo / Replace.
+- Scan: pick photos (≤20), then **Send to Claude**.
+- Photos are resized on the phone to 1600px JPEG (location data dropped).
+
+**`photo-link.js`** (service key), POST `{action: info|upload|done, code}`:
+- 30 lookups a minute per IP (`rate_limit_hit`); expired → 410; 40 uploads per link.
+- Only the link's cards; JPEG/PNG/WebP ≤3.5 MB.
+- Attach: stores `card-captures/<owner>/<capture>/original.jpg`, adds an attached `card_captures` row, and sets
+  `primary_capture_id` / `image_source 'seller'`.
+- Scan: appends to the batch.
+- `done` starts the reader.
+
+**Server instructions** tell assistants: for a chat photo, read the card themselves, call `add_cards` with `unsure_fields`, then
+give the dealer the photo link. Use `photo_upload_link` when the dealer wants CardShow's scan instead.
+
+**Tests:**
+- `mcp-seller-phase3b.test.sh` (12 SQL checks, on top of the Phase 3 data).
+- `mcp-seller-phase3b.test.mjs` (17: server flow against that DB, `photo-link.js` with a fake Supabase).
+- `photo-link.e2e.mjs` (iPhone 13 + Pixel 7).
+- The Phase 3 SQL suite now also loads 3b and still passes 33/33.
+
+**Not done:** the link page doesn't re-read an attached photo (the assistant's reading stays), and photos attached there only
+reach the buyer site after the usual listing-photo sync.
 
 **Open / verify on a preview:**
 - That Supabase's OAuth tokens carry `client_id` (the auth-js types say so) and that `getAuthorizationDetails` /

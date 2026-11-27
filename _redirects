@@ -8,6 +8,8 @@
 /.well-known/oauth-authorization-server/*       /.netlify/functions/oauth-authorization-server   200
 # Consent page Supabase's OAuth server sends dealers to (Authentication → OAuth Server → Authorization path).
 /oauth/consent                                  /oauth-consent.html                              200
+# Short-lived photo link an assistant gives a dealer (seller MCP Phase 3b); the code is the key.
+/photo/*                                        /photo-link.html                                 200
 
 # Marketplace buyer site (Astro, its own Netlify site built from buyer/, named cardshow-buyer).
 # getcardshow.com serves it at these paths (/s/* = show pages) so printed QR codes and the dealer app keep their URLs.

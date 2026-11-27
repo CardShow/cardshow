@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Add photos · CardShow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet">
+<link rel="apple-touch-icon" href="/assets/app-icon-192.png">
+<!--
+  getcardshow.com/photo/<code>: the short-lived photo link an assistant gives a dealer (seller MCP server, Phase 3b).
+  "attach": add a photo to each card the assistant just added. "scan": upload photos for the assistant to read.
+  No sign-in: the code is the key (30 minutes). Talks only to /.netlify/functions/photo-link.
+-->
+<style>
+  :root {
+    --black: #0a0a0a; --surface: #111318; --card: #181c24; --border: #252a35;
+    --accent: #f5c842; --text: #e8eaf0; --muted: #9aa1b0; --danger: #ef4444; --ok: #22c55e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--black); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh;
+         display: flex; justify-content: center; padding: 32px 16px; }
+  main { width: 100%; max-width: 460px; }
+  .brand { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: .04em; color: var(--accent); margin-bottom: 18px; }
+  .box { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+  h1 { font-family: 'Bebas Neue', sans-serif; font-size: 1.7rem; letter-spacing: .03em; font-weight: 400; margin-bottom: 8px; line-height: 1.1; }
+  p { color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
+  .cards { list-style: none; display: grid; gap: 10px; margin: 14px 0; }
+  .card { display: flex; gap: 12px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+  .thumb { width: 52px; height: 72px; border-radius: 6px; background: var(--border); flex: none; object-fit: cover; }
+  .card .info { flex: 1; min-width: 0; }
+  .card b { display: block; font-weight: 700; overflow-wrap: anywhere; }
+  .card .code { font-family: 'DM Mono', monospace; font-size: .75rem; color: var(--muted); }
+  .state { font-size: .85rem; color: var(--muted); }
+  .state.done { color: var(--ok); }
+  .state.err { color: var(--danger); }
+  button, .pick { font: inherit; font-weight: 700; border-radius: 10px; padding: 12px 14px; cursor: pointer; border: 1px solid var(--border);
+         min-height: 48px; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
+  .pick { background: transparent; color: var(--text); flex: none; }
+  .pick.big, .primary { width: 100%; }
+  .primary { background: var(--accent); color: #111; border-color: var(--accent); margin-top: 8px; }
+  button:disabled, .pick.busy { opacity: .55; cursor: wait; }
+  button:focus-visible, .pick:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 14px 0; }
+  .grid img { width: 100%; aspect-ratio: 5/7; object-fit: cover; border-radius: 6px; background: var(--border); }
+  .note { font-size: .85rem; }
+  .msg { min-height: 1.3em; margin-top: 10px; }
+  .msg.err { color: var(--danger); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">CardShow</div>
+  <div class="box" aria-live="polite">
+    <section id="stLoading"><p>Loading…</p></section>
+    <section id="stGone" hidden>
+      <h1 id="goneTitle">This link has expired</h1>
+      <p id="goneText">Photo links work for 30 minutes. Ask your assistant for a new one, or add photos in the CardShow app (Edit Card → Photo).</p>
+    </section>
+
+    <section id="stAttach" hidden>
+      <h1>Add photos to your new cards</h1>
+      <p>Tap a card and take or pick its photo. For a graded card, photograph the slab so buyers can see the cert number.</p>
+      <ul class="cards" id="cardList"></ul>
+      <p class="note">These cards are already in your inventory. You can also add photos later in the CardShow app.</p>
+    </section>
+
+    <section id="stScan" hidden>
+      <h1>Send card photos</h1>
+      <p>One card per photo, up to 20. When you're done, tap <b>Send to Claude</b> and go back to your assistant: it reads the cards and asks you to check them before anything is added.</p>
+      <label class="pick big" id="scanPick"><input type="file" id="scanInput" accept="image/*" multiple>Take or choose photos</label>
+      <div class="grid" id="scanGrid"></div>
+      <button class="primary" id="sendBtn" type="button" disabled>Send to Claude</button>
+    </section>
+
+    <section id="stSent" hidden>
+      <h1>Sent</h1>
+      <p>Go back to your assistant. It is reading the photos now and will show you each card before adding it.</p>
+    </section>
+    <div class="msg" id="msg" role="status"></div>
+  </div>
+</main>
+<script>
+(function () {
+  const code = (location.pathname.split('/').filter(Boolean).pop() || new URLSearchParams(location.search).get('code') || '').toUpperCase();
+  const $ = id => document.getElementById(id);
+  const show = id => { for (const s of ['stLoading', 'stGone', 'stAttach', 'stScan', 'stSent']) $(s).hidden = s !== id; };
+  const msg = (t, err) => { $('msg').textContent = t || ''; $('msg').className = 'msg' + (err ? ' err' : ''); };
+  const ERR = { expired: 'This link has expired. Ask your assistant for a new one.', not_an_image: 'That file isn\'t a photo.',
+    too_big: 'That photo is too large.', too_many_uploads: 'This link has reached its upload limit.', batch_full: 'That\'s 20 photos, the most per batch.',
+    already_sent: 'These photos were already sent.', slow_down: 'Too many tries. Wait a minute.', no_photos: 'Add at least one photo first.' };
+
+  async function api(body) {
+    const r = await fetch('/.netlify/functions/photo-link', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, ...body }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || 'error'), { code: j.error, status: r.status });
+    return j;
+  }
+  // Phone photos are large: resize to 1600px JPEG before sending (also drops location data).
+  function shrink(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file); const img = new Image();
+      img.onload = () => {
+        const s = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        const data = c.toDataURL('image/jpeg', 0.85);
+        resolve({ data, b64: data.split(',')[1] });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('not_an_image')); };
+      img.src = url;
+    });
+  }
+  const errText = e => ERR[e.code] || ERR[e.message] || 'That didn\'t work. Check your connection and try again.';
+
+  function renderCards(cards) {
+    const ul = $('cardList'); ul.innerHTML = '';
+    for (const c of cards) {
+      const li = document.createElement('li'); li.className = 'card';
+      const th = document.createElement('div'); th.className = 'thumb';
+      const info = document.createElement('div'); info.className = 'info';
+      const b = document.createElement('b'); b.textContent = c.title;
+      const code = document.createElement('div'); code.className = 'code'; code.textContent = c.stock_code || '';
+      const st = document.createElement('div'); st.className = 'state' + (c.has_photo ? ' done' : '');
+      st.textContent = c.has_photo ? 'Photo added' : 'No photo yet';
+      info.append(b, code, st);
+      const pick = document.createElement('label'); pick.className = 'pick';
+      const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
+      input.setAttribute('aria-label', 'Photo for ' + c.title);
+      pick.append(input, document.createTextNode(c.has_photo ? 'Replace' : 'Add photo'));
+      input.addEventListener('change', async () => {
+        const f = input.files[0]; if (!f) return;
+        pick.classList.add('busy'); st.className = 'state'; st.textContent = 'Uploading…'; msg('');
+        try {
+          const p = await shrink(f);
+          await api({ action: 'upload', card_id: c.id, image_base64: p.b64 });
+          const im = document.createElement('img'); im.className = 'thumb'; im.alt = ''; im.src = p.data; th.replaceWith(im);
+          st.className = 'state done'; st.textContent = 'Photo added'; pick.lastChild.textContent = 'Replace';
+        } catch (e) { st.className = 'state err'; st.textContent = errText(e); if (e.code === 'expired') show('stGone'); }
+        pick.classList.remove('busy'); input.value = '';
+      });
+      li.append(th, info, pick); ul.append(li);
+    }
+  }
+
+  let scanCount = 0;
+  $('scanInput').addEventListener('change', async () => {
+    const files = [...$('scanInput').files]; $('scanInput').value = '';
+    for (const f of files) {
+      $('scanPick').classList.add('busy'); msg(`Uploading ${scanCount + 1}…`);
+      try {
+        const p = await shrink(f);
+        const r = await api({ action: 'upload', image_base64: p.b64 });
+        scanCount = r.photos;
+        const im = document.createElement('img'); im.alt = `Photo ${scanCount}`; im.src = p.data; $('scanGrid').append(im);
+        msg(`${scanCount} photo${scanCount === 1 ? '' : 's'} ready`);
+      } catch (e) { msg(errText(e), true); if (e.code === 'expired') show('stGone'); break; }
+    }
+    $('scanPick').classList.remove('busy');
+    $('sendBtn').disabled = scanCount === 0;
+  });
+  $('sendBtn').addEventListener('click', async () => {
+    $('sendBtn').disabled = true;
+    try { await api({ action: 'done' }); msg(''); show('stSent'); }
+    catch (e) { msg(errText(e), true); $('sendBtn').disabled = false; }
+  });
+
+  (async () => {
+    if (!/^[A-Z0-9]{10}$/.test(code)) { $('goneTitle').textContent = 'Link not found'; show('stGone'); return; }
+    try {
+      const info = await api({ action: 'info' });
+      if (info.expired) { show('stGone'); return; }
+      if (info.kind === 'attach') { renderCards(info.cards || []); show('stAttach'); }
+      else if (info.finished) show('stSent');
+      else { scanCount = info.photos || 0; $('sendBtn').disabled = scanCount === 0; if (scanCount) msg(`${scanCount} photo${scanCount === 1 ? '' : 's'} ready`); show('stScan'); }
+    } catch (e) {
+      $('goneTitle').textContent = e.status === 404 ? 'Link not found' : 'Something went wrong';
+      $('goneText').textContent = e.status === 404 ? 'Check the link, or ask your assistant for a new one.' : errText(e);
+      show('stGone');
+    }
+  })();
+})();
+</script>
+</body>
+</html>
