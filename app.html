@@ -5624,6 +5624,60 @@
   .ss2-empty b { color: var(--text); font-size: 1rem; }
   #ss2SelAll { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
   .ss2-card-title { font: 600 0.72rem 'DM Mono', monospace; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-text); padding: 0.4rem 0.8rem 0.2rem; }
+  body.seller-v2 .ss2-hidden-holder { display: none !important; }
+  .ss2-home { display: flex; flex-direction: column; }
+  .ss2-home > * { margin-bottom: 1rem; }
+  .ss2-home.ss2-home-new #ss2Flow { order: -2; }
+  .ss2-home.ss2-home-new #ss2NextShow { order: -1; }
+  .ss2-next { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .ss2-next-date { width: 64px; height: 68px; border-radius: 10px; background: var(--card); border: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0 0 64px; }
+  .ss2-next-date span { font: 600 0.7rem 'DM Mono', monospace; text-transform: uppercase; color: var(--accent); letter-spacing: 0.08em; }
+  .ss2-next-date b { font: 1.9rem/1 'Bebas Neue', sans-serif; color: var(--text); }
+  .ss2-next-main { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+  .ss2-next-when { font: 600 0.72rem 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); }
+  .ss2-next-name { font-size: 1.1rem; color: var(--text); overflow-wrap: anywhere; }
+  .ss2-next-where, .ss2-next-progress { font-size: 0.85rem; color: var(--muted-text); }
+  .ss2-next-progress b { color: var(--text); }
+  .ss2-next-cta { flex: 0 0 auto; }
+  .ss2-next-empty { flex: 1 1 220px; display: flex; flex-direction: column; gap: 0.25rem; }
+  .ss2-next-empty b { color: var(--text); font-size: 1.05rem; }
+  .ss2-next-empty span { color: var(--muted-text); font-size: 0.88rem; }
+  .ss2-bar { display: block; height: 6px; border-radius: 3px; background: var(--card); overflow: hidden; margin-top: 0.35rem; }
+  .ss2-bar > span { display: block; height: 100%; background: var(--accent); }
+  .ss2-row-urgent > span:first-child { color: var(--accent); }
+  .ss2-row-done { opacity: 0.6; }
+  .ss2-caught-up { padding: 0.8rem; color: var(--muted-text); font-size: 0.9rem; }
+  .ss2-flow-head { display: flex; align-items: center; gap: 0.5rem; }
+  .ss2-flow-toggle { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 44px;
+    border: 0; background: none; color: var(--text); font: 600 1rem 'DM Sans', sans-serif; cursor: pointer; text-align: left; padding: 0; }
+  .ss2-flow-hide { min-height: 44px; min-width: 44px; border: 0; background: none; color: var(--muted-text); cursor: pointer; font-size: 0.85rem; }
+  .ss2-flow-list { list-style: none; margin: 0.6rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+  .ss2-flow.collapsed .ss2-flow-list { display: none; }
+  .ss2-flow-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0; }
+  .ss2-flow-check { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; border: 1px solid var(--border); display: inline-flex;
+    align-items: center; justify-content: center; font: 600 0.8rem 'DM Mono', monospace; color: var(--muted-text); }
+  .ss2-flow-item.done .ss2-flow-check { background: var(--accent); border-color: var(--accent); color: var(--black, #07080c); }
+  .ss2-flow-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .ss2-flow-text b { color: var(--text); font-size: 0.92rem; }
+  .ss2-flow-item.done .ss2-flow-text b { color: var(--muted-text); text-decoration: line-through; }
+  .ss2-flow-text small { color: var(--muted-text); font-size: 0.8rem; }
+  .ss2-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; }
+  .ss2-kpi { display: flex; flex-direction: column; gap: 0.2rem; padding: 0.9rem 1rem; min-height: 44px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text); text-decoration: none; }
+  .ss2-kpi:hover { border-color: var(--accent); }
+  .ss2-kpi-lbl { font: 600 0.7rem 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-text); }
+  .ss2-kpi-val { font: 1.8rem/1.1 'Bebas Neue', sans-serif; letter-spacing: 0.02em; color: var(--text); }
+  .ss2-kpi-val #statTotal { font: inherit; color: inherit; }
+  .ss2-kpi-sub { font-size: 0.8rem; color: var(--muted-text); }
+  .ss2-kpi-sub #statValue { font: inherit; color: inherit; display: inline; }
+  .ss2-pos { color: var(--accent); }
+  .ss2-neg { color: var(--danger, #ef4444); }
+  body:not(.ss2-mk) .ss2-mk-only-block { display: none !important; }
+  @media (max-width: 767px) {
+    .ss2-kpis { grid-template-columns: 1fr 1fr; }
+    .ss2-next-cta, .ss2-next-cta .ss2-cta, .ss2-next .ss2-cta { width: 100%; }
+  }
   .ss2-baseline { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
   .ss2-baseline-text { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
   body.seller-v2 #ss2BaselineHolder .sh-baseline { margin: 0; padding: 0; border: 0; background: none; }
@@ -8466,7 +8520,7 @@
 <script src="/js/offer-rules.js?v=20261211a"></script>
 <script src="/js/marketplace-orders.js?v=20261212c"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
-<script src="/js/seller-shell.js?v=20261127a"></script>
+<script src="/js/seller-shell.js?v=20261127b"></script>
 <script>
 // ── STATE ──
 let inventory = [];

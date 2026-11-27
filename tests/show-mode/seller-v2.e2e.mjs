@@ -77,7 +77,22 @@ check(phone ? 'phone: bottom tab bar, no left nav' : 'desktop: left nav, no tab 
   phone ? (await vis('#sellerTabBarV2')) && !(await vis('#sellerNav')) : (await vis('#sellerNav')) && !(await vis('#sellerTabBarV2')));
 check('marketplace hidden while the switch is off', !(await vis('#ss2TabMarket')) && !(await vis('#ss2NavMarket')) && !(await page.evaluate(() => /market/i.test(document.getElementById(innerWidth < 768 ? 'sellerTabBarV2' : 'sellerNav').innerText))));
 if (phone) check('phone: More tab shown', await vis('#ss2TabMore'));
-check('stat chips moved onto Home and still updated', await page.evaluate(() => document.getElementById('ss2HomeStats').contains(document.getElementById('statTotal')) && document.getElementById('statTotal').textContent !== ''));
+check('Available KPI uses the classic stat values (same IDs, still updated)', await page.evaluate(() =>
+  document.getElementById('ss2KpiAvail').contains(document.getElementById('statTotal')) && document.getElementById('statTotal').textContent === '4'
+  && document.getElementById('ss2KpiAvail').contains(document.getElementById('statValue')) && /\$185/.test(document.getElementById('ss2KpiAvailSub').textContent)));
+check('Home greeting: date, things that need you, show day', /need/.test(await page.textContent('#ss2HomeLede')) && /show day today/.test(await page.textContent('#ss2HomeLede')), await page.textContent('#ss2HomeLede'));
+const nextTxt = await page.textContent('#ss2NextShow');
+check('next show card: name, table, cards at the show', /Monster Show/.test(nextTxt) && /Table 12/.test(nextTxt) && /Cards at this show\s*2\s*\/\s*4 available/.test(nextTxt), nextTxt.replace(/\s+/g, ' '));
+check('show day: primary button opens Show Mode', await vis('#ss2NextShow button:has-text("Open Show Mode")'));
+check('KPIs: sales this month from this month\'s sales', (await page.textContent('#ss2KpiSalesVal')).trim() === '$280' && /1 sale/.test(await page.textContent('#ss2KpiSalesSub')));
+check('KPIs: Listed online hidden with the switch off', !(await vis('#ss2KpiListed')));
+check('experienced seller (cards + a sale): selling flow starts hidden, like the old list', !(await vis('#ss2Flow')));
+await page.evaluate(() => { _gsSave({ dismissed: false }); ss2RenderFlow(); });
+check('selling flow: 3 steps without the marketplace step', await page.evaluate(() => {
+  const b = document.getElementById('ss2Flow');
+  return b.style.display !== 'none' && b.querySelectorAll('.ss2-flow-item').length === 3 + (mkEnabled() ? 1 : 0) && !/marketplace/i.test(b.textContent);
+}));
+check('old Getting started list hidden in v2', !(await vis('#gsChecklist')));
 check('Home: no sideways scroll', await noSideScroll());
 
 const routes = [
@@ -252,10 +267,33 @@ check('inventory: no sideways scroll with the bulk bar', await noSideScroll());
 if (phone) { await page.click('#ss2SelectBtn'); await wait(150); check('phone: Done ends select mode and brings the tab bar back', await vis('#sellerTabBarV2')); }
 await go('home');
 check('leaving Inventory clears the selection', await page.evaluate(() => !document.querySelector('#inventoryBody .card-check:checked') && !document.body.classList.contains('ss2-has-sel')));
-check('Home: Needs you lists the card with no price', (await page.textContent('#ss2HomeNeeds')).includes('no asking price'));
-await page.click('#ss2HomeNeeds .ss2-row:has-text("no asking price")'); await wait(400);
+check('Home: Needs you lists the card with no price', /1 card can't go on sale/.test(await page.textContent('#ss2HomeNeeds')) && /No asking price/.test(await page.textContent('#ss2HomeNeeds')));
+await page.click('#ss2HomeNeeds .ss2-row:has-text("can\'t go on sale")'); await wait(400);
 check('Needs you → Inventory filtered to that reason', (await hash()) === '#/s/inventory' && (await rowsShown()) === 1 && await vis('#ss2Reason'));
 check('Getting started checklist moved to Home', await page.evaluate(() => document.getElementById('ss2HomeChecklist').contains(document.getElementById('gsChecklist'))));
+// Selling flow: collapse and hide use the same saved flags as the old list.
+await go('home');
+check('every step done: selling flow hidden', !(await vis('#ss2Flow')));
+await page.evaluate(() => { _gsSave({ dismissed: false, report: false }); ss2RenderFlow(); });
+await page.click('#ss2Flow .ss2-flow-toggle'); await wait(150);
+check('selling flow collapses', await page.evaluate(() => document.getElementById('ss2Flow').classList.contains('collapsed') && JSON.parse(localStorage.getItem('gsChecklist:tester')).collapsed === true));
+await page.click('#ss2Flow .ss2-flow-toggle'); await wait(150);
+await page.click('#ss2Flow .ss2-flow-hide'); await wait(150);
+check('selling flow hides (saved flag)', !(await vis('#ss2Flow')) && await page.evaluate(() => JSON.parse(localStorage.getItem('gsChecklist:tester')).dismissed === true));
+await page.evaluate(() => gsShowAgain()); await wait(300);
+check('Help → Getting started list brings it back on Home', (await hash()) === '#/s/home' && await vis('#ss2Flow'));
+// Net profit this month from Show Home's P/L list.
+await page.evaluate(() => { window.__srv.__showList = [
+  { show_id: 'show_a', name: 'Monster Show', start_date: new Date().toLocaleDateString('en-CA'), kind: 'cardshow', cards_out: 3, net_pl: 95, missing_cost: 1 },
+  { show_id: 'old', name: 'Old Show', start_date: '2020-01-04', kind: 'cardshow', cards_out: 5, net_pl: 400, missing_cost: 0 }];
+  _ss2PlAt = 0; ss2Refresh(); });
+await wait(400);
+check('KPIs: net profit this month from this month\'s shows only', (await page.textContent('#ss2KpiProfitVal')).trim() === '+$95' && /1 without one/.test(await page.textContent('#ss2KpiProfitSub')), await page.textContent('#ss2KpiProfitVal'));
+await page.click('#ss2KpiSales'); await wait(350);
+check('Sales KPI opens Sales & reports', (await hash()) === '#/s/sales');
+// Shows page Get ready: profile + QR
+await go('shows');
+check('Shows: Get ready lists profile and table QR', /Fill in your profile/.test(await page.textContent('#ss2GetReady')) && /table QR/.test(await page.textContent('#ss2GetReady')));
 await go('sales');
 check('Sales: Inventory baseline card with Set baseline', await vis('#ss2BaselineCard') && await vis('#ss2BaselineCard button:has-text("Set baseline")'));
 await go('inventory');
@@ -290,6 +328,33 @@ const badge = await page.evaluate(() => {
 check('no badge when nothing needs the dealer', badge);
 await page.evaluate(() => localStorage.removeItem('marketplaceTest'));
 
+// Marketplace on: Listed online KPI + flow's 4th step
+await page.evaluate(() => localStorage.setItem('marketplaceTest', '1'));
+await page.reload(); await wait(2500);
+if (!(await page.evaluate(() => document.body.classList.contains('seller-v2')))) await login();
+await go('home');
+check('switch on: Listed online KPI', await vis('#ss2KpiListed') && /of available/.test(await page.textContent('#ss2KpiListedSub')));
+check('switch on: selling flow has the marketplace step', await page.evaluate(() => /marketplace/i.test(document.getElementById('ss2Flow').textContent)));
+await page.evaluate(() => localStorage.removeItem('marketplaceTest'));
+
+// Brand-new seller: no cards → "Add your first cards", selling flow first
+await page.evaluate(() => signOut()); await wait(600);
+await page.evaluate(() => { const S = window.__srv; S.__saved = S.inventory; S.inventory = []; localStorage.setItem('__srv', JSON.stringify(S)); localStorage.removeItem('gsChecklist:tester'); });
+await page.goto(BASE + '/app.html'); await wait(500);
+if (!(await page.evaluate(() => document.body.classList.contains('seller-v2')))) await login();
+await go('home');
+check('new seller: next-show card says Add your first cards', /Add your first cards/.test(await page.textContent('#ss2NextShow')));
+check('new seller: selling flow is first, then Add your first cards', await page.evaluate(() => {
+  const f = document.getElementById('ss2Flow').getBoundingClientRect(), n = document.getElementById('ss2NextShow').getBoundingClientRect();
+  return document.getElementById('ss2Flow').style.display !== 'none' && f.top < n.top;
+}));
+check('new seller: no Needs you card', !(await vis('#ss2HomeNeeds')));
+check('new seller Home: no sideways scroll', await noSideScroll());
+await page.evaluate(() => signOut()); await wait(600);
+await page.evaluate(() => { const S = window.__srv; S.inventory = S.__saved; localStorage.setItem('__srv', JSON.stringify(S)); });
+await page.goto(BASE + '/app.html'); await wait(500);
+if (!(await page.evaluate(() => document.body.classList.contains('seller-v2')))) await login();
+
 // Sign out puts everything back for the next user
 await page.evaluate(() => signOut()); await wait(600);
 check('sign out: v2 removed, moved panels back in the sidebar', await page.evaluate(() =>
@@ -297,6 +362,8 @@ check('sign out: v2 removed, moved panels back in the sidebar', await page.evalu
   && document.getElementById('mainSidebar').contains(document.getElementById('sellerShowsPanel'))
   && document.getElementById('mainSidebar').contains(document.getElementById('sellerQrPanel'))
   && document.getElementById('mainSidebar').contains(document.getElementById('sellerStatsRow'))
+  && document.getElementById('sellerStatsRow').contains(document.getElementById('statTotal'))
+  && document.getElementById('sellerStatsRow').contains(document.getElementById('statValue'))
   && !!document.querySelector('#adminInventoryPanel > .toolbar #sellerSearchInput')
   && !document.getElementById('ss2SelAll')));
 

@@ -6554,7 +6554,7 @@ across a re-render, sale + sync + Undo, two cards offline, lot → Snap & Sell, 
 - Questions for Tito from the import README (direction of the $20, Captain Pikachu $100, $25 on
   NOV7-09, which Glaceon, Slab 50, the 12 ungrouped trades, missing costs/asks).
 
-## Seller Dashboard v2 (Phases 1–2 built, session 2026-11-25)
+## Seller Dashboard v2 (Phases 1–3 built, sessions 2026-11-25/27)
 
 Build spec: "CardShow — Seller Dashboard Redesign — Build Spec v1" (Stephen, given in chat), amended by
 `docs/seller-dashboard-v2-decisions.md` (that file wins where they disagree). Replaces the seller tab bar, toolbar and
@@ -6626,15 +6626,43 @@ part and `ss2Teardown()` at the start of `signOut()`, `loginAsAdmin()`, `enterAs
 - Card thumbnail left of the title (`_ss2AddThumb()`, 44×62, tap → Edit Card), from Show Mode's `smCardImage()`: the seller's
   photo on this phone, else their photo from another device (signed URL, `_smLoadRemoteThumbs()`), else the catalog image
   (`card-image.js`, letterboxed), else a blank tile. `_ss2LoadThumbs()` loads this phone's photo index once per sign-in and
-  re-renders only when new photos arrive. The table's other columns are unchanged (the spec's separate Code / Asking / Comp
-  columns aren't built).
+  re-renders only when new photos arrive.
+- **Asking column** (2026-11-27): the classic Price column reads "Asking" in v2 (`_ss2AddAsking()`); tap the price to change it in
+  the table (`ss2AskEdit()`: Enter saves via `updateCardInDB()`, Escape cancels; blank = $0). No price → "Add price". Sold rows
+  unchanged. **No Comp column** (Stephen, 2026-11-27): keeping comps fresh for every card would cost too many API calls. The
+  stock code stays a chip in the title (no separate Code column).
 - Hidden in v2: the classic toolbar, the holds/offers/orders strips (their counts are on Home and the Market badge),
   `#bulkDeleteBtn`. Moved: `#gsChecklist` → Home, `#baselineStrip` → a Sales "Inventory baseline" card with Set baseline.
 - Home "Needs you" (interim until Phase 3, `_ss2RenderNeeds()`): orders to confirm, offers, holds ending in 24h, orders to ship
   (switch on), Snap & Sell needing details (→ Show Mode `/needs`), cards that can't go on sale by reason (→ Inventory).
 - Phone: checkboxes only in Select mode; the bulk bar is fixed at the bottom in place of the tab bar; Done ends it.
 
-**Not built yet:** 3 (Home), 4 (Shows page), 5 (Marketplace page), 6 (Sales merge), 7 (phone polish, Sell / Add sheet restyle),
+**Phase 3 (Home, built 2026-11-27):** `ss2RenderHome()` from `ss2Refresh()`.
+- Greeting: date · "N things need you" (sum of the Needs-you counts) · "show day today" / "next show in N days".
+- Next show card (`ss2NextShow()`: nearest joined show not over, any distance): date block, Today/Tomorrow/In N days, table
+  number (`show.tables[handle]`), venue, "Cards at this show N / M available" + bar; button **Choose cards for this show**
+  (`#/s/shows`), or **Open Show Mode** (`openShowMode(id)`) on a show day. No joined show → "Find a show to sell at"
+  (`openJoinShow()`). 0 cards → "Add your first cards".
+- Needs you (`_ss2RenderNeeds()`, most urgent first): orders to confirm (minutes left from `confirm_by`), offers, holds ending in
+  24h, orders to ship (marketplace switch on), Snap & Sell needing details, then **one** row for cards that can't go on sale (top
+  reason; a stolen/lost report always wins) → Inventory Needs attention. Counts from the strips' lists (`ss2MarketCounts()`), no
+  new poller. Nothing due → "You're all caught up"; hidden for a seller with no cards. **Deviation:** marketplace rows open the
+  existing Orders / Offers / Holds panels, not `#/s/market/buyers?tab=…`, until the Phase 5 Marketplace page exists.
+- Your selling flow (`ss2RenderFlow()`, wraps `gsRender`): Add your cards (gs card) · Join a show (gs show) · List cards on the
+  marketplace (any listed card; switch on only) · Record a sale & read your report (gs sale + report). Same saved state as the old
+  list (`gsChecklist:<handle>`, synced): Hide = `gsDismiss()`, collapse = `gsToggleCollapse()`, experienced sellers start hidden,
+  all done → hidden. Help → Getting started list (`gsShowAgain`, wrapped) reopens it on Home. The old `#gsChecklist` sits hidden.
+- Shows page **Get ready** (`ss2RenderGetReady()`): Fill in your profile, Get your table QR code (gs profile / qr); hidden when both done.
+- KPI row: Available (the classic `#statTotal` / `#statValue` moved in, so `updateStats()` still writes them; moved back on sign-out),
+  Listed online (count + % of available; switch on only), Sales this month (cash sales with `SoldDate` this month + Snap & Sell
+  remainders, `ss2MonthSales()`) → Sales, Net profit this month (sum of `dealer_show_list()` net P/L for shows starting this month,
+  fetched on Home at most every 2 min; "on cards with a cost", plus "N without one" when cards have no cost) → Show results.
+  The rest of `#sellerStatsRow` (Graded, Sold, Revenue) is hidden in v2.
+- New seller (0 cards): selling flow first, then "Add your first cards"; no Needs you card.
+- Tests: Phase 3 checks in `seller-v2.e2e.mjs` (greeting, next show card, show-day button, KPIs, net profit filter, flow
+  steps/collapse/hide/bring back, Get ready, marketplace-on KPI + step, brand-new seller).
+
+**Not built yet:** 4 (Shows page), 5 (Marketplace page), 6 (Sales merge), 7 (phone polish, Sell / Add sheet restyle),
 8 (help targets, tour copy).
 
 ## CardShow Marketplace (Phase 0 done, Phase 1 back end built, session 2026-11-20)

@@ -166,15 +166,22 @@ function _ss2Build() {
   };
   panel('ss2Home', `
     <div class="ss2-head"><h1 class="ss2-title">Home</h1><p class="ss2-lede" id="ss2HomeLede"></p></div>
-    <div class="ss2-card ss2-rows" id="ss2HomeNeeds" style="display:none"></div>
-    <div id="ss2HomeChecklist"></div>
-    <div class="ss2-card" id="ss2HomeStats"></div>
-    <div class="ss2-card ss2-actions">
-      <button type="button" class="btn btn-primary ss2-cta" onclick="openQuickActions('add')">+ Add cards</button>
-      <a class="btn btn-ghost ss2-cta" href="#/s/shows">Get ready for a show</a>
-      <a class="btn btn-ghost ss2-cta" href="#/s/inventory">See your inventory</a>
-    </div>`);
-  panel('ss2Shows', `<div class="ss2-head"><h1 class="ss2-title">Shows</h1></div><div class="ss2-card" id="ss2ShowsBody"></div>`);
+    <div class="ss2-home" id="ss2HomeBody">
+      <div class="ss2-card ss2-next" id="ss2NextShow"></div>
+      <div class="ss2-card ss2-rows" id="ss2HomeNeeds" style="display:none"></div>
+      <div class="ss2-card ss2-flow" id="ss2Flow" style="display:none"></div>
+      <div class="ss2-kpis" id="ss2Kpis">
+        <a class="ss2-kpi" href="#/s/inventory" id="ss2KpiAvail"><span class="ss2-kpi-lbl">Available</span><span class="ss2-kpi-val" id="ss2KpiAvailVal"></span><span class="ss2-kpi-sub" id="ss2KpiAvailSub"></span></a>
+        <a class="ss2-kpi ss2-mk-only-block" href="#/s/inventory" onclick="ss2InvOpen('listed');return false" id="ss2KpiListed"><span class="ss2-kpi-lbl">Listed online</span><span class="ss2-kpi-val" id="ss2KpiListedVal">0</span><span class="ss2-kpi-sub" id="ss2KpiListedSub"></span></a>
+        <a class="ss2-kpi" href="#/s/sales" id="ss2KpiSales"><span class="ss2-kpi-lbl">Sales this month</span><span class="ss2-kpi-val" id="ss2KpiSalesVal">$0</span><span class="ss2-kpi-sub" id="ss2KpiSalesSub"></span></a>
+        <a class="ss2-kpi" href="#/s/sales/shows" id="ss2KpiProfit"><span class="ss2-kpi-lbl">Net profit this month</span><span class="ss2-kpi-val" id="ss2KpiProfitVal">—</span><span class="ss2-kpi-sub" id="ss2KpiProfitSub">on cards with a cost</span></a>
+      </div>
+    </div>
+    <div id="ss2HomeChecklist" class="ss2-hidden-holder"></div>
+    <div id="ss2HomeStats" class="ss2-hidden-holder"></div>`);
+  panel('ss2Shows', `<div class="ss2-head"><h1 class="ss2-title">Shows</h1></div>
+    <div class="ss2-card ss2-rows" id="ss2GetReady" style="display:none"></div>
+    <div class="ss2-card" id="ss2ShowsBody"></div>`);
   panel('ss2Market', `
     <div class="ss2-head"><h1 class="ss2-title">Marketplace</h1></div>
     <div class="ss2-card ss2-rows">
@@ -243,6 +250,23 @@ function _ss2Build() {
 // original unchanged, then refreshes the shell (only while it's mounted).
 function _ss2Wrap() {
   if (_ss2Wrapped) return;
+  if (typeof gsRender === 'function') {
+    const orig = gsRender;
+    window.gsRender = function () { const r = orig.apply(this, arguments); if (_ss2On) ss2RenderFlow(); return r; };
+  }
+  if (typeof gsShowAgain === 'function') {
+    const orig = gsShowAgain;
+    window.gsShowAgain = function () {
+      if (!_ss2On) return orig.apply(this, arguments);
+      if (typeof closeHelpMenu === 'function') closeHelpMenu();
+      _gsSave({ dismissed: false, collapsed: false });
+      ss2Go('home');
+      ss2RenderFlow();
+      const box = document.getElementById('ss2Flow');
+      if (box && box.style.display !== 'none') box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      else showToast("✓ You've done every step");
+    };
+  }
   _ss2Wrapped = true;
   const after = (name, fn) => {
     const orig = window[name];
@@ -279,6 +303,8 @@ function ss2Init() {
   _ss2MoveInto('sellerShowsPanel', 'ss2ShowsBody');
   _ss2MoveInto('sellerQrPanel', 'ss2QrBody');
   _ss2MoveInto('sellerStatsRow', 'ss2HomeStats');
+  _ss2MoveInto('statTotal', 'ss2KpiAvailVal');
+  _ss2MoveInto('statValue', 'ss2KpiAvailSub');
   _ss2MoveInto('gsChecklist', 'ss2HomeChecklist');
   _ss2MoveInto('baselineStrip', 'ss2BaselineHolder');
   _ss2InvMount();
@@ -299,6 +325,7 @@ function ss2Init() {
 function ss2Teardown() {
   if (!_ss2Built) return;
   _ss2ThumbIndexLoaded = false;
+  _ss2Pl = null; _ss2PlAt = 0;
   _ss2InvUnmount();
   _ss2On = false;
   document.body.classList.remove('seller-v2');
@@ -427,14 +454,10 @@ function ss2Refresh() {
   txt('ss2MkOffers', c.offers ? c.offers + ' waiting on you' : 'Nothing waiting');
   txt('ss2MkHolds', c.holds ? c.holds + ' ending within 24 hours' : (typeof mhActive === 'function' && mhActive().length ? mhActive().length + ' on hold' : 'None'));
 
-  _ss2RenderNeeds(c, mk);
+  const needCount = _ss2RenderNeeds(c, mk);
   if (_ss2Route === 'inventory') ss2InvRefreshChrome();
-
-  const lede = document.getElementById('ss2HomeLede');
-  if (lede) {
-    const day = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-    lede.textContent = day + (soon ? ` · next show ${soon.label === 'Today' ? 'today' : soon.label}` : '');
-  }
+  ss2RenderHome(needCount);
+  ss2RenderGetReady();
 }
 
 // ── Search (top bar) → the existing inventory filter ──
@@ -996,25 +1019,239 @@ function _ss2InvUnmount() {
   const head = document.getElementById('ss2SelAll'); if (head) head.parentNode.innerHTML = '';
 }
 
-// ── Home "Needs you" (interim until Phase 3): marketplace work, then cards that can't go on sale ──
+// ══════ Phase 3: Home ══════
+// Needs you: one list, most urgent first; each row opens the place where it's fixed
+// (the existing panels until the Phase 5 Marketplace page exists). Counts come from
+// the strips' own in-memory lists (no new poller). Returns the number of items.
 function _ss2RenderNeeds(c, mk) {
   const el = document.getElementById('ss2HomeNeeds');
-  if (!el) return;
+  if (!el) return 0;
   const rows = [];
-  const row = (label, meta, js) => rows.push(`<button type="button" class="ss2-row" onclick="${js}"><span>${label}</span><span class="ss2-row-meta">${meta}</span></button>`);
+  let total = 0;
+  const row = (n, label, meta, js, urgent) => {
+    total += n;
+    rows.push(`<button type="button" class="ss2-row${urgent ? ' ss2-row-urgent' : ''}" onclick="${js}"><span>${label}</span><span class="ss2-row-meta">${meta}</span></button>`);
+  };
+  const plural = (n, w) => `${n} ${w}${n > 1 ? 's' : ''}`;
   if (mk) {
-    if (c.toConfirm) row(`${c.toConfirm} order${c.toConfirm > 1 ? 's' : ''} to confirm`, 'Confirm or say it\'s not available', 'openOrdersPanel()');
-    if (c.offers) row(`${c.offers} offer${c.offers > 1 ? 's' : ''} waiting on you`, 'Accept, counter or decline', 'openOffersPanel()');
-    if (c.holds) row(`${c.holds} hold${c.holds > 1 ? 's' : ''} ending in 24 hours`, 'Sold to them or release', 'openHoldsPanel()');
-    if (c.toShip) row(`${c.toShip} order${c.toShip > 1 ? 's' : ''} to ship`, 'Add tracking', 'openOrdersPanel()');
+    if (c.toConfirm) {
+      const soonest = ordToConfirm().map(o => o.confirm_by).filter(Boolean).sort()[0];
+      const left = soonest && typeof _ordMinutesLeft === 'function' ? _ordMinutesLeft(soonest) : null;
+      const leftTxt = left == null ? 'Confirm or say it\'s not available'
+        : left >= 120 ? `Confirm within ${Math.round(left / 60)} hours` : `${left} min left to confirm`;
+      row(c.toConfirm, plural(c.toConfirm, 'order') + ' to confirm', leftTxt, 'openOrdersPanel()', true);
+    }
+    if (c.offers) row(c.offers, plural(c.offers, 'offer') + ' waiting on you', 'Accept, counter or decline', 'openOffersPanel()');
+    if (c.holds) row(c.holds, plural(c.holds, 'hold') + ' ending in 24 hours', 'Sold to them or release', 'openHoldsPanel()');
+    if (c.toShip) row(c.toShip, plural(c.toShip, 'order') + ' to ship', 'Add tracking', 'openOrdersPanel()');
   }
   const snap = typeof ssNeedsDetails === 'function' ? ssNeedsDetails().length : 0;
-  if (snap) row(`${snap} Snap &amp; Sell sale${snap > 1 ? 's' : ''} need card details`, 'Add what you sold', 'ss2OpenSnapNeeds()');
+  if (snap) row(snap, plural(snap, 'Snap &amp; Sell sale') + ' need card details', 'Add what you sold', 'ss2OpenSnapNeeds()');
   const counts = {};
-  getSellerInventory().forEach(card => { if (card.Status === 'Sold') return; const r = ss2AttentionReason(card); if (r) counts[r] = (counts[r] || 0) + 1; });
-  Object.keys(SS2_REASONS).forEach(r => { if (counts[r]) row(`${counts[r]} card${counts[r] > 1 ? 's' : ''}: ${SS2_REASONS[r].toLowerCase()}`, 'Fix in Inventory', `ss2InvOpen('attention','${r}')`); });
-  el.innerHTML = rows.length ? '<div class="ss2-card-title">Needs you</div>' + rows.join('') : '';
-  el.style.display = rows.length ? '' : 'none';
+  let blocked = 0;
+  getSellerInventory().forEach(card => {
+    if (card.Status === 'Sold') return;
+    const r = ss2AttentionReason(card);
+    if (r) { counts[r] = (counts[r] || 0) + 1; blocked++; }
+  });
+  if (blocked) {
+    // Most serious reason first (stolen/lost report), else the most common one.
+    const top = counts.trust_flag ? 'trust_flag' : Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+    const label = blocked === 1 ? '1 card can\'t go on sale' : `${blocked} cards can't go on sale`;
+    const meta = blocked === counts[top] ? SS2_REASONS[top] : `${SS2_REASONS[top]} (${counts[top]}) and more`;
+    row(blocked, label, meta, `ss2InvOpen('attention'${blocked === counts[top] ? `,'${top}'` : ''})`, top === 'trust_flag');
+  }
+  const hasCards = getSellerInventory().length > 0;
+  if (rows.length) {
+    el.innerHTML = '<div class="ss2-card-title">Needs you</div>' + rows.join('');
+    el.style.display = '';
+  } else if (hasCards) {
+    el.innerHTML = '<div class="ss2-caught-up">You\'re all caught up</div>';
+    el.style.display = '';
+  } else {
+    el.innerHTML = '';
+    el.style.display = 'none';
+  }
+  return total;
+}
+
+// Nearest joined show that isn't over (any distance away).
+function ss2NextShow() {
+  const today = typeof _todayISO === 'function' ? _todayISO() : new Date().toLocaleDateString('en-CA');
+  let best = null;
+  for (const s of _ss2MyShows()) {
+    const r = _ss2ShowRange(s);
+    if (!r || r.end < today) continue;
+    if (!best || r.start < best.r.start) best = { s, r };
+  }
+  if (!best) return null;
+  const days = Math.round((new Date(best.r.start + 'T12:00:00') - new Date(today + 'T12:00:00')) / 86400000);
+  return { show: best.s, start: best.r.start, end: best.r.end, days: Math.max(0, days), today: best.r.start <= today };
+}
+
+function ss2RenderHome(needCount) {
+  const body = document.getElementById('ss2HomeBody');
+  if (!body) return;
+  const inv = getSellerInventory();
+  const isNew = inv.length === 0;
+  body.classList.toggle('ss2-home-new', isNew);
+  const next = ss2NextShow();
+
+  const lede = document.getElementById('ss2HomeLede');
+  if (lede) {
+    const parts = [new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })];
+    if (needCount) parts.push(needCount === 1 ? '1 thing needs you' : `${needCount} things need you`);
+    if (next) parts.push(next.today ? 'show day today' : next.days === 1 ? 'next show tomorrow' : `next show in ${next.days} days`);
+    lede.textContent = parts.join(' · ');
+  }
+
+  const card = document.getElementById('ss2NextShow');
+  if (card) {
+    if (isNew) {
+      card.innerHTML = `<div class="ss2-next-empty"><b>Add your first cards</b>
+        <span>Take a photo of a card or a whole case, upload a spreadsheet, or type one in.</span></div>
+        <button type="button" class="btn btn-primary ss2-cta" onclick="openQuickActions('add')">+ Add cards</button>`;
+    } else if (!next) {
+      card.innerHTML = `<div class="ss2-next-empty"><b>No show coming up</b>
+        <span>Join the show you're selling at, then choose which cards to bring.</span></div>
+        <button type="button" class="btn btn-primary ss2-cta" onclick="openJoinShow()">Find a show to sell at</button>`;
+    } else {
+      const s = next.show;
+      const d = new Date(next.start + 'T12:00:00');
+      const avail = inv.filter(c => c.Status !== 'Sold');
+      const atShow = avail.filter(c => c._shows instanceof Set && c._shows.has(s.id)).length;
+      const table = s.tables && s.tables[currentSeller];
+      const where = s.venue || (typeof parseShowLocation === 'function' && s.location ? parseShowLocation(s.location).venue : '') || s.location || '';
+      const when = next.today ? 'Today' : next.days === 1 ? 'Tomorrow' : `In ${next.days} days`;
+      const smOk = typeof smIsEnabled === 'function' && smIsEnabled() && typeof openShowMode === 'function';
+      const btn = next.today && smOk
+        ? `<button type="button" class="btn btn-primary ss2-cta" onclick="openShowMode('${_ss2Esc(s.id)}')">Open Show Mode</button>`
+        : `<a class="btn btn-primary ss2-cta" href="#/s/shows">Choose cards for this show</a>`;
+      card.innerHTML = `
+        <div class="ss2-next-date" aria-hidden="true"><span>${d.toLocaleDateString(undefined, { month: 'short' })}</span><b>${d.getDate()}</b></div>
+        <div class="ss2-next-main">
+          <span class="ss2-next-when">${when}${table ? ` · Table ${_ss2Esc(table)}` : ''}</span>
+          <b class="ss2-next-name">${_ss2Esc(s.name || 'Show')}</b>
+          ${where ? `<span class="ss2-next-where">${_ss2Esc(where)}</span>` : ''}
+          <span class="ss2-next-progress">Cards at this show <b>${atShow}</b> / ${avail.length} available</span>
+          <span class="ss2-bar" aria-hidden="true"><span style="width:${avail.length ? Math.round(atShow / avail.length * 100) : 0}%"></span></span>
+        </div>
+        <div class="ss2-next-cta">${btn}</div>`;
+    }
+  }
+  ss2RenderFlow();
+  _ss2RenderKpis(inv);
+}
+
+// Your selling flow: 4 steps over the Getting started list's own state (gs).
+// Hide and collapse are the same saved flags as before.
+function _ss2FlowSteps() {
+  if (typeof _gsSteps !== 'function') return [];
+  const g = {}; _gsSteps().forEach(x => { g[x.id] = x; });
+  const mk = _ss2Mk();
+  const joined = _ss2MyShows().length > 0;
+  const steps = [
+    { id: 'card', label: 'Add your cards', hint: 'Take a photo, upload a spreadsheet, or type one in.',
+      done: !!(g.card && g.card.done), go: 'Add', js: "openQuickActions('add')" },
+    { id: 'show', label: 'Join a show', hint: joined ? 'Choose which of your cards go to the show.' : 'Join the show you\'re selling at.',
+      done: !!(g.show && g.show.done), go: joined ? 'Choose cards' : 'Join', js: joined ? "ss2Go('shows')" : 'openJoinShow()' },
+  ];
+  if (mk) steps.push({ id: 'listed', label: 'List cards on the marketplace', hint: 'Buyers can find, hold and buy them online.',
+    done: getSellerInventory().some(_ss2Listed), go: 'List', js: 'openMarketplacePanel()' });
+  const sale = !!(g.sale && g.sale.done), report = !!(g.report && g.report.done);
+  steps.push({ id: 'sale', label: 'Record a sale & read your report', hint: sale ? 'See your sales and totals.' : 'Pick the card, then the price and how they paid.',
+    done: sale && report, go: sale ? 'Open report' : 'Sell', js: sale ? "ss2Go('sales')" : "openQuickActions('sell')" });
+  return steps;
+}
+function ss2RenderFlow() {
+  const box = document.getElementById('ss2Flow');
+  if (!box) return;
+  const st = typeof _gsState === 'function' ? (_gsState() || {}) : {};
+  const ready = typeof _gsDataReady !== 'undefined' && _gsDataReady && (typeof _obStateLoaded === 'undefined' || _obStateLoaded);
+  const steps = _ss2FlowSteps();
+  const done = steps.filter(x => x.done).length;
+  if (!ready || !steps.length || st.dismissed || done === steps.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = '';
+  box.classList.toggle('collapsed', !!st.collapsed);
+  box.innerHTML = `
+    <div class="ss2-flow-head">
+      <button type="button" class="ss2-flow-toggle" onclick="gsToggleCollapse()" aria-expanded="${st.collapsed ? 'false' : 'true'}">
+        <b>Your selling flow</b><span class="ss2-row-meta">${done} of ${steps.length} done</span></button>
+      <button type="button" class="ss2-flow-hide" onclick="gsDismiss()">Hide</button>
+    </div>
+    <span class="ss2-bar" aria-hidden="true"><span style="width:${Math.round(done / steps.length * 100)}%"></span></span>
+    <ol class="ss2-flow-list">${steps.map((x, i) => `
+      <li class="ss2-flow-item${x.done ? ' done' : ''}">
+        <span class="ss2-flow-check" aria-hidden="true">${x.done ? '✓' : i + 1}</span>
+        <span class="ss2-flow-text"><b>${x.label}${x.done ? '<span class="sr-only"> (done)</span>' : ''}</b><small>${x.hint}</small></span>
+        ${x.done ? '' : `<button type="button" class="btn btn-ghost ss2-cta ss2-flow-go" onclick="${x.js}">${x.go}</button>`}
+      </li>`).join('')}</ol>`;
+}
+
+// Shows page "Get ready": profile and table QR, the two Getting started steps
+// that aren't in the selling flow. Hidden once both are done.
+function ss2RenderGetReady() {
+  const el = document.getElementById('ss2GetReady');
+  if (!el || typeof _gsSteps !== 'function') return;
+  const g = {}; _gsSteps().forEach(x => { g[x.id] = x; });
+  const items = [
+    { s: g.profile, label: 'Fill in your profile', meta: 'Name plus WhatsApp or Instagram, so buyers can reach you', js: 'openProfile()' },
+    { s: g.qr, label: 'Get your table QR code', meta: 'Buyers scan it at your table', js: "ss2Go('qr')" },
+  ].filter(x => x.s);
+  if (!items.length || items.every(x => x.s.done)) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = '';
+  el.innerHTML = '<div class="ss2-card-title">Get ready</div>' + items.map(x => `
+    <button type="button" class="ss2-row${x.s.done ? ' ss2-row-done' : ''}" onclick="${x.js}">
+      <span>${x.s.done ? '✓ ' : ''}${x.label}</span><span class="ss2-row-meta">${x.s.done ? 'Done' : x.meta}</span></button>`).join('');
+}
+
+// KPI row. Available keeps the classic #statTotal / #statValue (moved in, updateStats writes them).
+function _ss2Money(n) { return '$' + Math.round(Number(n) || 0).toLocaleString(); }
+function _ss2MonthKey() { return (typeof _todayISO === 'function' ? _todayISO() : new Date().toLocaleDateString('en-CA')).slice(0, 7); }
+function ss2MonthSales() {
+  const m = _ss2MonthKey();
+  const cards = getSellerInventory().filter(c => (typeof isSoldForCash === 'function' ? isSoldForCash(c) : c.Status === 'Sold') && String(c.SoldDate || '').slice(0, 7) === m);
+  const snaps = typeof ssReportRows === 'function' ? ssReportRows(null).filter(r => String(r.SoldDate || '').slice(0, 7) === m) : [];
+  const rows = cards.concat(snaps);
+  return { count: rows.length, total: rows.reduce((t, r) => t + (Number(r.SoldPrice) || 0), 0) };
+}
+let _ss2Pl = null, _ss2PlAt = 0, _ss2PlBusy = false;
+function _ss2RenderKpis(inv) {
+  const avail = inv.filter(c => c.Status !== 'Sold');
+  const sub = document.getElementById('ss2KpiAvailSub');
+  if (sub && !sub.querySelector('.ss2-kpi-suffix')) sub.insertAdjacentHTML('beforeend', '<span class="ss2-kpi-suffix"> asking</span>');
+  const listed = avail.filter(_ss2Listed).length;
+  const set = (id, t) => { const e = document.getElementById(id); if (e) e.textContent = t; };
+  set('ss2KpiListedVal', listed.toLocaleString());
+  set('ss2KpiListedSub', avail.length ? `${Math.round(listed / avail.length * 100)}% of available` : 'of available');
+  const ms = ss2MonthSales();
+  set('ss2KpiSalesVal', _ss2Money(ms.total));
+  set('ss2KpiSalesSub', ms.count === 1 ? '1 sale' : `${ms.count} sales`);
+  if (_ss2Pl) {
+    const pl = _ss2Pl;
+    set('ss2KpiProfitVal', pl.shows ? (pl.net > 0 ? '+' : pl.net < 0 ? '−' : '') + _ss2Money(Math.abs(pl.net)) : '$0');
+    const v = document.getElementById('ss2KpiProfitVal');
+    if (v) v.className = 'ss2-kpi-val' + (pl.net > 0 ? ' ss2-pos' : pl.net < 0 ? ' ss2-neg' : '');
+    set('ss2KpiProfitSub', pl.missing ? `on cards with a cost · ${pl.missing} without one` : 'on cards with a cost');
+  }
+  if (_ss2Route === 'home' && Date.now() - _ss2PlAt > 120000) _ss2LoadPl();
+}
+// Net profit this month = the Show Home P/L of this month's shows (dealer_show_list()).
+async function _ss2LoadPl() {
+  if (_ss2PlBusy || typeof db === 'undefined' || !db) return;
+  _ss2PlBusy = true; _ss2PlAt = Date.now();
+  try {
+    const res = await db.rpc('dealer_show_list');
+    if (!res.error && Array.isArray(res.data)) {
+      const m = _ss2MonthKey();
+      const mine = res.data.filter(x => String(x.start_date || '').slice(0, 7) === m);
+      _ss2Pl = { shows: mine.length, net: mine.reduce((t, x) => t + (Number(x.net_pl) || 0), 0), missing: mine.reduce((t, x) => t + (Number(x.missing_cost) || 0), 0) };
+      if (_ss2On) _ss2RenderKpis(getSellerInventory());
+    } else if (res.error) {
+      const sub = document.getElementById('ss2KpiProfitSub'); if (sub) sub.textContent = 'See Show results';
+    }
+  } catch (e) { console.warn('[seller-shell] show P/L', e); }
+  _ss2PlBusy = false;
 }
 function ss2OpenSnapNeeds() {
   const rec = typeof ssNeedsDetails === 'function' ? ssNeedsDetails()[0] : null;
