@@ -192,6 +192,26 @@ check('thumbnail is at least 44px', thumbBox && thumbBox.width >= 44 && thumbBox
 await page.locator('#inventoryBody .ss2-thumb').first().click(); await wait(200);
 check('tapping a thumbnail opens Edit Card', await page.evaluate(() => document.getElementById('cardEditOverlay').classList.contains('open')));
 await page.evaluate(() => closeCEM()); await wait(150);
+check('table header says Asking', await page.evaluate(() =>
+  [...document.querySelectorAll('#adminInventoryPanel .table-wrap thead th')].some(t => t.textContent.trim() === 'Asking')));
+check('card with no price shows Add price', await page.evaluate(() => {
+  const tr = document.getElementById('inv-row-' + inventory.findIndex(c => c._dbId === 'c5'));
+  return !!tr && /Add price/.test(tr.querySelector('.ss2-ask')?.textContent || '');
+}));
+const askSel = await page.evaluate(() => '#inv-row-' + inventory.findIndex(c => c._dbId === 'c4') + ' .ss2-ask');
+await page.click(askSel); await wait(100);
+await page.keyboard.press('Escape'); await wait(150);
+check('Escape leaves the price unchanged', await page.evaluate(() => Number(inventory.find(c => c._dbId === 'c4').Price) === 25));
+await page.click(askSel); await wait(100);
+await page.fill('.ss2-ask-input', '30'); await page.keyboard.press('Enter'); await wait(400);
+check('typing a price in the Asking column saves it', await page.evaluate(() =>
+  Number(inventory.find(c => c._dbId === 'c4').Price) === 30 &&
+  Number(window.__srv.inventory.find(r => r.id === 'c4').price) === 30 &&
+  /\$30/.test(document.querySelector('#inv-row-' + inventory.findIndex(c => c._dbId === 'c4') + ' .ss2-ask').textContent)));
+const askBox = await page.locator(askSel).boundingBox();
+check('Asking button is at least 44px tall', askBox && askBox.height >= 44, JSON.stringify(askBox));
+await page.click(askSel); await wait(100);
+await page.fill('.ss2-ask-input', '25'); await page.keyboard.press('Enter'); await wait(300);
 check('Not for sale yet chip on a card at no show', (await page.textContent('#inventoryBody')).includes('Not for sale yet'));
 
 if (phone) {

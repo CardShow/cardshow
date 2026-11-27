@@ -5602,6 +5602,12 @@
   .ss2-pop-item { display: block; width: 100%; min-height: 44px; text-align: left; border: 0; background: none; color: var(--text);
     font: 0.9rem 'DM Sans', sans-serif; cursor: pointer; text-decoration: none; }
   .ss2-pop-label { padding: 0.5rem 0.75rem 0.25rem; color: var(--muted-text); font-size: 0.78rem; }
+  body.seller-v2 .ss2-ask { min-height: 44px; min-width: 64px; padding: 0 0.6rem; border-radius: 8px; border: 1px solid transparent;
+    background: none; color: var(--accent); font: 600 0.95rem 'DM Mono', monospace; cursor: pointer; text-align: left; }
+  body.seller-v2 .ss2-ask:hover, body.seller-v2 .ss2-ask:focus-visible { border-color: var(--border); background: var(--surface); outline: none; }
+  body.seller-v2 .ss2-ask--none { color: #fca5a5; font: 600 0.78rem 'DM Sans', sans-serif; border-color: rgba(239,68,68,0.35); }
+  body.seller-v2 .ss2-ask-input { width: 84px; min-height: 44px; padding: 0 0.5rem; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--surface); color: var(--text); font: 600 1rem 'DM Mono', monospace; }
   body.seller-v2 .ss2-cardcell { display: flex; align-items: flex-start; gap: 0.7rem; }
   body.seller-v2 .ss2-cardtext { min-width: 0; flex: 1; }
   body.seller-v2 .ss2-thumb { width: 44px; height: 62px; flex-shrink: 0; padding: 0; border-radius: 6px; overflow: hidden; cursor: pointer;
@@ -8460,7 +8466,7 @@
 <script src="/js/offer-rules.js?v=20261211a"></script>
 <script src="/js/marketplace-orders.js?v=20261212c"></script>
 <script src="/js/pricing-admin.js?v=20261123a"></script>
-<script src="/js/seller-shell.js?v=20261125c"></script>
+<script src="/js/seller-shell.js?v=20261127a"></script>
 <script>
 // ── STATE ──
 let inventory = [];

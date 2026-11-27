@@ -577,6 +577,7 @@ function ss2InvRender(origRender) {
   });
   rows.forEach(_ss2AddWhereChips);
   rows.forEach(_ss2AddThumb);
+  rows.forEach(_ss2AddAsking);
   _ss2LoadThumbs();
   ss2InvRefreshChrome();
 }
@@ -611,6 +612,47 @@ function _ss2AddThumb(c) {
   cell.appendChild(wrap);
   if (c.Status === 'Sold') wrap.firstChild.style.opacity = '0.4';
 }
+// Asking column: the classic Price cell, tappable to change the price right in the table.
+// A card with no price says "Add price" (it can't be listed or sold at an asking price).
+function _ss2AddAsking(c) {
+  const idx = inventory.indexOf(c);
+  const tr = document.getElementById('inv-row-' + idx);
+  const td = tr && tr.querySelector('td[data-label="Price"]');
+  if (!td || td.querySelector('.ss2-ask') || c.Status === 'Sold') return;
+  const price = Number(c.Price) || 0;
+  td.innerHTML = `<button type="button" class="ss2-ask${price ? '' : ' ss2-ask--none'}" aria-label="Asking price for ${_ss2Esc(c['Card Title'] || 'card')}: ${price ? '$' + price.toLocaleString() : 'none'}. Tap to change"
+    onclick="ss2AskEdit(${idx}, this)">${price ? '$' + price.toLocaleString() : 'Add price'}</button>`;
+}
+function ss2AskEdit(idx, btn) {
+  const c = inventory[idx];
+  const td = btn && btn.parentNode;
+  if (!c || !td) return;
+  const was = Number(c.Price) || 0;
+  td.innerHTML = `<input type="number" inputmode="decimal" min="0" step="1" class="ss2-ask-input" value="${was || ''}" placeholder="$" aria-label="Asking price">`;
+  const input = td.firstChild;
+  input.focus(); input.select();
+  let done = false;
+  const finish = save => {
+    if (done) return; done = true;
+    const v = input.value.trim();
+    const n = v === '' ? 0 : parseFloat(v);
+    if (save && (!Number.isFinite(n) || n < 0)) { showToast('Enter a price of $0 or more'); done = false; input.focus(); return; }
+    if (save && n !== was) {
+      c.Price = n;
+      updateCardInDB(c);
+      if (typeof syncBuyerView === 'function') syncBuyerView();
+      updateStats();
+      showToast(n ? `Asking price set to $${n.toLocaleString()}` : 'Asking price cleared');
+    }
+    applyInventoryFilters();
+  };
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
 // Photos saved on this phone (once per sign-in) and signed URLs for photos
 // taken on other devices; re-render only when something new arrived.
 let _ss2ThumbIndexLoaded = false, _ss2ThumbBusy = false;
@@ -935,6 +977,8 @@ function _ss2InvMount() {
   if (th && !document.getElementById('ss2SelAll')) {
     th.innerHTML = '<input type="checkbox" id="ss2SelAll" aria-label="Select every card in this view" onchange="ss2InvToggleAll(this.checked)">';
   }
+  const priceTh = [...document.querySelectorAll('#adminInventoryPanel .table-wrap thead th')].find(t => t.textContent.trim() === 'Price');
+  if (priceTh) { priceTh.textContent = 'Asking'; priceTh.setAttribute('data-ss2-asking', '1'); }
   _ss2Sel.clear();
   _ss2Inv = { view: 'available', custom: null, sport: '', graded: '', show: '', sort: 'recent', reason: '' };
 }
@@ -947,6 +991,8 @@ function _ss2InvUnmount() {
     if (m.next && m.next.parentNode === m.parent) m.parent.insertBefore(m.el, m.next); else m.parent.appendChild(m.el);
   }
   _ss2InvMoved = [];
+  const askTh = document.querySelector('#adminInventoryPanel .table-wrap thead th[data-ss2-asking]');
+  if (askTh) { askTh.textContent = 'Price'; askTh.removeAttribute('data-ss2-asking'); }
   const head = document.getElementById('ss2SelAll'); if (head) head.parentNode.innerHTML = '';
 }
 
